@@ -1,0 +1,138 @@
+.container {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background-color: hsl(var(--muted));
+}
+
+.card {
+    width: 100%;
+    max-width: 400px;
+    background-color: hsl(var(--card));
+    color: hsl(var(--card-foreground));
+    border-radius: var(--radius);
+    border: 1px solid hsl(var(--border));
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.1);
+    padding: 2.5rem;
+    transition: all 0.3s ease;
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.title {
+    font-size: 1.875rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    color: hsl(var(--foreground));
+    letter-spacing: -0.025em;
+}
+
+.subtitle {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.95rem;
+}
+
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.inputGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: hsl(var(--foreground));
+}
+
+.input {
+    height: 3rem;
+    padding: 0 1rem;
+    border-radius: calc(var(--radius) - 2px);
+    border: 1px solid hsl(var(--input));
+    background-color: transparent;
+    font-size: 1rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    width: 100%;
+}
+
+.input:focus {
+    outline: none;
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));
+}
+
+.button {
+    height: 3rem;
+    border-radius: calc(var(--radius) - 2px);
+    font-weight: 600;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.buttonPrimary {
+    background-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    border: none;
+}
+
+.buttonPrimary:hover {
+    filter: brightness(1.1);
+}
+
+.buttonPrimary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.buttonSecondary {
+    background-color: transparent;
+    color: hsl(var(--muted-foreground));
+    border: 1px solid transparent;
+    margin-top: 1rem;
+}
+
+.buttonSecondary:hover {
+    text-decoration: underline;
+    color: hsl(var(--foreground));
+}
+
+.error {
+    background-color: hsl(var(--destructive) / 0.1);
+    color: hsl(var(--destructive));
+    padding: 0.75rem;
+    border-radius: calc(var(--radius) - 4px);
+    font-size: 0.875rem;
+    text-align: center;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.card {
+    animation: fadeIn 0.5s ease-out;
+}
