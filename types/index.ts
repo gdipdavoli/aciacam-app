@@ -20,7 +20,9 @@ export type ReprocannInfo = {
 export type DocumentacionSocio = {
     consentimiento?: DocumentoSocio;
     declaracionJurada?: DocumentoSocio;
-    contrato?: DocumentoSocio & { estadoContrato?: EstadoContrato };
+    contratoCultivo?: DocumentoSocio;
+    recetaMedica?: DocumentoSocio;
+    contrato?: DocumentoSocio & { estadoContrato?: EstadoContrato }; // Mantengo por compatibilidad si se usa
 };
 
 export interface Socio {
