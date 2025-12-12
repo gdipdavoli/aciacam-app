@@ -9,6 +9,10 @@ export const StorageService = {
      * Path format: {socioId}/{docType}/{timestamp}-{safeFilename}
      */
     uploadSocioDocument: async ({ socioId, docType, file }: { socioId: string, docType: string, file: File }): Promise<{ path: string }> => {
+        if (!supabase) {
+            throw new Error('Supabase not configured');
+        }
+
         // Basic validation
         if (file.size > 10 * 1024 * 1024) { // 10MB
             throw new Error('El archivo excede el tamaño máximo de 10MB');
@@ -36,6 +40,11 @@ export const StorageService = {
      * Generates a temporary signed URL to view/download the file.
      */
     createSignedUrl: async (path: string, expiresInSeconds = 600): Promise<string> => {
+        if (!supabase) {
+            console.warn('Supabase not configured, cannot generate signed URL');
+            return '';
+        }
+
         const { data, error } = await supabase.storage
             .from(BUCKET_NAME)
             .createSignedUrl(path, expiresInSeconds);
