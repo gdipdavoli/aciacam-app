@@ -9,31 +9,29 @@ export const StorageService = {
      * Path format: {socioId}/{docType}/{timestamp}-{safeFilename}
      */
     uploadSocioDocument: async ({ socioId, docType, file }: { socioId: string, docType: string, file: File }): Promise<{ path: string }> => {
-        if (!supabase) {
-            throw new Error('Supabase not configured');
-        }
-
-        // Basic validation
-        if (file.size > 10 * 1024 * 1024) { // 10MB
+        // Validation moved to API but kept here for immediate feedback if needed, 
+        // though strictly the API handles the 'real' upload.
+        if (file.size > 10 * 1024 * 1024) {
             throw new Error('El archivo excede el tamaño máximo de 10MB');
         }
-        const safeFilename = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-        const timestamp = Date.now();
-        const path = `${socioId}/${docType}/${timestamp}-${safeFilename}`;
 
-        const { data, error } = await supabase.storage
-            .from(BUCKET_NAME)
-            .upload(path, file, {
-                cacheControl: '3600',
-                upsert: false,
-            });
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('socioId', socioId);
+        formData.append('docType', docType);
 
-        if (error) {
-            console.error('Error uploading file:', error);
-            throw error;
+        const response = await fetch('/api/docs/upload', {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Error al subir documento');
         }
 
-        return { path: data.path }; // data.path is the key in the bucket
+        const data = await response.json();
+        return { path: data.path };
     },
 
     /**
