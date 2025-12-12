@@ -1,11 +1,13 @@
 export type UserRole = 'member' | 'admin';
 
-export type EstadoDocumento = 'pendiente' | 'completo' | 'vencido' | 'no_aplica';
+export type EstadoDocumento = 'pendiente' | 'completo' | 'vencido';
 
 export type DocumentoSocio = {
     estado: EstadoDocumento;
-    fechaEntrega?: string;       // ISO
-    fechaVencimiento?: string;   // ISO
+    archivoPath?: string;      // Path in Supabase Storage (bucket: documentos-socios)
+    fechaEmision?: string;    // ISO Date (fecha de firma/emisión)
+    fechaVencimiento?: string; // ISO Date (para REPROCANN / receta)
+    monto?: number;            // Para contratos
     observaciones?: string;
 };
 
@@ -22,7 +24,7 @@ export type DocumentacionSocio = {
     declaracionJurada?: DocumentoSocio;
     contratoCultivo?: DocumentoSocio;
     recetaMedica?: DocumentoSocio;
-    contrato?: DocumentoSocio & { estadoContrato?: EstadoContrato }; // Mantengo por compatibilidad si se usa
+    contrato?: DocumentoSocio & { estadoContrato?: EstadoContrato }; // Backwards compatibility if needed
 };
 
 export interface Socio {

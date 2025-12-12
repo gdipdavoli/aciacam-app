@@ -59,11 +59,22 @@
     height: 3rem;
     padding: 0 1rem;
     border-radius: calc(var(--radius) - 2px);
-    border: 1px solid hsl(var(--input));
-    background-color: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background-color: rgba(255, 255, 255, 0.06);
+    color: #ffffff;
+    font-size: 1rem;
+    /* Updated background */
     font-size: 1rem;
     transition: border-color 0.2s, box-shadow 0.2s;
     width: 100%;
+    color: #ffffff;
+    /* Added text color */
+}
+
+/* Placeholder styling */
+.input::placeholder {
+    color: rgba(255, 255, 255, 0.55);
+    /* Added placeholder color */
 }
 
 .input:focus {

@@ -144,6 +144,11 @@ export const StoreService = {
         return socios.find(s => s.id === id);
     },
 
+    getSocioByEmail: async (email: string): Promise<Socio | undefined> => {
+        const socios = getStoredSocios();
+        return socios.find(s => s.email === email);
+    },
+
     createSocio: async (socio: Omit<Socio, 'id'>): Promise<Socio> => {
         const newSocio: Socio = {
             id: `soc-${Date.now()}`,
@@ -157,6 +162,26 @@ export const StoreService = {
     updateSocio: async (id: string, updates: Partial<Socio>): Promise<void> => {
         const socios = getStoredSocios();
         const updated = socios.map(s => s.id === id ? { ...s, ...updates } : s);
+        saveStoredSocios(updated);
+    },
+
+    updateSocioDocumentacion: async (id: string, docKey: string, updates: Partial<any>): Promise<void> => {
+        console.log(`Updating doc ${docKey} for socio ${id}`, updates);
+        const socios = getStoredSocios();
+        const updated = socios.map(s => {
+            if (s.id === id) {
+                const currentDocs = s.documentacion || {};
+                const currentDocData = (currentDocs as any)[docKey] || {};
+                return {
+                    ...s,
+                    documentacion: {
+                        ...currentDocs,
+                        [docKey]: { ...currentDocData, ...updates }
+                    }
+                };
+            }
+            return s;
+        });
         saveStoredSocios(updated);
     }
 };

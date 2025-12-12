@@ -4,8 +4,17 @@ import React, { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
-import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoContrato, ReprocannInfo } from '@/types';
-import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle } from 'lucide-react';
+import { StorageService } from '@/services/storageService';
+import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento } from '@/types';
+import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload } from 'lucide-react';
+
+const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
+    consentimiento: { needsFecha: false, needsMonto: false, hasExpiration: false },
+    declaracionJurada: { needsFecha: true, needsMonto: false, hasExpiration: false },
+    contratoCultivo: { needsFecha: true, needsMonto: true, hasExpiration: true },
+    recetaMedica: { needsFecha: true, needsMonto: false, hasExpiration: true },
+    contrato: { needsFecha: true, needsMonto: false, hasExpiration: true }
+};
 
 export default function SocioDetailsPage() {
     const { user, loading: authLoading } = useAuth();
@@ -17,6 +26,12 @@ export default function SocioDetailsPage() {
     const [orders, setOrders] = useState<Pedido[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+
+    // Document Editing State
+    const [editingDocKey, setEditingDocKey] = useState<keyof DocumentacionSocio | null>(null);
+    const [docForm, setDocForm] = useState<DocumentoSocio>({ estado: 'pendiente' });
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [uploading, setUploading] = useState(false);
 
     useEffect(() => {
         if (!authLoading) {
@@ -37,7 +52,9 @@ export default function SocioDetailsPage() {
                         documentacion: {
                             consentimiento: socioData.documentacion?.consentimiento || { estado: 'pendiente' },
                             declaracionJurada: socioData.documentacion?.declaracionJurada || { estado: 'pendiente' },
-                            contrato: socioData.documentacion?.contrato || { estado: 'pendiente', estadoContrato: 'sin_contrato' }
+                            contratoCultivo: socioData.documentacion?.contratoCultivo || { estado: 'pendiente' },
+                            recetaMedica: socioData.documentacion?.recetaMedica || { estado: 'pendiente' },
+                            contrato: socioData.documentacion?.contrato || { estado: 'pendiente' }
                         }
                     };
                     setSocio(initializedSocio);
@@ -52,7 +69,6 @@ export default function SocioDetailsPage() {
         if (!socio) return;
         setSaving(true);
         try {
-            // Ensure numeric/string types are correct before saving if needed, but TS handles checks mostly.
             await StoreService.updateSocio(socio.id, socio);
             alert('Cambios guardados correctamente');
         } catch (error) {
@@ -60,6 +76,65 @@ export default function SocioDetailsPage() {
             alert('Error al guardar');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleEditDoc = (key: keyof DocumentacionSocio, doc: DocumentoSocio | undefined) => {
+        setEditingDocKey(key);
+        setDocForm(doc || { estado: 'pendiente' });
+        setSelectedFile(null);
+    };
+
+    const handleSaveDoc = async () => {
+        if (!socio || !editingDocKey) return;
+
+        setUploading(true);
+        try {
+            let newPath = docForm.archivoPath;
+
+            if (selectedFile) {
+                const uploadResult = await StorageService.uploadSocioDocument({
+                    socioId: socio.id,
+                    file: selectedFile,
+                    docType: editingDocKey as string
+                });
+                newPath = uploadResult.path;
+            }
+
+            const newDocData: DocumentoSocio = {
+                ...docForm,
+                archivoPath: newPath
+            };
+
+            // Update local state
+            const updatedSocio = {
+                ...socio,
+                documentacion: {
+                    ...socio.documentacion,
+                    [editingDocKey]: newDocData
+                }
+            };
+            setSocio(updatedSocio);
+
+            // Save to store
+            await StoreService.updateSocioDocumentacion(socio.id, editingDocKey as string, newDocData);
+
+            setEditingDocKey(null);
+        } catch (e: any) {
+            console.error(e);
+            alert("Error al guardar documento: " + (e.message || e));
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const handleViewPdf = async (path: string) => {
+        if (!path) return;
+        const url = await StorageService.createSignedUrl(path);
+        if (url) {
+            window.open(url, '_blank');
+        } else {
+            alert('No se pudo generar el enlace seguro.');
         }
     };
 
@@ -92,13 +167,14 @@ export default function SocioDetailsPage() {
         </section>
     );
 
-    const InputGroup = ({ label, value, onChange, type = 'text', width = '100%', multiline = false }: any) => (
+    const InputGroup = ({ label, value, onChange, type = 'text', width = '100%', multiline = false, placeholder }: any) => (
         <div style={{ marginBottom: '1rem', width }}>
             <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>{label}</label>
             {multiline ? (
                 <textarea
                     value={value || ''}
                     onChange={e => onChange(e.target.value)}
+                    placeholder={placeholder}
                     style={{ width: '100%', padding: '0.5rem', border: '1px solid hsl(var(--border))', borderRadius: '4px', fontSize: '0.95rem', minHeight: '80px', fontFamily: 'inherit' }}
                 />
             ) : (
@@ -106,6 +182,7 @@ export default function SocioDetailsPage() {
                     type={type}
                     value={value || ''}
                     onChange={e => onChange(e.target.value)}
+                    placeholder={placeholder}
                     style={{ width: '100%', padding: '0.5rem', border: '1px solid hsl(var(--border))', borderRadius: '4px', fontSize: '0.95rem' }}
                 />
             )}
@@ -125,7 +202,7 @@ export default function SocioDetailsPage() {
         </div>
     );
 
-    const Pill = ({ status, type }: { status: string, type: 'reprocann' | 'contrato' }) => {
+    const Pill = ({ status }: { status: string }) => {
         let color = '#374151';
         let bg = '#f3f4f6';
 
@@ -143,15 +220,25 @@ export default function SocioDetailsPage() {
                 borderRadius: '999px',
                 backgroundColor: bg,
                 color: color,
-                fontSize: '0.8rem',
+                fontSize: '0.75rem',
                 textTransform: 'uppercase',
-                fontWeight: 600,
+                fontWeight: 700,
                 letterSpacing: '0.05em'
             }}>
                 {status?.replace('_', ' ') || 'SIN DATOS'}
             </span>
         );
     };
+
+    const docDefinitions: { key: keyof DocumentacionSocio, label: string }[] = [
+        { key: 'declaracionJurada', label: 'Declaración Jurada' },
+        { key: 'consentimiento', label: 'Consentimiento Informado' },
+        { key: 'contratoCultivo', label: 'Contrato de Cultivo' },
+        { key: 'recetaMedica', label: 'Receta Médica' },
+        { key: 'contrato', label: 'Contrato General' },
+    ];
+
+    const currentDocConfig = editingDocKey ? DOC_CONFIG[editingDocKey] : null;
 
     return (
         <div style={{ maxWidth: '1000px', margin: '0 auto', paddingBottom: '4rem' }}>
@@ -180,17 +267,6 @@ export default function SocioDetailsPage() {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--muted-foreground))' }}>REPROCANN</span>
-                            <Pill status={socio.reprocann?.estado || 'pendiente'} type="reprocann" />
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--muted-foreground))' }}>CONTRATO</span>
-                            <Pill status={socio.documentacion?.contrato?.estadoContrato || 'sin_contrato'} type="contrato" />
-                        </div>
-                    </div>
-
                     <button
                         onClick={handleUpdateSocio}
                         disabled={saving}
@@ -232,13 +308,73 @@ export default function SocioDetailsPage() {
                         </div>
                     </Section>
 
-                    {/* SECCION D: Domicilio */}
-                    <Section title="Domicilio">
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                            <InputGroup label="Calle y Número (Domicilio)" value={socio.direccion} onChange={(v: string) => setSocio({ ...socio, direccion: v })} />
-                            <InputGroup label="Localidad / Ciudad" value={socio.localidad} onChange={(v: string) => setSocio({ ...socio, localidad: v })} />
-                            <InputGroup label="Provincia" value={socio.provincia} onChange={(v: string) => setSocio({ ...socio, provincia: v })} />
-                        </div>
+                    {/* SECCION Docs: Documentación */}
+                    <Section title="Documentación Presentada" icon={FileText}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                            <thead>
+                                <tr style={{ borderBottom: '1px solid hsl(var(--border))', textAlign: 'left', color: 'hsl(var(--muted-foreground))' }}>
+                                    <th style={{ padding: '0.75rem' }}>Documento</th>
+                                    <th style={{ padding: '0.75rem' }}>Estado</th>
+                                    <th style={{ padding: '0.75rem' }}>Vencimiento</th>
+                                    <th style={{ padding: '0.75rem', textAlign: 'right' }}>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {docDefinitions.map(def => {
+                                    const doc = socio.documentacion?.[def.key];
+                                    return (
+                                        <tr key={def.key} style={{ borderBottom: '1px solid hsl(var(--border))' }}>
+                                            <td style={{ padding: '0.75rem', fontWeight: 500 }}>{def.label}</td>
+                                            <td style={{ padding: '0.75rem' }}>
+                                                <Pill status={doc?.estado || 'pendiente'} />
+                                            </td>
+                                            <td style={{ padding: '0.75rem', fontSize: '0.85rem' }}>
+                                                {doc?.fechaVencimiento ? new Date(doc.fechaVencimiento).toLocaleDateString() : '-'}
+                                                {doc?.fechaVencimiento && new Date(doc.fechaVencimiento) < new Date() && (
+                                                    <span style={{ color: '#ef4444', marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: 600 }}>(Vencido)</span>
+                                                )}
+                                            </td>
+                                            <td style={{ padding: '0.75rem', textAlign: 'right', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                                {doc?.archivoPath && (
+                                                    <button
+                                                        onClick={() => handleViewPdf(doc.archivoPath!)}
+                                                        style={{
+                                                            padding: '0.4rem',
+                                                            borderRadius: '4px',
+                                                            backgroundColor: 'hsl(var(--muted))',
+                                                            color: 'hsl(var(--foreground))',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            border: 'none',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                        title="Ver PDF"
+                                                    >
+                                                        <ExternalLink size={16} />
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => handleEditDoc(def.key, doc)}
+                                                    style={{
+                                                        padding: '0.4rem',
+                                                        borderRadius: '4px',
+                                                        backgroundColor: 'hsl(var(--primary))',
+                                                        color: 'hsl(var(--primary-foreground))',
+                                                        border: 'none',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center'
+                                                    }}
+                                                    title="Editar"
+                                                >
+                                                    <Edit size={16} />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </Section>
 
                     {/* SECCION G: Médico y Diagnóstico */}
@@ -250,45 +386,32 @@ export default function SocioDetailsPage() {
                         <InputGroup label="Diagnóstico Principal" value={socio.diagnosticoPrincipal} onChange={(v: string) => setSocio({ ...socio, diagnosticoPrincipal: v })} multiline />
                     </Section>
 
+                    {/* SECCION D: Domicilio */}
+                    <Section title="Domicilio">
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <InputGroup label="Calle y Número" value={socio.direccion} onChange={(v: string) => setSocio({ ...socio, direccion: v })} />
+                            <InputGroup label="Localidad" value={socio.localidad} onChange={(v: string) => setSocio({ ...socio, localidad: v })} />
+                            <InputGroup label="Provincia" value={socio.provincia} onChange={(v: string) => setSocio({ ...socio, provincia: v })} />
+                        </div>
+                    </Section>
+
                     {/* SECCION I: Pedidos */}
                     <Section title={`Pedidos Asociados (${orders.length})`}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                            <thead>
-                                <tr style={{ borderBottom: '1px solid hsl(var(--border))', textAlign: 'left', color: 'hsl(var(--muted-foreground))' }}>
-                                    <th style={{ padding: '0.5rem' }}>ID</th>
-                                    <th style={{ padding: '0.5rem' }}>Fecha</th>
-                                    <th style={{ padding: '0.5rem' }}>Tipo</th>
-                                    <th style={{ padding: '0.5rem' }}>Estado</th>
-                                    <th style={{ padding: '0.5rem' }}></th>
-                                </tr>
-                            </thead>
+                            {/* ... existing orders table content or simple placeholder as it was ... */}
                             <tbody>
-                                {orders.map(order => (
-                                    <tr key={order.id} style={{ borderBottom: '1px dashed hsl(var(--border))' }}>
-                                        <td style={{ padding: '0.75rem 0.5rem', fontFamily: 'monospace' }}>#{order.id.slice(-6)}</td>
-                                        <td style={{ padding: '0.75rem 0.5rem' }}>{new Date(order.fechaCreacion).toLocaleDateString()}</td>
-                                        <td style={{ padding: '0.75rem 0.5rem' }}>{order.tipoPedido === 'delivery' ? 'Delivery' : 'Retiro'}</td>
-                                        <td style={{ padding: '0.75rem 0.5rem' }}>
-                                            <span style={{
-                                                textTransform: 'capitalize',
-                                                padding: '2px 6px',
-                                                borderRadius: '4px',
-                                                backgroundColor: order.estado === 'pendiente' ? '#fef3c7' : '#dcfce7',
-                                                color: order.estado === 'pendiente' ? '#92400e' : '#166534',
-                                                fontSize: '0.8rem'
-                                            }}>
-                                                {order.estado}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '0.75rem 0.5rem', textAlign: 'right' }}>
-                                            <a href={`/admin/orders/${order.id}`} style={{ color: 'hsl(var(--primary))', textDecoration: 'none', fontWeight: 500 }}>Ver</a>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {orders.length === 0 && (
-                                    <tr>
-                                        <td colSpan={5} style={{ padding: '1rem', textAlign: 'center', color: 'hsl(var(--muted-foreground))' }}>Sin pedidos recientes</td>
-                                    </tr>
+                                {orders.length === 0 ? (
+                                    <tr><td style={{ padding: '1rem', color: 'hsl(var(--muted-foreground))' }}>Sin pedidos recientes</td></tr>
+                                ) : (
+                                    orders.map(order => (
+                                        <tr key={order.id} style={{ borderBottom: '1px dashed hsl(var(--border))' }}>
+                                            <td style={{ padding: '0.75rem 0' }}>#{order.id.slice(-6)}</td>
+                                            <td style={{ padding: '0.75rem 0' }}>{new Date(order.fechaCreacion).toLocaleDateString()}</td>
+                                            <td style={{ padding: '0.75rem 0' }}>{order.tipoPedido}</td>
+                                            <td style={{ padding: '0.75rem 0', fontWeight: 600 }}>{order.estado}</td>
+                                            <td style={{ padding: '0.75rem 0', textAlign: 'right' }}><a href="#" style={{ color: 'hsl(var(--primary))' }}>Ver</a></td>
+                                        </tr>
+                                    ))
                                 )}
                             </tbody>
                         </table>
@@ -348,79 +471,117 @@ export default function SocioDetailsPage() {
                             ]}
                         />
                     </div>
+                </div>
+            </div>
 
-                    {/* SECCION F: Contrato */}
+            {/* EDIT MODAL */}
+            {editingDocKey && currentDocConfig && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 100
+                }}>
                     <div style={{
-                        backgroundColor: '#fff',
-                        border: '1px solid #f97316',
+                        backgroundColor: 'hsl(var(--card))',
+                        padding: '2rem',
                         borderRadius: 'var(--radius)',
-                        padding: '1.5rem',
-                        boxShadow: '0 4px 6px -1px rgba(249, 115, 22, 0.1)'
+                        width: '100%',
+                        maxWidth: '500px',
+                        border: '1px solid hsl(var(--border))',
+                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
                     }}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '1rem', color: '#c2410c', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <FileText size={18} /> Contrato de Cultivo
-                        </h3>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                            <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Editar Documento</h3>
+                            <button onClick={() => setEditingDocKey(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
+                        </div>
+
+                        <div style={{ marginBottom: '1.5rem', fontSize: '0.9rem', color: 'hsl(var(--muted-foreground))' }}>
+                            {docDefinitions.find(d => d.key === editingDocKey)?.label}
+                        </div>
+
+                        {/* Estado */}
                         <SelectGroup
-                            label="Estado Contrato"
-                            value={socio.documentacion?.contrato?.estadoContrato}
-                            onChange={(v: any) => setSocio({ ...socio, documentacion: { ...socio.documentacion, contrato: { ...socio.documentacion?.contrato, estado: socio.documentacion?.contrato?.estado || 'pendiente', estadoContrato: v } } })}
-                            options={[
-                                { val: 'sin_contrato', label: 'Sin Contrato' },
-                                { val: 'activo', label: 'Activo' },
-                                { val: 'vencido', label: 'Vencido' },
-                                { val: 'rescindido', label: 'Rescindido' },
-                            ]}
-                        />
-                        <SelectGroup
-                            label="Documento Físico"
-                            value={socio.documentacion?.contrato?.estado}
-                            onChange={(v: any) => setSocio({ ...socio, documentacion: { ...socio.documentacion, contrato: { ...socio.documentacion?.contrato, estadoContrato: socio.documentacion?.contrato?.estadoContrato || 'sin_contrato', estado: v } } })}
+                            label="Estado"
+                            value={docForm.estado}
+                            onChange={(v: any) => setDocForm({ ...docForm, estado: v })}
                             options={[
                                 { val: 'pendiente', label: 'Pendiente' },
                                 { val: 'completo', label: 'Completo' },
                                 { val: 'vencido', label: 'Vencido' },
                             ]}
                         />
-                        <InputGroup
-                            label="Vencimiento"
-                            type="date"
-                            value={socio.documentacion?.contrato?.fechaVencimiento}
-                            onChange={(v: string) => setSocio({ ...socio, documentacion: { ...socio.documentacion, contrato: { ...socio.documentacion?.contrato, estado: socio.documentacion?.contrato?.estado || 'pendiente', estadoContrato: socio.documentacion?.contrato?.estadoContrato || 'sin_contrato', fechaVencimiento: v } } })}
-                        />
+
+                        {/* Dates */}
+                        <div style={{ display: 'flex', gap: '1rem' }}>
+                            {currentDocConfig.needsFecha && (
+                                <InputGroup label="Fecha Emisión" type="date" value={docForm.fechaEmision} onChange={(v: string) => setDocForm({ ...docForm, fechaEmision: v })} />
+                            )}
+                            {currentDocConfig.hasExpiration && (
+                                <InputGroup label="Fecha Vencimiento" type="date" value={docForm.fechaVencimiento} onChange={(v: string) => setDocForm({ ...docForm, fechaVencimiento: v })} />
+                            )}
+                        </div>
+
+                        {/* Monto */}
+                        {currentDocConfig.needsMonto && (
+                            <InputGroup label="Monto ($)" type="number" value={docForm.monto} onChange={(v: string) => setDocForm({ ...docForm, monto: parseFloat(v) })} />
+                        )}
+
+                        {/* File Upload */}
+                        <div style={{ marginBottom: '1rem' }}>
+                            <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Archivo (PDF/Imagen)</label>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                <input
+                                    type="file"
+                                    accept="application/pdf,image/*"
+                                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                                    style={{ fontSize: '0.9rem' }}
+                                />
+                            </div>
+                            {docForm.archivoPath && !selectedFile && (
+                                <p style={{ fontSize: '0.8rem', color: 'hsl(var(--primary))', marginTop: '0.3rem' }}>
+                                    Documento actual cargado. Subir nuevo para reemplazar.
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Observaciones */}
+                        <InputGroup label="Observaciones" value={docForm.observaciones} onChange={(v: string) => setDocForm({ ...docForm, observaciones: v })} multiline />
+
+                        {/* Buttons */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.5rem' }}>
+                            <button
+                                onClick={() => setEditingDocKey(null)}
+                                style={{
+                                    padding: '0.75rem 1rem',
+                                    backgroundColor: 'transparent',
+                                    border: '1px solid hsl(var(--border))',
+                                    borderRadius: 'var(--radius)',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleSaveDoc}
+                                disabled={uploading}
+                                style={{
+                                    padding: '0.75rem 1.5rem',
+                                    backgroundColor: 'hsl(var(--primary))',
+                                    color: 'hsl(var(--primary-foreground))',
+                                    border: 'none',
+                                    borderRadius: 'var(--radius)',
+                                    cursor: 'pointer',
+                                }}>
+                                {uploading ? 'Subiendo...' : 'Guardar'}
+                            </button>
+                        </div>
                     </div>
-
-                    {/* SECCION F (Sub): Otra Docs */}
-                    <Section title="Otros Documentos">
-                        <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>Consentimiento Informado</h4>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1rem' }}>
-                            <SelectGroup
-                                label="Estado"
-                                value={socio.documentacion?.consentimiento?.estado || 'pendiente'}
-                                onChange={(v: any) => setSocio({ ...socio, documentacion: { ...socio.documentacion, consentimiento: { ...socio.documentacion?.consentimiento, estado: v } } })}
-                                options={[{ val: 'pendiente', label: 'Pendiente' }, { val: 'completo', label: 'Completo' }, { val: 'no_aplica', label: 'No Aplica' }]}
-                            />
-                            <InputGroup label="Fecha Entrega" type="date" value={socio.documentacion?.consentimiento?.fechaEntrega} onChange={(v: string) => setSocio({ ...socio, documentacion: { ...socio.documentacion, consentimiento: { estado: 'pendiente', ...socio.documentacion?.consentimiento, fechaEntrega: v } } })} />
-                        </div>
-
-                        <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>Declaración Jurada</h4>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                            <SelectGroup
-                                label="Estado"
-                                value={socio.documentacion?.declaracionJurada?.estado || 'pendiente'}
-                                onChange={(v: any) => setSocio({ ...socio, documentacion: { ...socio.documentacion, declaracionJurada: { fechaEntrega: '', ...socio.documentacion?.declaracionJurada, estado: v } } })}
-                                options={[{ val: 'pendiente', label: 'Pendiente' }, { val: 'completo', label: 'Completo' }, { val: 'no_aplica', label: 'No Aplica' }]}
-                            />
-                            <InputGroup label="Fecha Entrega" type="date" value={socio.documentacion?.declaracionJurada?.fechaEntrega} onChange={(v: string) => setSocio({ ...socio, documentacion: { ...socio.documentacion, declaracionJurada: { estado: 'pendiente', ...socio.documentacion?.declaracionJurada, fechaEntrega: v } } })} />
-                        </div>
-                    </Section>
-
-                    {/* SECCION H: Notas */}
-                    <Section title="Notas Internas">
-                        <InputGroup label="" value={socio.notas} onChange={(v: string) => setSocio({ ...socio, notas: v })} multiline />
-                    </Section>
-
                 </div>
-            </div>
+            )}
         </div>
     );
 }

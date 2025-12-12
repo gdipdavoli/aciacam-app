@@ -30,7 +30,7 @@ export default function AdminSociosPage() {
     }, [user, authLoading, router]);
 
     const getReprocannStatus = (socio: Socio) => socio.reprocann?.estado || 'pendiente';
-    const getContractStatus = (socio: Socio) => socio.documentacion?.contrato?.estadoContrato || 'sin_contrato';
+    const getContractStatus = (socio: Socio) => socio.documentacion?.contrato?.estado || 'pendiente';
 
     const filteredSocios = socios.filter(s => {
         const matchesSearch =
@@ -45,11 +45,11 @@ export default function AdminSociosPage() {
         const contrato = getContractStatus(s);
 
         if (filter === 'reprocann_issue') return ['pendiente', 'vencido', 'rechazado'].includes(reprocann);
-        if (filter === 'contract_issue') return ['sin_contrato', 'vencido', 'rescindido'].includes(contrato);
+        if (filter === 'contract_issue') return ['pendiente', 'vencido'].includes(contrato);
         if (filter === 'incomplete') {
             // Logic: any major doc missing or expired
             const rIssue = ['pendiente', 'vencido'].includes(reprocann);
-            const cIssue = ['sin_contrato', 'vencido'].includes(contrato);
+            const cIssue = ['pendiente', 'vencido'].includes(contrato);
             return rIssue || cIssue;
         }
 
@@ -139,14 +139,40 @@ export default function AdminSociosPage() {
                             <th style={{ padding: '1rem' }}>DNI</th>
                             <th style={{ padding: '1rem' }}>Ubicación</th>
                             <th style={{ padding: '1rem' }}>REPROCANN</th>
-                            <th style={{ padding: '1rem' }}>Contrato</th>
+                            <th style={{ padding: '1rem' }}>Documentación</th>
                             <th style={{ padding: '1rem' }}>Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
                         {filteredSocios.map(socio => {
                             const reprocann = getReprocannStatus(socio);
-                            const contrato = getContractStatus(socio);
+
+                            // Calculate Doc Status
+                            const docs = [
+                                socio.documentacion?.consentimiento,
+                                socio.documentacion?.declaracionJurada,
+                                socio.documentacion?.contrato,
+                                socio.documentacion?.contratoCultivo,
+                                socio.documentacion?.recetaMedica
+                            ];
+                            const completedCount = docs.filter(d => d?.estado === 'completo').length;
+                            const hasExpired = docs.some(d => d?.estado === 'vencido');
+                            const hasPending = docs.some(d => d?.estado === 'pendiente');
+
+                            let docStatusLabel = 'Completo';
+                            let docColor = '#166534';
+                            let docBg = '#dcfce7';
+
+                            if (hasExpired) {
+                                docStatusLabel = 'Vencido';
+                                docColor = '#991b1b';
+                                docBg = '#fee2e2';
+                            } else if (hasPending) {
+                                docStatusLabel = `${completedCount}/5`; // or just Pendiente
+                                docColor = '#b45309';
+                                docBg = '#ffedd5';
+                            }
+
                             return (
                                 <tr key={socio.id} style={{ borderBottom: '1px solid hsl(var(--border))' }}>
                                     <td style={{ padding: '1rem' }}>
@@ -174,11 +200,11 @@ export default function AdminSociosPage() {
                                             padding: '0.2rem 0.6rem',
                                             borderRadius: '99px',
                                             fontSize: '0.8rem',
-                                            backgroundColor: contrato === 'activo' ? '#dcfce7' : '#f3f4f6',
-                                            color: contrato === 'activo' ? '#166534' : '#374151',
-                                            textTransform: 'capitalize'
+                                            backgroundColor: docBg,
+                                            color: docColor,
+                                            fontWeight: 600
                                         }}>
-                                            {contrato.replace('_', ' ')}
+                                            {docStatusLabel}
                                         </span>
                                     </td>
 

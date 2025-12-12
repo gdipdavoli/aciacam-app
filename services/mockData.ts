@@ -30,8 +30,8 @@ export const MOCK_SOCIOS: Socio[] = [
         diagnosticoPrincipal: 'Dolor Crónico',
 
         documentacion: {
-            contrato: { estado: 'completo', estadoContrato: 'activo', fechaVencimiento: '2026-05-20' },
-            consentimiento: { estado: 'completo' },
+            contrato: { estado: 'completo', fechaEmision: '2024-01-15', fechaVencimiento: '2026-01-15', archivoPath: '100/contrato/contrato_firmado.pdf' },
+            consentimiento: { estado: 'completo', fechaEmision: '2024-01-15' },
             declaracionJurada: { estado: 'pendiente' }
         },
         estadoCuenta: {
@@ -59,7 +59,8 @@ export const MOCK_SOCIOS: Socio[] = [
         },
 
         documentacion: {
-            contrato: { estado: 'vencido', estadoContrato: 'vencido', fechaVencimiento: '2023-01-01', observaciones: 'Renovar urgente' },
+            contrato: { estado: 'vencido', fechaEmision: '2022-01-01', fechaVencimiento: '2023-01-01', observaciones: 'Renovar urgente' },
+            recetaMedica: { estado: 'pendiente', observaciones: 'Falta presentar nueva receta' }
         },
         estadoCuenta: {
             saldo: 0,

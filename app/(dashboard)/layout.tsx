@@ -182,6 +182,16 @@ export default function DashboardLayout({
                         <span>Carrito</span>
                     </Link>
                 )}
+
+                {/* Mobile Logout */}
+                <button
+                    onClick={logout}
+                    className={styles.mobileNavItem}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                    <LogOut size={22} color="hsl(var(--destructive))" />
+                    <span style={{ color: 'hsl(var(--destructive))' }}>Salir</span>
+                </button>
             </nav>
 
         </div>
