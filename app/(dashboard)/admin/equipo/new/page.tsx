@@ -38,7 +38,8 @@ export default function NewStaffPage() {
         setLoading(true);
 
         try {
-            await StoreService.createSocio({
+            // 1. Create Staff
+            const newStaff = await StoreService.createSocio({
                 ...formData,
                 rol: 'staff', // Enforce staff role
                 estadoCuenta: {
@@ -48,13 +49,17 @@ export default function NewStaffPage() {
                 // Fill required but irrelevant fields for staff with placeholders
                 documentacion: {},
                 reprocann: { estado: 'pendiente' }
-            } as any); // Type assertion if strict missing props
+            } as any);
 
-            // Success
+            // 2. Auto-Invite
+            console.log("Socio created, sending invite...", newStaff.id);
+            await StoreService.inviteSocio(newStaff.id);
+
+            alert('Miembro creado e invitado correctamente.');
             router.push('/admin/equipo');
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error creating staff:', error);
-            alert('Error al crear miembro del equipo. Revise la consola.');
+            alert(`Error: ${error.message || 'No se pudo crear el miembro'}`);
         } finally {
             setLoading(false);
         }

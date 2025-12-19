@@ -56,9 +56,36 @@ export default function SetPasswordPage() {
             // supabase.auth.updateUser takes care of the password.
             // We can now proceed to Terms or Onboarding.
 
-            // Check if Terms accepted? AuthContext will handle that gate.
-            // We just redirect to root or /terms
-            router.replace('/terms');
+            // 5. Fetch Role to Decide Redirect
+            // If Session is active, we can get the user.
+            const { data: { user } } = await supabase.auth.getUser();
+            const userRole = user?.user_metadata?.role || user?.app_metadata?.role;
+
+            // Simple Check: If staff/admin, go to dashboard directly.
+            // If role is not in metadata yet (might need DB fetch?), we default to terms/onboarding.
+
+            // To be robust: Fetch socio from API or DB?
+            // Actually, metadata 'role' should be there if our Inviter put it there? 
+            // Inviter puts it in public.socios table... triggers sync it to auth metadata? 
+            // In our current setup, we might NOT rely on metadatasync if not implemented.
+            // Let's safe bet: Query public.socios by user_id
+
+            let targetRoute = '/terms';
+
+            if (user) {
+                const { data: socio } = await supabase
+                    .from('socios')
+                    .select('rol')
+                    .eq('auth_user_id', user.id)
+                    .single();
+
+                if (socio && (socio.rol === 'admin' || socio.rol === 'staff')) {
+                    targetRoute = '/admin';
+                }
+            }
+
+            // Route
+            router.replace(targetRoute);
 
         } catch (err: any) {
             console.error(err);

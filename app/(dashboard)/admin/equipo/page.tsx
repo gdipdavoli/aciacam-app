@@ -44,6 +44,19 @@ export default function AdminEquipoPage() {
 
     if (loading || authLoading) return <div style={{ padding: '2rem' }}>Cargando equipo...</div>;
 
+    const handleInvite = async (socioId: string) => {
+        if (!confirm('¿Enviar invitación por email a este miembro?')) return;
+        try {
+            await StoreService.inviteSocio(socioId);
+            alert('Invitación enviada correctamente.');
+            // Refresh list logic if needed, or just UI update?
+            // For now, simpler to reload or just alert.
+        } catch (error: any) {
+            console.error('Invite error:', error);
+            alert(`Error al invitar: ${error.message}`);
+        }
+    };
+
     return (
         <div>
             <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -91,7 +104,7 @@ export default function AdminEquipoPage() {
                     <thead>
                         <tr className="border-b border-border text-left bg-muted/50">
                             <th className="p-4 text-muted-foreground font-medium">Miembro</th>
-                            <th className="p-4 text-muted-foreground font-medium">Rol</th>
+                            <th className="p-4 text-muted-foreground font-medium">Estado</th>
                             <th className="p-4 text-muted-foreground font-medium">Contacto</th>
                             <th className="p-4 text-muted-foreground font-medium">Acciones</th>
                         </tr>
@@ -111,23 +124,40 @@ export default function AdminEquipoPage() {
                                     </div>
                                 </td>
                                 <td className="p-4">
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                        <Shield size={14} />
-                                        {member.rol.toUpperCase()}
-                                    </span>
+                                    <div className="flex flex-col gap-1">
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold w-fit bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                            <Shield size={14} />
+                                            {member.rol.toUpperCase()}
+                                        </span>
+                                        {member.status === 'invited' && (
+                                            <span className="text-xs text-orange-500 font-medium">Invitado</span>
+                                        )}
+                                        {member.auth_user_id && member.status !== 'invited' && (
+                                            <span className="text-xs text-green-500 font-medium">Activo</span>
+                                        )}
+                                    </div>
                                 </td>
                                 <td className="p-4">
                                     <div>{member.email}</div>
                                     <div className="text-xs text-muted-foreground">{member.telefono}</div>
                                 </td>
                                 <td className="p-4">
-                                    <button
-                                        className="text-destructive hover:text-destructive/80 transition-colors"
-                                        onClick={() => console.log('Delete logic todo', member.id)}
-                                        title="Eliminar (No implementado aún)"
-                                    >
-                                        <Trash2 size={18} />
-                                    </button>
+                                    <div className="flex gap-2">
+                                        <button
+                                            className="px-3 py-1 bg-secondary text-secondary-foreground text-xs rounded hover:bg-secondary/80 transition"
+                                            onClick={() => handleInvite(member.id)}
+                                            title="Enviar invitación por email"
+                                        >
+                                            Invitar
+                                        </button>
+                                        <button
+                                            className="text-destructive hover:text-destructive/80 transition-colors"
+                                            onClick={() => alert("Función Eliminar pendiente")}
+                                            title="Eliminar"
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         ))}
