@@ -652,7 +652,10 @@ export const StoreService = {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${session.access_token}`
             },
-            body: JSON.stringify({ socioId })
+            body: JSON.stringify({
+                socioId,
+                redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined
+            })
         });
 
         const data = await res.json();

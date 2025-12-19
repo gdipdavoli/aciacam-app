@@ -15,7 +15,7 @@ const supabaseAdmin = createClient(
 
 export async function POST(req: Request) {
     try {
-        const { socioId } = await req.json();
+        const { socioId, redirectTo: providedOrigin } = await req.json();
 
         if (!socioId) {
             return NextResponse.json({ error: 'Missing socioId' }, { status: 400 });
@@ -94,14 +94,14 @@ export async function POST(req: Request) {
         // Let's try invite first.
 
         // Determine Origin for Redirect
-        const origin = process.env.SITE_URL || req.headers.get('origin') || 'http://localhost:3000';
+        const origin = providedOrigin || process.env.SITE_URL || req.headers.get('origin') || 'http://localhost:3000';
 
         // Use Dedicated Invite Callback to force flow to /auth/set-password
         // This avoids query param stripping issues.
-        const redirectTo = `${origin}/auth/invite-callback`;
+        const finalRedirectTo = `${origin}/auth/invite-callback`;
 
         const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(socio.email, {
-            redirectTo
+            redirectTo: finalRedirectTo
         });
 
         if (inviteError) {
