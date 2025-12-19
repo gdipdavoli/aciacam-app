@@ -6,14 +6,498 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { StorageService } from '@/services/storageService';
 import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento } from '@/types';
-import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload } from 'lucide-react';
+import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus } from 'lucide-react';
 
 const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
     consentimiento: { needsFecha: false, needsMonto: false, hasExpiration: false },
     declaracionJurada: { needsFecha: true, needsMonto: false, hasExpiration: false },
-    contratoCultivo: { needsFecha: true, needsMonto: true, hasExpiration: true },
-    recetaMedica: { needsFecha: true, needsMonto: false, hasExpiration: true },
+    contrato_autocultivo: { needsFecha: true, needsMonto: true, hasExpiration: true },
+    contrato_madre: { needsFecha: true, needsMonto: true, hasExpiration: true },
     contrato: { needsFecha: true, needsMonto: false, hasExpiration: true }
+};
+
+// --- HELPER COMPONENTS (Moved outside to prevent re-mounts) ---
+
+const Section = ({ title, children, icon: Icon, actions }: any) => (
+    <section style={{
+        backgroundColor: 'hsl(var(--card))',
+        borderRadius: 'var(--radius)',
+        border: '1px solid hsl(var(--border))',
+        marginBottom: '1.5rem',
+        overflow: 'hidden'
+    }}>
+        <div style={{
+            padding: '1rem 1.5rem',
+            borderBottom: '1px solid hsl(var(--border))',
+            backgroundColor: 'hsl(var(--muted))',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+        }}>
+            {Icon && <Icon size={18} />}
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>{title}</h3>
+            {actions && <div style={{ marginLeft: 'auto' }}>{actions}</div>}
+        </div>
+        <div style={{ padding: '1.5rem' }}>
+            {children}
+        </div>
+    </section>
+);
+
+const InputGroup = ({ label, value, onChange, type = 'text', width = '100%', multiline = false, placeholder, readOnly = false }: any) => (
+    <div style={{ marginBottom: '1rem', width }}>
+        <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>{label}</label>
+        {multiline ? (
+            <textarea
+                value={value || ''}
+                onChange={e => !readOnly && onChange(e.target.value)}
+                placeholder={readOnly ? '' : placeholder}
+                readOnly={readOnly}
+                disabled={readOnly}
+                style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    border: readOnly ? '1px dashed transparent' : '1px solid hsl(var(--border))',
+                    borderRadius: '4px',
+                    fontSize: '0.95rem',
+                    minHeight: '80px',
+                    fontFamily: 'inherit',
+                    backgroundColor: readOnly ? 'rgba(0,0,0,0.02)' : 'transparent',
+                    color: readOnly ? 'hsl(var(--foreground))' : 'inherit',
+                    resize: readOnly ? 'none' : 'vertical'
+                }}
+            />
+        ) : (
+            <input
+                type={type}
+                value={value || ''}
+                onChange={e => !readOnly && onChange(e.target.value)}
+                placeholder={readOnly ? '' : placeholder}
+                readOnly={readOnly}
+                disabled={readOnly}
+                style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    border: readOnly ? '1px dashed transparent' : '1px solid hsl(var(--border))',
+                    borderRadius: '4px',
+                    fontSize: '0.95rem',
+                    backgroundColor: readOnly ? 'rgba(0,0,0,0.02)' : 'transparent',
+                    color: readOnly ? 'hsl(var(--foreground))' : 'inherit'
+                }}
+            />
+        )}
+    </div>
+);
+
+const SelectGroup = ({ label, value, onChange, options, width = '100%', readOnly = false }: any) => (
+    <div style={{ marginBottom: '1rem', width }}>
+        <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>{label}</label>
+        <select
+            value={value || ''}
+            onChange={e => !readOnly && onChange(e.target.value)}
+            disabled={readOnly}
+            style={{
+                width: '100%',
+                padding: '0.5rem',
+                border: readOnly ? '1px dashed transparent' : '1px solid hsl(var(--border))',
+                borderRadius: '4px',
+                fontSize: '0.95rem',
+                backgroundColor: readOnly ? 'rgba(0,0,0,0.02)' : 'transparent',
+                color: readOnly ? 'hsl(var(--foreground))' : 'inherit',
+                appearance: readOnly ? 'none' : 'auto'
+            }}
+        >
+            {options.map((opt: any) => <option key={opt.val} value={opt.val}>{opt.label}</option>)}
+        </select>
+    </div>
+);
+
+const Pill = ({ status }: { status: string }) => {
+    let color = '#374151';
+    let bg = '#f3f4f6';
+
+    const good = ['vigente', 'activo', 'completo', 'aprobado'];
+    const bad = ['vencido', 'rescindido', 'rechazado'];
+    const warn = ['pendiente', 'sin_contrato'];
+
+    if (good.includes(status)) { color = '#166534'; bg = '#dcfce7'; }
+    else if (bad.includes(status)) { color = '#991b1b'; bg = '#fee2e2'; }
+    else if (warn.includes(status)) { color = '#b45309'; bg = '#ffedd5'; }
+
+    return (
+        <span style={{
+            padding: '0.25rem 0.75rem',
+            borderRadius: '999px',
+            backgroundColor: bg,
+            color: color,
+            fontSize: '0.75rem',
+            textTransform: 'uppercase',
+            fontWeight: 700,
+            letterSpacing: '0.05em'
+        }}>
+            {status?.replace('_', ' ') || 'SIN DATOS'}
+        </span>
+    );
+};
+
+// --- INVITE WIDGET COMPONENT ---
+// --- INVITE WIDGET COMPONENT ---
+// --- INVITE WIDGET COMPONENT ---
+const InviteStatusWidget = ({ socioId, socioEmail, mode = 'full' }: { socioId: string, socioEmail: string, mode?: 'inline' | 'full' }) => {
+    const [status, setStatus] = useState<any>(null);
+    const [loading, setLoading] = useState(false);
+    const [sending, setSending] = useState(false);
+    const [copying, setCopying] = useState(false);
+
+    const fetchStatus = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch(`/api/admin/socios/${socioId}/invite-status`);
+            if (res.ok) {
+                setStatus(await res.json());
+            } else {
+                let errorMsg = `HTTP ${res.status}`;
+                try {
+                    const errBody = await res.json();
+                    errorMsg = errBody.error || errorMsg;
+                } catch (e) { /* ignore */ }
+                setStatus({ error: errorMsg });
+            }
+        } catch (e: any) {
+            console.error('Widget Fetch Error:', e);
+            setStatus({ error: e.message || 'Fetch Error' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchStatus();
+    }, [socioId]);
+
+    const handleInvite = async () => {
+        if (!confirm(`¿Enviar invitación a ${socioEmail}?`)) return;
+        setSending(true);
+        try {
+            // Updated to use the new Generic Invite API
+            // Updated to use StoreService which handles Auth Headers
+            await StoreService.inviteSocio(socioId);
+
+            alert('Invitación enviada.');
+            fetchStatus();
+        } catch (e: any) {
+            alert('Error: ' + e.message);
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const handleCopyLink = () => {
+        if (!status?.latestInvite?.token) return;
+        // Construct link assuming localhost or env var
+        const baseUrl = window.location.origin;
+        const link = `${baseUrl}/activate?token=${status.latestInvite.token}`;
+        navigator.clipboard.writeText(link).then(() => {
+            setCopying(true);
+            setTimeout(() => setCopying(false), 2000);
+        });
+    };
+
+    if (loading && !status) return <span style={{ fontSize: '0.8rem', color: 'gray' }}>Cargando estado...</span>;
+
+    if (status?.error) {
+        return (
+            <div style={{ color: 'red', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <AlertTriangle size={14} /> <span>{status.error}</span>
+                <button onClick={fetchStatus} style={{ marginLeft: '0.5rem', cursor: 'pointer', textDecoration: 'underline' }}>Reintentar</button>
+            </div>
+        );
+    }
+
+    if (!status) return <span style={{ fontSize: '0.8rem', color: 'gray' }}>Sin datos.</span>;
+
+    // Logic
+    const latest = status.latestInvite;
+    const computed = latest?.computed_status; // sent, consumed, expired
+    // If active -> socioActive is true
+    const isActive = status.socioActive;
+    const isExpired = !isActive && computed === 'expired';
+    const isPending = !isActive && (computed === 'sent' || computed === 'created');
+    const hasNoInvite = !isActive && !latest;
+
+    // Label Logic
+    let label = 'Desconocido';
+    let badgeColor = 'gray'; // default
+    let badgeBg = '#f3f4f6';
+
+    if (isActive) {
+        label = 'Activa';
+        badgeColor = '#166534'; badgeBg = '#dcfce7';
+    } else if (isExpired) {
+        label = 'Expirada';
+        badgeColor = '#991b1b'; badgeBg = '#fee2e2';
+    } else if (computed === 'consumed') {
+        // Should verify if consumed but not active? Likely impossible unless error.
+        label = 'Consumida';
+        badgeColor = '#166534'; badgeBg = '#dcfce7';
+    } else if (isPending) {
+        label = computed === 'sent' ? 'Enviada' : 'Pendiente';
+        badgeColor = '#b45309'; badgeBg = '#ffedd5';
+    } else {
+        label = 'Sin Invitación';
+    }
+
+    // Date Logic
+    const relevantDate = latest ? (latest.sent_at || latest.created_at) : null;
+
+    return (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    {isActive ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontWeight: 600, color: '#166534' }}>Cuenta vinculada</span>
+                            {status.passwordSet ? <span title="Password set">🔐</span> : <span title="No password">⚠️</span>}
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{
+                                padding: '0.25rem 0.75rem',
+                                borderRadius: '999px',
+                                backgroundColor: badgeBg,
+                                color: badgeColor,
+                                fontSize: '0.75rem',
+                                textTransform: 'uppercase',
+                                fontWeight: 700,
+                                letterSpacing: '0.05em'
+                            }}>
+                                {label}
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Subtext: Date or Details */}
+                <div style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>
+                    {isActive ? (
+                        <span>UID: <code style={{ fontSize: '0.75rem', backgroundColor: 'rgba(0,0,0,0.05)', padding: '0.1rem 0.3rem', borderRadius: '3px' }}>{status.socioUserId?.substring(0, 8)}...</code></span>
+                    ) : relevantDate ? (
+                        <span>{isExpired ? 'Expiró el' : (computed === 'sent' ? 'Enviada el' : 'Creada el')} {new Date(relevantDate).toLocaleDateString()} a las {new Date(relevantDate).toLocaleTimeString().slice(0, 5)}</span>
+                    ) : (
+                        <span>Listo para invitar</span>
+                    )}
+                </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {!isActive && (
+                    <>
+                        <button
+                            onClick={handleInvite}
+                            disabled={sending}
+                            style={{
+                                padding: '0.4rem 0.8rem',
+                                backgroundColor: 'hsl(var(--primary))',
+                                color: 'hsl(var(--primary-foreground))',
+                                borderRadius: 'var(--radius)',
+                                border: 'none',
+                                fontSize: '0.8rem',
+                                cursor: 'pointer',
+                                opacity: sending ? 0.7 : 1,
+                                display: 'flex', alignItems: 'center', gap: '0.5rem'
+                            }}
+                        >
+                            {sending ? 'Procesando...' : (hasNoInvite ? 'Enviar invitación' : 'Reenviar')}
+                        </button>
+
+                        {!hasNoInvite && !isExpired && (
+                            <button
+                                onClick={handleCopyLink}
+                                style={{
+                                    padding: '0.4rem 0.8rem',
+                                    backgroundColor: 'hsl(var(--secondary))',
+                                    color: 'hsl(var(--secondary-foreground))',
+                                    border: '1px solid hsl(var(--border))',
+                                    borderRadius: 'var(--radius)',
+                                    fontSize: '0.8rem',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                {copying ? 'Copiado!' : 'Copiar Link'}
+                            </button>
+                        )}
+                    </>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// --- NEW COMPONENT: DocumentEditModal (Isolated State) ---
+const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onSave, uploading }: any) => {
+    // 1. Local State
+    const [form, setForm] = useState<DocumentoSocio>(initialData || { verificacion_estado: 'pendiente' } as any);
+    const [file, setFile] = useState<File | null>(null);
+    const [isEditing, setIsEditing] = useState(false); // DEFAULT READ ONLY
+
+    // 4. Verification Log
+    useEffect(() => {
+        console.log("MOUNT modal");
+        return () => console.log("UNMOUNT modal");
+    }, []);
+
+    // Sync only on mount/key change
+    useEffect(() => {
+        if (initialData) {
+            setForm(initialData);
+        }
+    }, [initialData]);
+
+    const handleSave = () => {
+        onSave(form, file);
+    };
+
+    const handleClose = () => {
+        // Check dirty state
+        const isDirty = JSON.stringify(form) !== JSON.stringify(initialData || { verificacion_estado: 'pendiente' }) || !!file;
+        if (isEditing && isDirty) {
+            if (window.confirm("Tenés cambios sin guardar. ¿Descartar?")) {
+                onClose();
+            }
+        } else {
+            onClose();
+        }
+    };
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100
+        }}>
+            <div style={{
+                backgroundColor: 'hsl(var(--card))',
+                padding: '2rem',
+                borderRadius: 'var(--radius)',
+                width: '100%',
+                maxWidth: '500px',
+                border: '1px solid hsl(var(--border))',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Gestionar Documento</h3>
+                    <button onClick={handleClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
+                </div>
+
+                <div style={{ marginBottom: '1.5rem', fontSize: '0.9rem', color: 'hsl(var(--muted-foreground))' }}>
+                    {docLabel}
+                </div>
+
+                {/* Edit Controls */}
+                <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
+                    {!isEditing ? (
+                        <button onClick={() => setIsEditing(true)} style={{ color: 'hsl(var(--primary))', fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                            <Edit size={16} /> Habilitar Edición
+                        </button>
+                    ) : (
+                        <span style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))', fontStyle: 'italic' }}>Modo Edición Activo</span>
+                    )}
+                </div>
+
+                {/* Verification Status */}
+                <div style={{ padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '0.5rem', marginBottom: '1.5rem', border: '1px solid #e2e8f0' }}>
+                    <SelectGroup
+                        label="Estado de Verificación (Admin)"
+                        value={form.verificacion_estado}
+                        onChange={(v: any) => setForm({ ...form, verificacion_estado: v })}
+                        options={[
+                            { val: 'pendiente', label: 'Pendiente' },
+                            { val: 'aprobado', label: 'Aprobado' },
+                            { val: 'rechazado', label: 'Rechazado' },
+                        ]}
+                        readOnly={!isEditing}
+                    />
+                    <InputGroup label="Observaciones de Verificación" value={form.verificacion_obs} onChange={(v: string) => setForm({ ...form, verificacion_obs: v })} placeholder="Ej: Falta firma, fecha ilegible..." readOnly={!isEditing} />
+                </div>
+
+                {/* Dates */}
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                    {config.needsFecha && (
+                        <InputGroup label="Fecha Emisión" type="date" value={form.fechaEmision} onChange={(v: string) => setForm({ ...form, fechaEmision: v })} readOnly={!isEditing} />
+                    )}
+                    {config.hasExpiration && (
+                        <InputGroup label="Fecha Vencimiento" type="date" value={form.fechaVencimiento} onChange={(v: string) => setForm({ ...form, fechaVencimiento: v })} readOnly={!isEditing} />
+                    )}
+                </div>
+
+                {/* Monto */}
+                {config.needsMonto && (
+                    <InputGroup label="Monto ($)" type="number" value={form.monto} onChange={(v: string) => setForm({ ...form, monto: parseFloat(v) })} readOnly={!isEditing} />
+                )}
+
+                {/* File Upload */}
+                <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Archivo (PDF/Imagen)</label>
+
+                    {isEditing && (
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                            <input
+                                type="file"
+                                accept="application/pdf,image/*"
+                                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                                style={{ fontSize: '0.9rem' }}
+                            />
+                        </div>
+                    )}
+
+                    {form.archivoPath && !file && (
+                        <p style={{ fontSize: '0.8rem', color: 'hsl(var(--primary))', marginTop: '0.3rem' }}>
+                            {isEditing ? 'Documento actual cargado. Subir nuevo para reemplazar.' : 'Documento adjunto presente.'}
+                        </p>
+                    )}
+                </div>
+
+                {/* General Observaciones */}
+                <InputGroup label="Notas Internas" value={form.observaciones} onChange={(v: string) => setForm({ ...form, observaciones: v })} multiline readOnly={!isEditing} />
+
+                {/* Buttons */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.5rem' }}>
+                    <button
+                        onClick={handleClose}
+                        style={{
+                            padding: '0.75rem 1rem',
+                            backgroundColor: 'transparent',
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: 'var(--radius)',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        {isEditing ? 'Cancelar Edición' : 'Cerrar'}
+                    </button>
+                    {isEditing && (
+                        <button
+                            onClick={handleSave}
+                            disabled={uploading}
+                            style={{
+                                padding: '0.75rem 1.5rem',
+                                backgroundColor: 'hsl(var(--primary))',
+                                color: 'hsl(var(--primary-foreground))',
+                                border: 'none',
+                                borderRadius: 'var(--radius)',
+                                cursor: 'pointer',
+                            }}>
+                            {uploading ? 'Guardando...' : 'Guardar y Verificar'}
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
 };
 
 export default function SocioDetailsPage() {
@@ -23,53 +507,82 @@ export default function SocioDetailsPage() {
     const id = params?.id as string;
 
     const [socio, setSocio] = useState<Socio | null>(null);
+    const [originalSocio, setOriginalSocio] = useState<Socio | null>(null); // Snapshot for revert
+    const [editingSection, setEditingSection] = useState<string | null>(null); // 'personal' | 'admin' | 'reprocann' | 'domicilio' | 'medico'
+
     const [orders, setOrders] = useState<Pedido[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
     // Document Editing State
     const [editingDocKey, setEditingDocKey] = useState<keyof DocumentacionSocio | null>(null);
-    const [docForm, setDocForm] = useState<DocumentoSocio>({ estado: 'pendiente' });
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    // Removed docForm and selectedFile derived state from here; now handled in modal
     const [uploading, setUploading] = useState(false);
+
+    const [compliance, setCompliance] = useState<any>(null);
+
+    const docDefinitions: { key: keyof DocumentacionSocio, label: string }[] = [
+        { key: 'declaracionJurada', label: 'Declaración Jurada' },
+        { key: 'consentimiento', label: 'Consentimiento Informado' },
+        { key: 'contrato_autocultivo', label: 'Contrato Autocultivo' },
+        { key: 'contrato_madre', label: 'Contrato Madre' },
+        { key: 'contrato', label: 'Contrato General (Legacy)' },
+    ];
+
+    const currentDocConfig = editingDocKey ? DOC_CONFIG[editingDocKey] : null;
 
     useEffect(() => {
         if (!authLoading) {
-            if (!user || user.rol !== 'admin') {
+            if (!user || (user.rol !== 'admin' && user.rol !== 'staff')) {
                 router.push('/');
                 return;
             }
 
             Promise.all([
                 StoreService.getSocioById(id),
-                StoreService.getPedidosBySocio(id)
-            ]).then(([socioData, ordersData]) => {
+                StoreService.getPedidosBySocio(id),
+                fetch(`/api/socios/${id}/compliance`).then(res => res.ok ? res.json() : null)
+            ]).then(([socioData, ordersData, complianceData]) => {
                 if (socioData) {
                     // Initialize nested objects
                     const initializedSocio = {
                         ...socioData,
                         reprocann: socioData.reprocann || { estado: 'pendiente' },
                         documentacion: {
-                            consentimiento: socioData.documentacion?.consentimiento || { estado: 'pendiente' },
-                            declaracionJurada: socioData.documentacion?.declaracionJurada || { estado: 'pendiente' },
-                            contratoCultivo: socioData.documentacion?.contratoCultivo || { estado: 'pendiente' },
-                            recetaMedica: socioData.documentacion?.recetaMedica || { estado: 'pendiente' },
-                            contrato: socioData.documentacion?.contrato || { estado: 'pendiente' }
+                            consentimiento: socioData.documentacion?.consentimiento || { verificacion_estado: 'pendiente' } as any,
+                            declaracionJurada: socioData.documentacion?.declaracionJurada || { verificacion_estado: 'pendiente' } as any,
+                            contrato_autocultivo: socioData.documentacion?.contrato_autocultivo || { verificacion_estado: 'pendiente' } as any,
+                            contrato_madre: socioData.documentacion?.contrato_madre || { verificacion_estado: 'pendiente' } as any,
+                            contrato: socioData.documentacion?.contrato || { verificacion_estado: 'pendiente' } as any
                         }
                     };
                     setSocio(initializedSocio);
+                    setOriginalSocio(JSON.parse(JSON.stringify(initializedSocio))); // Deep copy for snapshot
                     setOrders(ordersData.sort((a, b) => new Date(b.fechaCreacion).getTime() - new Date(a.fechaCreacion).getTime()));
+                    setCompliance(complianceData);
                 }
                 setLoading(false);
             });
         }
     }, [user, authLoading, router, id]);
 
-    const handleUpdateSocio = async () => {
+    const handleCancelEdit = () => {
+        if (!originalSocio || !editingSection) return;
+
+        // Dirty check before cancel? (Optional, but user requested 'Cancelar revierte todo')
+        // For simplicity, we just revert immediately on Cancel.
+
+        setSocio(JSON.parse(JSON.stringify(originalSocio))); // Revert to original
+        setEditingSection(null);
+    };
+
+    const handleSaveSection = async () => {
         if (!socio) return;
         setSaving(true);
         try {
             await StoreService.updateSocio(socio.id, socio);
+            setOriginalSocio(JSON.parse(JSON.stringify(socio))); // Update snapshot
+            setEditingSection(null);
             alert('Cambios guardados correctamente');
         } catch (error) {
             console.error(error);
@@ -79,30 +592,89 @@ export default function SocioDetailsPage() {
         }
     };
 
+    // --- Section Action Buttons Helper ---
+    const SectionEditActions = ({ sectionKey }: { sectionKey: string }) => {
+        const isEditingThis = editingSection === sectionKey;
+        const isEditingOther = editingSection !== null && editingSection !== sectionKey;
+
+        if (!isEditingThis) {
+            return (
+                <button
+                    onClick={() => setEditingSection(sectionKey)}
+                    disabled={isEditingOther}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        fontSize: '0.85rem',
+                        color: isEditingOther ? 'hsl(var(--muted-foreground))' : 'hsl(var(--foreground))',
+                        backgroundColor: isEditingOther ? 'transparent' : 'hsl(var(--secondary))',
+                        border: isEditingOther ? 'none' : '1px solid hsl(var(--border))',
+                        padding: '0.35rem 0.8rem',
+                        borderRadius: 'var(--radius)',
+                        cursor: isEditingOther ? 'not-allowed' : 'pointer',
+                        fontWeight: 500,
+                        transition: 'all 0.2s',
+                        opacity: isEditingOther ? 0.5 : 1
+                    }}>
+                    <Edit size={14} /> Editar
+                </button>
+            );
+        }
+
+        return (
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                    onClick={handleCancelEdit}
+                    style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500, padding: '0.35rem 0.8rem' }}>
+                    Cancelar
+                </button>
+                <button
+                    onClick={handleSaveSection}
+                    disabled={saving}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        fontSize: '0.85rem',
+                        color: 'hsl(var(--primary-foreground))',
+                        backgroundColor: 'hsl(var(--primary))',
+                        border: 'none',
+                        borderRadius: 'var(--radius)',
+                        padding: '0.35rem 0.8rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                    }}>
+                    <Save size={14} />
+                    {saving ? 'Guardando...' : 'Guardar'}
+                </button>
+            </div>
+        );
+    }
+
     const handleEditDoc = (key: keyof DocumentacionSocio, doc: DocumentoSocio | undefined) => {
         setEditingDocKey(key);
-        setDocForm(doc || { estado: 'pendiente' });
-        setSelectedFile(null);
+        // Note: No need to set docForm here anymore, the modal will initialize with `socio.documentacion[key]`
     };
 
-    const handleSaveDoc = async () => {
+    const handleSaveDoc = async (formData: DocumentoSocio, file: File | null) => {
         if (!socio || !editingDocKey) return;
 
         setUploading(true);
         try {
-            let newPath = docForm.archivoPath;
+            let newPath = formData.archivoPath;
 
-            if (selectedFile) {
+            if (file) {
                 const uploadResult = await StorageService.uploadSocioDocument({
                     socioId: socio.id,
-                    file: selectedFile,
+                    file: file,
                     docType: editingDocKey as string
                 });
                 newPath = uploadResult.path;
             }
 
             const newDocData: DocumentoSocio = {
-                ...docForm,
+                ...formData,
                 archivoPath: newPath
             };
 
@@ -116,10 +688,24 @@ export default function SocioDetailsPage() {
             };
             setSocio(updatedSocio);
 
-            // Save to store
+            // 1. Save Verification/Metadata to Real DB (for Compliance)
+            await fetch(`/api/socios/${socio.id}/documents/${editingDocKey}/verificacion`, {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    verificacion_estado: formData.verificacion_estado,
+                    verificacion_obs: formData.verificacion_obs,
+                    verificado_por: user?.email || 'admin'
+                })
+            });
+
+            // 2. Save to Store (Mock/Local Persistence)
             await StoreService.updateSocioDocumentacion(socio.id, editingDocKey as string, newDocData);
 
             setEditingDocKey(null);
+
+            // Refresh compliance data
+            fetch(`/api/socios/${id}/compliance`).then(res => res.ok ? res.json() : null).then(setCompliance);
+
         } catch (e: any) {
             console.error(e);
             alert("Error al guardar documento: " + (e.message || e));
@@ -141,104 +727,7 @@ export default function SocioDetailsPage() {
     if (loading || authLoading) return <div style={{ padding: '2rem' }}>Cargando ficha...</div>;
     if (!socio) return <div style={{ padding: '2rem' }}>Socio no encontrado.</div>;
 
-    // Helper UI Components
-    const Section = ({ title, children, icon: Icon }: any) => (
-        <section style={{
-            backgroundColor: 'hsl(var(--card))',
-            borderRadius: 'var(--radius)',
-            border: '1px solid hsl(var(--border))',
-            marginBottom: '1.5rem',
-            overflow: 'hidden'
-        }}>
-            <div style={{
-                padding: '1rem 1.5rem',
-                borderBottom: '1px solid hsl(var(--border))',
-                backgroundColor: 'hsl(var(--muted))',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem'
-            }}>
-                {Icon && <Icon size={18} />}
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>{title}</h3>
-            </div>
-            <div style={{ padding: '1.5rem' }}>
-                {children}
-            </div>
-        </section>
-    );
 
-    const InputGroup = ({ label, value, onChange, type = 'text', width = '100%', multiline = false, placeholder }: any) => (
-        <div style={{ marginBottom: '1rem', width }}>
-            <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>{label}</label>
-            {multiline ? (
-                <textarea
-                    value={value || ''}
-                    onChange={e => onChange(e.target.value)}
-                    placeholder={placeholder}
-                    style={{ width: '100%', padding: '0.5rem', border: '1px solid hsl(var(--border))', borderRadius: '4px', fontSize: '0.95rem', minHeight: '80px', fontFamily: 'inherit' }}
-                />
-            ) : (
-                <input
-                    type={type}
-                    value={value || ''}
-                    onChange={e => onChange(e.target.value)}
-                    placeholder={placeholder}
-                    style={{ width: '100%', padding: '0.5rem', border: '1px solid hsl(var(--border))', borderRadius: '4px', fontSize: '0.95rem' }}
-                />
-            )}
-        </div>
-    );
-
-    const SelectGroup = ({ label, value, onChange, options, width = '100%' }: any) => (
-        <div style={{ marginBottom: '1rem', width }}>
-            <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>{label}</label>
-            <select
-                value={value || ''}
-                onChange={e => onChange(e.target.value)}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid hsl(var(--border))', borderRadius: '4px', fontSize: '0.95rem', backgroundColor: 'transparent' }}
-            >
-                {options.map((opt: any) => <option key={opt.val} value={opt.val}>{opt.label}</option>)}
-            </select>
-        </div>
-    );
-
-    const Pill = ({ status }: { status: string }) => {
-        let color = '#374151';
-        let bg = '#f3f4f6';
-
-        const good = ['vigente', 'activo', 'completo'];
-        const bad = ['vencido', 'rescindido', 'rechazado'];
-        const warn = ['pendiente', 'sin_contrato'];
-
-        if (good.includes(status)) { color = '#166534'; bg = '#dcfce7'; }
-        else if (bad.includes(status)) { color = '#991b1b'; bg = '#fee2e2'; }
-        else if (warn.includes(status)) { color = '#b45309'; bg = '#ffedd5'; }
-
-        return (
-            <span style={{
-                padding: '0.25rem 0.75rem',
-                borderRadius: '999px',
-                backgroundColor: bg,
-                color: color,
-                fontSize: '0.75rem',
-                textTransform: 'uppercase',
-                fontWeight: 700,
-                letterSpacing: '0.05em'
-            }}>
-                {status?.replace('_', ' ') || 'SIN DATOS'}
-            </span>
-        );
-    };
-
-    const docDefinitions: { key: keyof DocumentacionSocio, label: string }[] = [
-        { key: 'declaracionJurada', label: 'Declaración Jurada' },
-        { key: 'consentimiento', label: 'Consentimiento Informado' },
-        { key: 'contratoCultivo', label: 'Contrato de Cultivo' },
-        { key: 'recetaMedica', label: 'Receta Médica' },
-        { key: 'contrato', label: 'Contrato General' },
-    ];
-
-    const currentDocConfig = editingDocKey ? DOC_CONFIG[editingDocKey] : null;
 
     return (
         <div style={{ maxWidth: '1000px', margin: '0 auto', paddingBottom: '4rem' }}>
@@ -267,27 +756,58 @@ export default function SocioDetailsPage() {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <button
-                        onClick={handleUpdateSocio}
-                        disabled={saving}
-                        style={{
-                            backgroundColor: 'hsl(var(--primary))',
-                            color: 'hsl(var(--primary-foreground))',
-                            border: 'none',
-                            padding: '0.75rem 1.5rem',
-                            borderRadius: 'var(--radius)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            cursor: 'pointer',
-                            fontWeight: 600,
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                            opacity: saving ? 0.8 : 1
-                        }}
-                    >
-                        <Save size={18} />
-                        {saving ? 'Guardando...' : 'Guardar Cambios'}
-                    </button>
+
+                    {user?.rol === 'admin' && (
+                        <button
+                            onClick={async () => {
+                                if (!confirm("PELIGRO: ¿Estás seguro de ELIMINAR este socio definitivamente? Se borrará su usuario y datos. Esta acción no se puede deshacer.")) return;
+
+                                const promptEmail = prompt("Para confirmar, escribí el EMAIL del socio a eliminar:");
+                                if (promptEmail !== socio.email) {
+                                    alert("Email incorrecto. Cancelando.");
+                                    return;
+                                }
+
+                                try {
+                                    const { data: { session } } = await import('@/services/supabaseClient').then(m => m.supabase!.auth.getSession());
+                                    if (!session) throw new Error("No session");
+
+                                    const res = await fetch(`/api/admin/socios/${socio.id}`, {
+                                        method: 'DELETE',
+                                        headers: {
+                                            'Authorization': `Bearer ${session.access_token}`
+                                        }
+                                    });
+
+                                    if (res.ok) {
+                                        alert("Socio eliminado correctamente.");
+                                        router.replace('/admin/socios');
+                                    } else {
+                                        const err = await res.json();
+                                        throw new Error(err.error || "Error desconocido");
+                                    }
+                                } catch (e: any) {
+                                    alert("Error al eliminar: " + e.message);
+                                }
+                            }}
+                            style={{
+                                backgroundColor: '#fee2e2',
+                                color: '#991b1b',
+                                border: '1px solid #f87171',
+                                padding: '0.4rem 0.8rem',
+                                borderRadius: 'var(--radius)',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                fontWeight: 600
+                            }}
+                        >
+                            Eliminar Socio
+                        </button>
+                    )}
+
+                    <div style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>
+                        {editingSection ? 'Modo Edición Activo' : 'Modo Lectura'}
+                    </div>
                 </div>
             </div>
 
@@ -296,25 +816,77 @@ export default function SocioDetailsPage() {
                 {/* Left Column (Main Info) */}
                 <div style={{ gridColumn: 'span 8' }}>
 
+                    {/* SECCION A: Invitación / Cuenta */}
+                    <Section title="Cuenta de Usuario">
+                        <InviteStatusWidget socioId={socio.id} socioEmail={socio.email} mode="full" />
+                    </Section>
+
                     {/* SECCION B: Datos Personales */}
-                    <Section title="Datos Personales">
+                    <Section title="Datos Personales" actions={<SectionEditActions sectionKey="personal" />}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                            <InputGroup label="Nombre" value={socio.nombre} onChange={(v: string) => setSocio({ ...socio, nombre: v })} />
-                            <InputGroup label="Apellido" value={socio.apellido} onChange={(v: string) => setSocio({ ...socio, apellido: v })} />
-                            <InputGroup label="DNI" value={socio.dni} onChange={(v: string) => setSocio({ ...socio, dni: v })} />
-                            <InputGroup label="Fecha Nacimiento" type="date" value={socio.fechaNacimiento} onChange={(v: string) => setSocio({ ...socio, fechaNacimiento: v })} />
-                            <InputGroup label="Teléfono" value={socio.telefono} onChange={(v: string) => setSocio({ ...socio, telefono: v })} />
-                            <InputGroup label="Email" value={socio.email} onChange={(v: string) => setSocio({ ...socio, email: v })} />
+                            <InputGroup label="Nombre" value={socio.nombre} onChange={(v: string) => setSocio({ ...socio, nombre: v })} readOnly={editingSection !== 'personal'} />
+                            <InputGroup label="Apellido" value={socio.apellido} onChange={(v: string) => setSocio({ ...socio, apellido: v })} readOnly={editingSection !== 'personal'} />
+                            <InputGroup label="DNI" value={socio.dni} onChange={(v: string) => setSocio({ ...socio, dni: v })} readOnly={editingSection !== 'personal'} />
+                            <InputGroup label="Fecha Nacimiento" type="date" value={socio.fechaNacimiento} onChange={(v: string) => setSocio({ ...socio, fechaNacimiento: v })} readOnly={editingSection !== 'personal'} />
+                            <InputGroup label="Teléfono" value={socio.telefono} onChange={(v: string) => setSocio({ ...socio, telefono: v })} readOnly={editingSection !== 'personal'} />
+                            <InputGroup label="Email" value={socio.email} onChange={(v: string) => setSocio({ ...socio, email: v })} readOnly={editingSection !== 'personal'} />
                         </div>
                     </Section>
 
                     {/* SECCION Docs: Documentación */}
+
+                    {/* NEW Compliance Section */}
+                    {compliance && (
+                        <div style={{
+                            backgroundColor: 'hsl(var(--card))',
+                            borderRadius: 'var(--radius)',
+                            border: '1px solid hsl(var(--border))',
+                            marginBottom: '1.5rem',
+                            padding: '1rem 1.5rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '1rem'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <FileText size={18} /> Compliance Status
+                                </h3>
+                                <div>
+                                    {compliance.completo ? (
+                                        <span style={{ backgroundColor: '#dcfce7', color: '#166534', padding: '0.3rem 0.8rem', borderRadius: '99px', fontSize: '0.8rem', fontWeight: 700 }}>
+                                            COMPLETO
+                                        </span>
+                                    ) : (
+                                        <span style={{ backgroundColor: '#ffedd5', color: '#b45309', padding: '0.3rem 0.8rem', borderRadius: '99px', fontSize: '0.8rem', fontWeight: 700 }}>
+                                            INCOMPLETO ({compliance.faltantes.length})
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.5rem' }}>
+                                {compliance.documentos_requeridos.map((req: string) => {
+                                    const isPresent = compliance.documentos_presentes.includes(req);
+                                    return (
+                                        <div key={req} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem' }}>
+                                            {isPresent ? <CheckCircle size={16} color="#22c55e" /> : <X size={16} color="#ef4444" />}
+                                            <span style={{ color: isPresent ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))' }}>
+                                                {req.replace('_', ' ').toUpperCase()}
+                                            </span>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     <Section title="Documentación Presentada" icon={FileText}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                             <thead>
                                 <tr style={{ borderBottom: '1px solid hsl(var(--border))', textAlign: 'left', color: 'hsl(var(--muted-foreground))' }}>
                                     <th style={{ padding: '0.75rem' }}>Documento</th>
-                                    <th style={{ padding: '0.75rem' }}>Estado</th>
+                                    <th style={{ padding: '0.75rem' }}>Adjunto</th>
+                                    <th style={{ padding: '0.75rem' }}>Verificación</th>
                                     <th style={{ padding: '0.75rem' }}>Vencimiento</th>
                                     <th style={{ padding: '0.75rem', textAlign: 'right' }}>Acciones</th>
                                 </tr>
@@ -322,11 +894,15 @@ export default function SocioDetailsPage() {
                             <tbody>
                                 {docDefinitions.map(def => {
                                     const doc = socio.documentacion?.[def.key];
+                                    const hasFile = !!doc?.archivoPath;
                                     return (
                                         <tr key={def.key} style={{ borderBottom: '1px solid hsl(var(--border))' }}>
                                             <td style={{ padding: '0.75rem', fontWeight: 500 }}>{def.label}</td>
                                             <td style={{ padding: '0.75rem' }}>
-                                                <Pill status={doc?.estado || 'pendiente'} />
+                                                {hasFile ? <CheckCircle size={18} color="#22c55e" /> : <X size={18} color="#9ca3af" />}
+                                            </td>
+                                            <td style={{ padding: '0.75rem' }}>
+                                                <Pill status={doc?.verificacion_estado || 'pendiente'} />
                                             </td>
                                             <td style={{ padding: '0.75rem', fontSize: '0.85rem' }}>
                                                 {doc?.fechaVencimiento ? new Date(doc.fechaVencimiento).toLocaleDateString() : '-'}
@@ -365,7 +941,7 @@ export default function SocioDetailsPage() {
                                                         display: 'flex',
                                                         alignItems: 'center'
                                                     }}
-                                                    title="Editar"
+                                                    title="Gestionar"
                                                 >
                                                     <Edit size={16} />
                                                 </button>
@@ -378,25 +954,45 @@ export default function SocioDetailsPage() {
                     </Section>
 
                     {/* SECCION G: Médico y Diagnóstico */}
-                    <Section title="Médico Tratante y Diagnóstico" icon={Activity}>
+                    <Section title="Médico Tratante y Diagnóstico" icon={Activity} actions={<SectionEditActions sectionKey="medico" />}>
                         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
-                            <InputGroup label="Nombre del Médico" value={socio.medicoNombre} onChange={(v: string) => setSocio({ ...socio, medicoNombre: v })} />
-                            <InputGroup label="Matrícula" value={socio.medicoMatricula} onChange={(v: string) => setSocio({ ...socio, medicoMatricula: v })} />
+                            <InputGroup label="Nombre del Médico" value={socio.medicoNombre} onChange={(v: string) => setSocio({ ...socio, medicoNombre: v })} readOnly={editingSection !== 'medico'} />
+                            <InputGroup label="Matrícula" value={socio.medicoMatricula} onChange={(v: string) => setSocio({ ...socio, medicoMatricula: v })} readOnly={editingSection !== 'medico'} />
                         </div>
-                        <InputGroup label="Diagnóstico Principal" value={socio.diagnosticoPrincipal} onChange={(v: string) => setSocio({ ...socio, diagnosticoPrincipal: v })} multiline />
+                        <InputGroup label="Diagnóstico Principal" value={socio.diagnosticoPrincipal} onChange={(v: string) => setSocio({ ...socio, diagnosticoPrincipal: v })} multiline readOnly={editingSection !== 'medico'} />
                     </Section>
 
                     {/* SECCION D: Domicilio */}
-                    <Section title="Domicilio">
+                    <Section title="Domicilio" actions={<SectionEditActions sectionKey="domicilio" />}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                            <InputGroup label="Calle y Número" value={socio.direccion} onChange={(v: string) => setSocio({ ...socio, direccion: v })} />
-                            <InputGroup label="Localidad" value={socio.localidad} onChange={(v: string) => setSocio({ ...socio, localidad: v })} />
-                            <InputGroup label="Provincia" value={socio.provincia} onChange={(v: string) => setSocio({ ...socio, provincia: v })} />
+                            <InputGroup label="Calle y Número" value={socio.direccion} onChange={(v: string) => setSocio({ ...socio, direccion: v })} readOnly={editingSection !== 'domicilio'} />
+                            <InputGroup label="Localidad" value={socio.localidad} onChange={(v: string) => setSocio({ ...socio, localidad: v })} readOnly={editingSection !== 'domicilio'} />
+                            <InputGroup label="Provincia" value={socio.provincia} onChange={(v: string) => setSocio({ ...socio, provincia: v })} readOnly={editingSection !== 'domicilio'} />
                         </div>
                     </Section>
 
-                    {/* SECCION I: Pedidos */}
-                    <Section title={`Pedidos Asociados (${orders.length})`}>
+                    <Section
+                        title={`Pedidos Asociados (${orders.length})`}
+                        actions={
+                            <button
+                                onClick={() => router.push(`/admin/orders/new?socioId=${socio.id}`)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.4rem',
+                                    fontSize: '0.85rem',
+                                    color: 'hsl(var(--primary-foreground))',
+                                    backgroundColor: 'hsl(var(--primary))',
+                                    border: 'none',
+                                    borderRadius: 'var(--radius)',
+                                    padding: '0.35rem 0.8rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer'
+                                }}>
+                                <Plus size={14} /> Nueva Dispensa
+                            </button>
+                        }
+                    >
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                             {/* ... existing orders table content or simple placeholder as it was ... */}
                             <tbody>
@@ -422,27 +1018,68 @@ export default function SocioDetailsPage() {
                 <div style={{ gridColumn: 'span 4', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
                     {/* SECCION C: Datos Administrativos */}
-                    <Section title="Administrativo" icon={FileText}>
-                        <div style={{ display: 'grid', gap: '0.5rem' }}>
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                <InputGroup label="Orden Libro" value={socio.ordenLibro as any} onChange={(v: string) => setSocio({ ...socio, ordenLibro: v as any })} type="number" />
-                                <InputGroup label="Acta Nº" value={socio.actaNumero as any} onChange={(v: string) => setSocio({ ...socio, actaNumero: v as any })} type="number" />
-                            </div>
-                            <InputGroup label="Debe" value={socio.debe} onChange={(v: string) => setSocio({ ...socio, debe: v })} />
-                            <InputGroup label="Fecha Ingreso ONG" type="date" value={socio.fechaIngresoOng} onChange={(v: string) => setSocio({ ...socio, fechaIngresoOng: v })} />
-                            <SelectGroup
-                                label="Vinculación"
-                                value={socio.vinculacion}
-                                onChange={(v: any) => setSocio({ ...socio, vinculacion: v })}
-                                options={[
-                                    { val: 'Solidario', label: 'Solidario' },
-                                    { val: 'Particular', label: 'Particular' },
-                                    { val: 'Terapéutico', label: 'Terapéutico' },
-                                    { val: 'Investigación', label: 'Investigación' },
-                                    { val: 'Otro', label: 'Otro' },
-                                ]}
+                    <Section title="Administración" icon={Activity} actions={<SectionEditActions sectionKey="admin" />}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <InputGroup
+                                label="Nº Orden Libro"
+                                type="number"
+                                value={editingSection === 'admin' ? socio.ordenLibro : socio.ordenLibro}
+                                onChange={(v: string) => setSocio({ ...socio, ordenLibro: parseInt(v) })}
+                                readOnly={editingSection !== 'admin'}
                             />
-                            <SelectGroup label="Activo" value={socio.activo ? 'si' : 'no'} onChange={(v: string) => setSocio({ ...socio, activo: v === 'si' })} options={[{ val: 'si', label: 'Si' }, { val: 'no', label: 'No' }]} />
+                            <InputGroup
+                                label="Nº Acta"
+                                type="number"
+                                value={editingSection === 'admin' ? socio.actaNumero : socio.actaNumero}
+                                onChange={(v: string) => setSocio({ ...socio, actaNumero: parseInt(v) })}
+                                readOnly={editingSection !== 'admin'}
+                            />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <InputGroup
+                                label="Fecha Ingreso"
+                                type="date"
+                                value={editingSection === 'admin' ? socio.fechaIngresoOng : socio.fechaIngresoOng}
+                                onChange={(v: string) => setSocio({ ...socio, fechaIngresoOng: v })}
+                                readOnly={editingSection !== 'admin'}
+                            />
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <SelectGroup
+                                    label="Estado"
+                                    value={socio.status}
+                                    onChange={(v: any) => setSocio({ ...socio, status: v })}
+                                    options={[{ val: 'active', label: 'AC' }, { val: 'suspended', label: 'SU' }]}
+                                    readOnly={true}
+                                    width="50%"
+                                />
+                                <SelectGroup
+                                    label="Activo"
+                                    value={socio.activo ? 'si' : 'no'}
+                                    onChange={(v: string) => setSocio({ ...socio, activo: v === 'si' })}
+                                    options={[{ val: 'si', label: 'Sí' }, { val: 'no', label: 'No' }]}
+                                    readOnly={editingSection !== 'admin'}
+                                    width="50%"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Delivery Toggle */}
+                        <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: editingSection === 'admin' ? 'hsl(var(--background))' : 'transparent', border: editingSection === 'admin' ? '1px solid hsl(var(--border))' : 'none', borderRadius: 'var(--radius)' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: editingSection === 'admin' ? 'pointer' : 'default' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={socio.envios_habilitados || false}
+                                    onChange={(e) => setSocio({ ...socio, envios_habilitados: e.target.checked })}
+                                    disabled={editingSection !== 'admin'}
+                                    style={{ transform: 'scale(1.2)' }}
+                                />
+                                <div>
+                                    <span style={{ display: 'block', fontWeight: 600 }}>Habilitar Envíos a Domicilio</span>
+                                    <span style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>
+                                        Permite al socio solicitar delivery (costo a cargo del socio).
+                                    </span>
+                                </div>
+                            </label>
                         </div>
                     </Section>
 
@@ -454,11 +1091,29 @@ export default function SocioDetailsPage() {
                         padding: '1.5rem',
                         boxShadow: '0 4px 6px -1px rgba(34, 197, 94, 0.1)'
                     }}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '1rem', color: '#15803d', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#15803d', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: 0 }}>
                             <CheckCircle size={18} /> REPROCANN
                         </h3>
-                        <InputGroup label="Nº Trámite" value={socio.reprocann?.numeroTramite} onChange={(v: string) => setSocio({ ...socio, reprocann: { ...socio.reprocann, numeroTramite: v } })} />
-                        <InputGroup label="Fecha Alta" type="date" value={socio.reprocann?.fechaAlta} onChange={(v: string) => setSocio({ ...socio, reprocann: { ...socio.reprocann, fechaAlta: v } })} />
+                        <div style={{ marginLeft: 'auto' }}>
+                            {editingSection !== 'reprocann' ? (
+                                <button
+                                    onClick={() => setEditingSection('reprocann')}
+                                    disabled={editingSection !== null}
+                                    style={{ fontSize: '0.85rem', color: editingSection ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary))', background: 'none', border: 'none', cursor: editingSection ? 'not-allowed' : 'pointer', fontWeight: 500 }}>
+                                    Editar
+                                </button>
+                            ) : (
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <button onClick={handleCancelEdit} style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', background: 'none', border: 'none', cursor: 'pointer' }}>Cancelar</button>
+                                    <button onClick={handleSaveSection} style={{ fontSize: '0.85rem', color: 'hsl(var(--primary))', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}>Guardar</button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <InputGroup label="Nº Trámite" value={socio.reprocann?.numeroTramite} onChange={(v: string) => setSocio({ ...socio, reprocann: { ...socio.reprocann, numeroTramite: v } })} readOnly={editingSection !== 'reprocann'} />
+                        <InputGroup label="Fecha Alta" type="date" value={socio.reprocann?.fechaAlta} onChange={(v: string) => setSocio({ ...socio, reprocann: { ...socio.reprocann, fechaAlta: v } })} readOnly={editingSection !== 'reprocann'} />
                         <SelectGroup
                             label="Estado"
                             value={socio.reprocann?.estado}
@@ -469,119 +1124,26 @@ export default function SocioDetailsPage() {
                                 { val: 'vencido', label: 'Vencido' },
                                 { val: 'rechazado', label: 'Rechazado' },
                             ]}
+                            readOnly={editingSection !== 'reprocann'}
                         />
                     </div>
                 </div>
             </div>
 
             {/* EDIT MODAL */}
-            {editingDocKey && currentDocConfig && (
-                <div style={{
-                    position: 'fixed',
-                    top: 0, left: 0, right: 0, bottom: 0,
-                    backgroundColor: 'rgba(0,0,0,0.5)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    zIndex: 100
-                }}>
-                    <div style={{
-                        backgroundColor: 'hsl(var(--card))',
-                        padding: '2rem',
-                        borderRadius: 'var(--radius)',
-                        width: '100%',
-                        maxWidth: '500px',
-                        border: '1px solid hsl(var(--border))',
-                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
-                    }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                            <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Editar Documento</h3>
-                            <button onClick={() => setEditingDocKey(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
-                        </div>
-
-                        <div style={{ marginBottom: '1.5rem', fontSize: '0.9rem', color: 'hsl(var(--muted-foreground))' }}>
-                            {docDefinitions.find(d => d.key === editingDocKey)?.label}
-                        </div>
-
-                        {/* Estado */}
-                        <SelectGroup
-                            label="Estado"
-                            value={docForm.estado}
-                            onChange={(v: any) => setDocForm({ ...docForm, estado: v })}
-                            options={[
-                                { val: 'pendiente', label: 'Pendiente' },
-                                { val: 'completo', label: 'Completo' },
-                                { val: 'vencido', label: 'Vencido' },
-                            ]}
-                        />
-
-                        {/* Dates */}
-                        <div style={{ display: 'flex', gap: '1rem' }}>
-                            {currentDocConfig.needsFecha && (
-                                <InputGroup label="Fecha Emisión" type="date" value={docForm.fechaEmision} onChange={(v: string) => setDocForm({ ...docForm, fechaEmision: v })} />
-                            )}
-                            {currentDocConfig.hasExpiration && (
-                                <InputGroup label="Fecha Vencimiento" type="date" value={docForm.fechaVencimiento} onChange={(v: string) => setDocForm({ ...docForm, fechaVencimiento: v })} />
-                            )}
-                        </div>
-
-                        {/* Monto */}
-                        {currentDocConfig.needsMonto && (
-                            <InputGroup label="Monto ($)" type="number" value={docForm.monto} onChange={(v: string) => setDocForm({ ...docForm, monto: parseFloat(v) })} />
-                        )}
-
-                        {/* File Upload */}
-                        <div style={{ marginBottom: '1rem' }}>
-                            <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Archivo (PDF/Imagen)</label>
-                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                <input
-                                    type="file"
-                                    accept="application/pdf,image/*"
-                                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                                    style={{ fontSize: '0.9rem' }}
-                                />
-                            </div>
-                            {docForm.archivoPath && !selectedFile && (
-                                <p style={{ fontSize: '0.8rem', color: 'hsl(var(--primary))', marginTop: '0.3rem' }}>
-                                    Documento actual cargado. Subir nuevo para reemplazar.
-                                </p>
-                            )}
-                        </div>
-
-                        {/* Observaciones */}
-                        <InputGroup label="Observaciones" value={docForm.observaciones} onChange={(v: string) => setDocForm({ ...docForm, observaciones: v })} multiline />
-
-                        {/* Buttons */}
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.5rem' }}>
-                            <button
-                                onClick={() => setEditingDocKey(null)}
-                                style={{
-                                    padding: '0.75rem 1rem',
-                                    backgroundColor: 'transparent',
-                                    border: '1px solid hsl(var(--border))',
-                                    borderRadius: 'var(--radius)',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                onClick={handleSaveDoc}
-                                disabled={uploading}
-                                style={{
-                                    padding: '0.75rem 1.5rem',
-                                    backgroundColor: 'hsl(var(--primary))',
-                                    color: 'hsl(var(--primary-foreground))',
-                                    border: 'none',
-                                    borderRadius: 'var(--radius)',
-                                    cursor: 'pointer',
-                                }}>
-                                {uploading ? 'Subiendo...' : 'Guardar'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
+            {
+                editingDocKey && currentDocConfig && (
+                    <DocumentEditModal
+                        docKey={editingDocKey}
+                        docLabel={docDefinitions.find(d => d.key === editingDocKey)?.label}
+                        initialData={socio.documentacion?.[editingDocKey]}
+                        config={currentDocConfig}
+                        onClose={() => setEditingDocKey(null)}
+                        onSave={handleSaveDoc}
+                        uploading={uploading}
+                    />
+                )
+            }
+        </div >
     );
 }

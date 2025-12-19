@@ -209,8 +209,8 @@ export default function CuentaPage() {
                                     {[
                                         { name: 'Declaración Jurada', data: socio.documentacion?.declaracionJurada },
                                         { name: 'Consentimiento Informado', data: socio.documentacion?.consentimiento },
-                                        { name: 'Contrato de Cultivo', data: socio.documentacion?.contratoCultivo },
-                                        { name: 'Receta Médica', data: socio.documentacion?.recetaMedica },
+                                        { name: 'Contrato Autocultivo', data: socio.documentacion?.contrato_autocultivo },
+                                        { name: 'Contrato Mamá Cultiva', data: socio.documentacion?.contrato_madre },
                                     ].map((doc, idx) => (
                                         <tr key={idx} style={{ borderBottom: '1px solid hsl(var(--border))' }}>
                                             <td style={{ padding: '0.75rem', fontWeight: 500 }}>{doc.name}</td>

@@ -28,26 +28,36 @@ export default function NewSocioPage() {
         setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSubmit = async (e: React.FormEvent, shouldInvite = false) => {
+        if (e) e.preventDefault();
         setLoading(true);
 
         try {
-            await StoreService.createSocio({
+            const newSocio = await StoreService.createSocio({
                 ...formData,
-                rol: 'member',
+                rol: 'socio',
                 estadoCuenta: {
                     saldo: 0,
-                    ultimaCuotaPaga: new Date().toISOString().slice(0, 7) // Current month
+                    ultimaCuotaPaga: new Date().toISOString().slice(0, 7)
                 },
                 reprocann: { estado: 'pendiente' },
                 documentacion: {
                     declaracionJurada: { estado: 'pendiente' },
-                    contratoCultivo: { estado: 'pendiente' },
+                    contrato_autocultivo: { estado: 'pendiente' },
                     consentimiento: { estado: 'pendiente' },
-                    recetaMedica: { estado: 'pendiente' }
                 }
             });
+
+            if (shouldInvite && newSocio.id) {
+                try {
+                    await StoreService.inviteSocio(newSocio.id);
+                    alert('Socio creado y correo de invitación enviado.');
+                } catch (inviteErr: any) {
+                    console.error(inviteErr);
+                    alert(`Socio creado, pero falló la invitación: ${inviteErr.message}`);
+                }
+            }
+
             router.push('/admin/socios');
         } catch (error) {
             console.error(error);
@@ -142,6 +152,24 @@ export default function NewSocioPage() {
                     <button type="button" onClick={() => router.back()} style={{ padding: '0.75rem 1.5rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', background: 'transparent', cursor: 'pointer' }}>
                         Cancelar
                     </button>
+
+                    <button
+                        type="button"
+                        onClick={(e) => handleSubmit(e as any, true)}
+                        disabled={loading}
+                        style={{
+                            padding: '0.75rem 1.5rem',
+                            backgroundColor: 'hsl(var(--secondary))',
+                            color: 'hsl(var(--secondary-foreground))',
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: 'var(--radius)',
+                            cursor: 'pointer',
+                            opacity: loading ? 0.7 : 1
+                        }}
+                    >
+                        {loading ? '...' : 'Guardar y Enviar Invitación'}
+                    </button>
+
                     <button
                         type="submit"
                         disabled={loading}
@@ -155,7 +183,7 @@ export default function NewSocioPage() {
                             opacity: loading ? 0.7 : 1
                         }}
                     >
-                        {loading ? 'Guardando...' : 'Crear Socio'}
+                        {loading ? 'Guardando...' : 'Guardar (Solo crear)'}
                     </button>
                 </div>
             </form>

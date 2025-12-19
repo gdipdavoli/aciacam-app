@@ -1,14 +1,21 @@
-export type UserRole = 'member' | 'admin';
+export type UserRole = 'socio' | 'staff' | 'admin';
 
 export type EstadoDocumento = 'pendiente' | 'completo' | 'vencido';
 
 export type DocumentoSocio = {
+    /** @deprecated DO NOT USE. Use verificacion_estado and presence check instead. */
     estado: EstadoDocumento;
     archivoPath?: string;      // Path in Supabase Storage (bucket: documentos-socios)
     fechaEmision?: string;    // ISO Date (fecha de firma/emisión)
     fechaVencimiento?: string; // ISO Date (para REPROCANN / receta)
     monto?: number;            // Para contratos
     observaciones?: string;
+
+    // New Verification Model
+    verificacion_estado?: 'pendiente' | 'aprobado' | 'rechazado';
+    verificacion_obs?: string;
+    verificado_at?: string; // ISO Date
+    verificado_por?: string;
 };
 
 export type EstadoContrato = 'sin_contrato' | 'activo' | 'vencido' | 'rescindido';
@@ -22,9 +29,9 @@ export type ReprocannInfo = {
 export type DocumentacionSocio = {
     consentimiento?: DocumentoSocio;
     declaracionJurada?: DocumentoSocio;
-    contratoCultivo?: DocumentoSocio;
-    recetaMedica?: DocumentoSocio;
-    contrato?: DocumentoSocio & { estadoContrato?: EstadoContrato }; // Backwards compatibility if needed
+    contrato_autocultivo?: DocumentoSocio;
+    contrato_madre?: DocumentoSocio;
+    contrato?: DocumentoSocio; // Legacy support
 };
 
 export interface Socio {
@@ -44,6 +51,7 @@ export interface Socio {
     fechaIngresoOng?: string;
     vinculacion?: string;
     activo?: boolean;
+    envios_habilitados?: boolean;
 
     // Location
     direccion?: string; // Domicilio
@@ -64,6 +72,30 @@ export interface Socio {
         saldo: number;
         ultimaCuotaPaga: string; // ISO Date YYYY-MM
     };
+
+    // Auth Link
+    // Auth Link
+    userId?: string; // Legacy/Migration
+    auth_user_id?: string; // New Strict Link
+
+    // Status & Onboarding
+    status?: 'draft' | 'ready_to_invite' | 'invited' | 'active' | 'suspended';
+    invited_at?: string; // ISO Date
+    invited_by?: string; // Staff UUID
+    terms_accepted_at?: string; // ISO Date
+    terms_version?: string;
+    onboarding_completed_at?: string; // ISO Date
+}
+
+export interface SocioInvite {
+    id: string;
+    socioId: string;
+    email: string;
+    token: string;
+    expiresAt: string;
+    usedAt?: string;
+    createdAt: string;
+    createdBy?: string;
 }
 
 export interface Producto {
@@ -105,6 +137,9 @@ export interface Pedido {
     // Specific to retiro
     fechaRetiroPreferida?: string;
     franjaHoraria?: string;
+
+    // Soft delete/Archive
+    archivado?: boolean;
 }
 
 export interface Pago {

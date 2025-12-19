@@ -5,7 +5,7 @@ import { StoreService } from '@/services/storeService';
 import { Pedido } from '@/types';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { Package, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { Package, Clock, CheckCircle, AlertCircle, MapPin, ExternalLink } from 'lucide-react';
 
 
 export default function MisPedidosPage() {
@@ -52,90 +52,128 @@ export default function MisPedidosPage() {
             {loading ? (
                 <p>Cargando...</p>
             ) : orders.length === 0 ? (
-                <div style={{
-                    textAlign: 'center',
-                    padding: '4rem',
-                    backgroundColor: 'hsl(var(--card))',
-                    borderRadius: 'var(--radius)',
-                    border: '1px solid hsl(var(--border))'
-                }}>
-                    <Package size={48} style={{ color: 'hsl(var(--muted-foreground))', marginBottom: '1rem', opacity: 0.5 }} />
-                    <h3 style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>No tienes pedidos aún</h3>
-                    <p style={{ color: 'hsl(var(--muted-foreground))', marginBottom: '1.5rem' }}>
+                <div className="text-center p-16 bg-card rounded-lg border border-border">
+                    <Package size={48} className="text-muted-foreground mb-4 opacity-50 mx-auto" />
+                    <h3 className="text-xl font-semibold mb-2">No tienes pedidos aún</h3>
+                    <p className="text-muted-foreground mb-6">
                         Explora las variedades y realiza tu primer pedido.
                     </p>
-                    <a href="/variedades" style={{
-                        display: 'inline-block',
-                        backgroundColor: 'hsl(var(--primary))',
-                        color: 'hsl(var(--primary-foreground))',
-                        padding: '0.75rem 1.5rem',
-                        borderRadius: 'var(--radius)',
-                        fontSize: '0.9rem',
-                        fontWeight: 600
-                    }}>
+                    <a href="/variedades" className="inline-block bg-primary text-primary-foreground px-6 py-3 rounded-md text-sm font-semibold hover:bg-primary/90 transition-colors">
                         Ver Variedades
                     </a>
                 </div>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div className="grid gap-3">
                     {orders.map(order => (
-                        <div key={order.id} style={{
-                            backgroundColor: 'hsl(var(--card))',
-                            borderRadius: 'var(--radius)',
-                            border: '1px solid hsl(var(--border))',
-                            padding: '1.5rem',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '1rem'
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
-                                <div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                                        <span style={{ fontWeight: 600 }}>#{order.id}</span>
-                                        <span style={{
-                                            fontSize: '0.8rem',
-                                            padding: '0.2rem 0.6rem',
-                                            borderRadius: '999px',
-                                            backgroundColor: 'hsl(var(--muted))',
-                                            textTransform: 'uppercase'
-                                        }}>
+                        <div key={order.id} className="bg-card rounded-lg border border-border p-4 hover:border-primary/50 transition-colors">
+                            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-3">
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-semibold text-lg">
+                                            {(() => {
+                                                let displayDate: Date;
+                                                // Fix Timezone for Socio View as well
+                                                if (order.fechaRetiroPreferida && order.fechaRetiroPreferida.length === 10) {
+                                                    displayDate = new Date(`${order.fechaRetiroPreferida}T00:00:00`);
+                                                } else {
+                                                    displayDate = order.fechaRetiroPreferida ? new Date(order.fechaRetiroPreferida) : new Date(order.fechaCreacion);
+                                                }
+
+                                                const dateStr = displayDate.toLocaleDateString('es-AR', {
+                                                    day: 'numeric',
+                                                    month: 'long'
+                                                });
+
+                                                // Capitalize
+                                                return dateStr.charAt(0).toUpperCase() + dateStr.slice(1);
+                                            })()}
+                                            {order.fechaRetiroPreferida && <span style={{ fontSize: '0.7em', color: 'hsl(var(--muted-foreground))', marginLeft: '6px' }}>(Fecha de Retiro)</span>}
+                                        </span>
+                                        <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground uppercase tracking-wide font-medium">
                                             {order.tipoPedido.replace('_', ' ')}
                                         </span>
                                     </div>
-                                    <div style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>
-                                        {new Date(order.fechaCreacion).toLocaleDateString()} - {new Date(order.fechaCreacion).toLocaleTimeString()}
+                                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                        <span>#{order.id.slice(0, 8)}...</span>
+                                        <span>•</span>
+                                        {/* Show Time only if it's not a pure date-slot or if we have specific hour */}
+                                        <span>
+                                            {order.fechaRetiroPreferida && order.fechaRetiroPreferida.length === 10
+                                                ? 'Turno Reservado'
+                                                : new Date(order.fechaCreacion).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                            }
+                                        </span>
                                     </div>
                                 </div>
 
-                                <div style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.4rem',
-                                    fontWeight: 500,
-                                    color: getStatusColor(order.estado)
-                                }}>
-                                    {order.estado === 'pendiente' && <Clock size={16} />}
-                                    {order.estado === 'confirmado' && <CheckCircle size={16} />}
+                                <div className={`
+                                    self-start sm:self-center px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1.5
+                                    ${order.estado === 'pendiente' ? 'bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20' :
+                                        order.estado === 'confirmado' ? 'bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20' :
+                                            'bg-destructive/10 text-destructive border border-destructive/20'}
+                                `}>
+                                    {order.estado === 'pendiente' && <Clock size={14} />}
+                                    {order.estado === 'confirmado' && <CheckCircle size={14} />}
+                                    {order.estado === 'cancelado' && <AlertCircle size={14} />}
                                     {getStatusLabel(order.estado)}
                                 </div>
                             </div>
 
-                            <div style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: '1rem' }}>
-                                <p style={{ fontSize: '0.9rem', fontWeight: 500, marginBottom: '0.5rem' }}>Items:</p>
-                                <ul style={{ listStyle: 'none', padding: 0 }}>
+                            <div className="pt-3 border-t border-border/50">
+                                <ul className="space-y-1">
                                     {order.items.map((item, idx) => (
-                                        <li key={idx} style={{
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            fontSize: '0.9rem',
-                                            marginBottom: '0.25rem',
-                                            color: 'hsl(var(--muted-foreground))'
-                                        }}>
-                                            <span>{item.cantidad}x {item.productoNombre}</span>
+                                        <li key={idx} className="text-sm text-foreground/80 flex justify-between items-center">
+                                            <span className="flex items-center gap-2">
+                                                <span className="font-medium bg-muted w-5 h-5 rounded flex items-center justify-center text-xs">
+                                                    {item.cantidad}
+                                                </span>
+                                                {item.productoNombre}
+                                            </span>
                                         </li>
                                     ))}
                                 </ul>
                             </div>
+
+                            {order.tipoPedido === 'retiro_sede' && order.estado === 'confirmado' && (
+                                <div className="mt-3 pt-3 border-t border-border/50 flex items-start gap-3 text-sm">
+                                    <MapPin size={16} className="text-muted-foreground shrink-0 mt-0.5" />
+                                    <div>
+                                        <p className="text-muted-foreground">Retiro por Sede: <span className="font-medium text-foreground">Alberdi 760, San Luis</span></p>
+                                        <a
+                                            href="https://maps.app.goo.gl/HtCe4QQrq5GptKZt8"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-primary hover:underline inline-flex items-center gap-1 mt-1 text-xs font-medium"
+                                        >
+                                            Ver ubicación en mapa <ExternalLink size={10} />
+                                        </a>
+                                    </div>
+                                </div>
+                            )}
+
+                            {order.estado === 'pendiente' && (
+                                <div className="mt-3 pt-3 border-t border-border/50 flex justify-end">
+                                    <button
+                                        onClick={async () => {
+                                            if (!user) return;
+                                            if (confirm('¿Estás seguro que deseas cancelar este pedido?')) {
+                                                try {
+                                                    await StoreService.cancelOrderSocio(order.id, user.id);
+                                                    // Refresh list
+                                                    const updated = await StoreService.getPedidosBySocio(user.id);
+                                                    setOrders(updated.sort((a, b) => new Date(b.fechaCreacion).getTime() - new Date(a.fechaCreacion).getTime()));
+                                                } catch (e) {
+                                                    alert('Error al cancelar el pedido');
+                                                    console.error(e);
+                                                }
+                                            }
+                                        }}
+                                        className="text-xs text-destructive hover:bg-destructive/10 px-3 py-1.5 rounded-md font-medium transition-colors border border-destructive/20"
+                                    >
+                                        Cancelar Pedido
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
@@ -143,3 +181,4 @@ export default function MisPedidosPage() {
         </div>
     );
 }
+

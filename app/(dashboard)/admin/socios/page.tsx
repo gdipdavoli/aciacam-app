@@ -17,17 +17,32 @@ export default function AdminSociosPage() {
 
     useEffect(() => {
         if (!authLoading) {
-            if (!user || user.rol !== 'admin') {
-                router.push('/');
+            console.log("AdminSocios: Checking Access", user);
+            if (!user || (user.rol !== 'admin' && user.rol !== 'staff')) {
+                // Stop loop for debugging
+                // router.push('/');
                 return;
             }
 
-            StoreService.getAllSocios().then(data => {
+            // FILTER: Fetches only 'socio' role (clients)
+            StoreService.getAllSocios('socio').then(data => {
                 setSocios(data);
                 setLoading(false);
             });
         }
     }, [user, authLoading, router]);
+
+    if (!authLoading && (!user || (user.rol !== 'admin' && user.rol !== 'staff'))) {
+        return (
+            <div className="p-8 text-center">
+                <h1 className="text-xl font-bold text-red-500">Acceso Denegado</h1>
+                <p>Usuario: {user?.id}</p>
+                <p>Rol detectado: {user?.rol || 'Ninguno'}</p>
+                <p>Esperado: admin o staff</p>
+                <button onClick={() => router.push('/')} className="mt-4 p-2 bg-gray-200 rounded">Ir al Inicio</button>
+            </div>
+        );
+    }
 
     const getReprocannStatus = (socio: Socio) => socio.reprocann?.estado || 'pendiente';
     const getContractStatus = (socio: Socio) => socio.documentacion?.contrato?.estado || 'pendiente';
@@ -60,25 +75,14 @@ export default function AdminSociosPage() {
 
     return (
         <div>
-            <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="flex justify-between items-center mb-8">
                 <div>
-                    <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Gestión de Socios</h1>
-                    <p style={{ color: 'hsl(var(--muted-foreground))' }}>Administrar pacientes y documentación.</p>
+                    <h1 className="text-3xl font-bold mb-2">Gestión de Socios</h1>
+                    <p className="text-muted-foreground">Administrar pacientes y documentación.</p>
                 </div>
                 <button
                     onClick={() => router.push('/admin/socios/new')}
-                    style={{
-                        backgroundColor: 'hsl(var(--primary))',
-                        color: 'hsl(var(--primary-foreground))',
-                        border: 'none',
-                        padding: '0.75rem 1rem',
-                        borderRadius: 'var(--radius)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        cursor: 'pointer',
-                        fontWeight: 500
-                    }}
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-3 rounded-xl flex items-center gap-2 font-medium transition-colors"
                 >
                     <Plus size={18} />
                     Nuevo Socio
@@ -86,42 +90,22 @@ export default function AdminSociosPage() {
             </div>
 
             {/* Filters */}
-            <div style={{
-                display: 'flex',
-                gap: '1rem',
-                marginBottom: '1.5rem',
-                flexWrap: 'wrap',
-                backgroundColor: 'hsl(var(--card))',
-                padding: '1rem',
-                borderRadius: 'var(--radius)',
-                border: '1px solid hsl(var(--border))'
-            }}>
-                <div style={{ flex: 1, position: 'relative', minWidth: '200px' }}>
-                    <Search size={18} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'hsl(var(--muted-foreground))' }} />
+            <div className="flex flex-wrap gap-4 mb-6 bg-card p-4 rounded-xl border border-border">
+                <div className="flex-1 relative min-w-[200px]">
+                    <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input
                         type="text"
                         placeholder="Buscar por nombre, DNI, email..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        style={{
-                            width: '100%',
-                            padding: '0.5rem 0.5rem 0.5rem 2.2rem',
-                            borderRadius: 'var(--radius)',
-                            border: '1px solid hsl(var(--border))',
-                            outline: 'none'
-                        }}
+                        className="w-full pl-9 p-2 rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                 </div>
 
                 <select
                     value={filter}
                     onChange={(e) => setFilter(e.target.value as any)}
-                    style={{
-                        padding: '0.5rem',
-                        borderRadius: 'var(--radius)',
-                        border: '1px solid hsl(var(--border))',
-                        minWidth: '200px'
-                    }}
+                    className="p-2 rounded-lg border border-input bg-background text-foreground min-w-[200px] focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                     <option value="all">Todos los estados</option>
                     <option value="incomplete">Documentación Pendiente</option>
@@ -131,16 +115,16 @@ export default function AdminSociosPage() {
             </div>
 
             {/* Table */}
-            <div style={{ overflowX: 'auto', backgroundColor: 'hsl(var(--card))', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+            <div className="overflow-x-auto bg-card rounded-xl border border-border">
+                <table className="w-full border-collapse min-w-[800px]">
                     <thead>
-                        <tr style={{ borderBottom: '1px solid hsl(var(--border))', textAlign: 'left', backgroundColor: 'hsl(var(--muted))' }}>
-                            <th style={{ padding: '1rem' }}>Socio</th>
-                            <th style={{ padding: '1rem' }}>DNI</th>
-                            <th style={{ padding: '1rem' }}>Ubicación</th>
-                            <th style={{ padding: '1rem' }}>REPROCANN</th>
-                            <th style={{ padding: '1rem' }}>Documentación</th>
-                            <th style={{ padding: '1rem' }}>Acciones</th>
+                        <tr className="border-b border-border text-left bg-muted/50">
+                            <th className="p-4 text-muted-foreground font-medium">Socio</th>
+                            <th className="p-4 text-muted-foreground font-medium">DNI</th>
+                            <th className="p-4 text-muted-foreground font-medium">Ubicación</th>
+                            <th className="p-4 text-muted-foreground font-medium">REPROCANN</th>
+                            <th className="p-4 text-muted-foreground font-medium">Documentación</th>
+                            <th className="p-4 text-muted-foreground font-medium">Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -151,75 +135,54 @@ export default function AdminSociosPage() {
                             const docs = [
                                 socio.documentacion?.consentimiento,
                                 socio.documentacion?.declaracionJurada,
-                                socio.documentacion?.contrato,
-                                socio.documentacion?.contratoCultivo,
-                                socio.documentacion?.recetaMedica
+                                socio.documentacion?.contrato_autocultivo,
+                                socio.documentacion?.contrato_madre,
+                                socio.documentacion?.contrato
                             ];
                             const completedCount = docs.filter(d => d?.estado === 'completo').length;
                             const hasExpired = docs.some(d => d?.estado === 'vencido');
                             const hasPending = docs.some(d => d?.estado === 'pendiente');
 
                             let docStatusLabel = 'Completo';
-                            let docColor = '#166534';
-                            let docBg = '#dcfce7';
+                            // Tailwind classes string
+                            let docBadgeClass = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800';
 
                             if (hasExpired) {
                                 docStatusLabel = 'Vencido';
-                                docColor = '#991b1b';
-                                docBg = '#fee2e2';
+                                docBadgeClass = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800';
                             } else if (hasPending) {
-                                docStatusLabel = `${completedCount}/5`; // or just Pendiente
-                                docColor = '#b45309';
-                                docBg = '#ffedd5';
+                                docStatusLabel = `${completedCount}/5`;
+                                docBadgeClass = 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800';
                             }
 
                             return (
-                                <tr key={socio.id} style={{ borderBottom: '1px solid hsl(var(--border))' }}>
-                                    <td style={{ padding: '1rem' }}>
-                                        <div style={{ fontWeight: 500 }}>{socio.nombre} {socio.apellido}</div>
-                                        <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>{socio.email}</div>
+                                <tr key={socio.id} className="border-b border-border hover:bg-muted/50 transition-colors">
+                                    <td className="p-4">
+                                        <div className="font-medium">{socio.nombre} {socio.apellido}</div>
+                                        <div className="text-sm text-muted-foreground">{socio.email}</div>
                                     </td>
-                                    <td style={{ padding: '1rem' }}>{socio.dni}</td>
-                                    <td style={{ padding: '1rem' }}>{socio.localidad || '-'}</td>
+                                    <td className="p-4">{socio.dni}</td>
+                                    <td className="p-4">{socio.localidad || '-'}</td>
 
-                                    <td style={{ padding: '1rem' }}>
-                                        <span style={{
-                                            padding: '0.2rem 0.6rem',
-                                            borderRadius: '99px',
-                                            fontSize: '0.8rem',
-                                            backgroundColor: reprocann === 'vigente' ? '#dcfce7' : '#fee2e2',
-                                            color: reprocann === 'vigente' ? '#166534' : '#991b1b',
-                                            textTransform: 'capitalize'
-                                        }}>
+                                    <td className="p-4">
+                                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium capitalize border ${reprocann === 'vigente'
+                                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800'
+                                            : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800'
+                                            }`}>
                                             {reprocann}
                                         </span>
                                     </td>
 
-                                    <td style={{ padding: '1rem' }}>
-                                        <span style={{
-                                            padding: '0.2rem 0.6rem',
-                                            borderRadius: '99px',
-                                            fontSize: '0.8rem',
-                                            backgroundColor: docBg,
-                                            color: docColor,
-                                            fontWeight: 600
-                                        }}>
+                                    <td className="p-4">
+                                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${docBadgeClass}`}>
                                             {docStatusLabel}
                                         </span>
                                     </td>
 
-                                    <td style={{ padding: '1rem' }}>
+                                    <td className="p-4">
                                         <button
                                             onClick={() => router.push(`/admin/socios/${socio.id}`)}
-                                            style={{
-                                                padding: '0.4rem 0.8rem',
-                                                backgroundColor: 'hsl(var(--secondary))',
-                                                color: 'hsl(var(--secondary-foreground))',
-                                                border: 'none',
-                                                borderRadius: 'var(--radius)',
-                                                cursor: 'pointer',
-                                                fontSize: '0.9rem'
-                                            }}
+                                            className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 transition-colors text-sm font-medium"
                                         >
                                             Ver / Editar
                                         </button>
@@ -230,7 +193,7 @@ export default function AdminSociosPage() {
                     </tbody>
                 </table>
                 {filteredSocios.length === 0 && (
-                    <div style={{ padding: '2rem', textAlign: 'center', color: 'hsl(var(--muted-foreground))' }}>
+                    <div className="p-8 text-center text-muted-foreground">
                         No se encontraron socios con esos criterios.
                     </div>
                 )}

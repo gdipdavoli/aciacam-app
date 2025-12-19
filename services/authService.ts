@@ -6,7 +6,7 @@ export const AuthService = {
     sendVerificationCode: async (contact: string): Promise<boolean> => {
         // Simulate network delay
         await new Promise((resolve) => setTimeout(resolve, 500));
-        console.log(`Sending code to ${contact}`);
+
         // Check if user exists in mock data
         const userExists = MOCK_SOCIOS.some(s => s.email === contact || s.telefono === contact);
 

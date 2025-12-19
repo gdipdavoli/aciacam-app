@@ -7,7 +7,8 @@ import Link from 'next/link';
 import { useCart } from '@/context/CartContext';
 import styles from './dashboard.module.css';
 
-import { Home, Flower2, ShoppingBag, User, LogOut, Leaf, CheckCircle } from 'lucide-react';
+import { Home, Flower2, ShoppingBag, User, LogOut, Leaf, CheckCircle, Calendar } from 'lucide-react';
+// import { ChatWidget } from '@/app/components/ChatWidget'; // DISABLED for Production
 
 
 export default function DashboardLayout({
@@ -15,7 +16,7 @@ export default function DashboardLayout({
 }: {
     children: React.ReactNode;
 }) {
-    const { user, loading, logout } = useAuth();
+    const { user, session, loading, logout } = useAuth();
     const { itemCount } = useCart();
     const router = useRouter();
 
@@ -27,10 +28,19 @@ export default function DashboardLayout({
         }
     }, [user, loading, router]);
 
-    if (loading || !user) {
+    if (loading) {
         return (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-                <p>Cargando...</p>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: '1rem' }}>
+                <p>Cargando sesión...</p>
+            </div>
+        );
+    }
+
+    if (!user) {
+        return (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: '1rem' }}>
+                <p>Redirigiendo al login...</p>
+                <Link href="/login" style={{ textDecoration: 'underline' }}>Si no redirige, click aquí</Link>
             </div>
         );
     }
@@ -44,6 +54,16 @@ export default function DashboardLayout({
             { href: '/variedades', label: 'Catálogo', icon: Flower2 },
             { href: '/admin/products', label: 'Productos', icon: CheckCircle },
             { href: '/admin/socios', label: 'Socios', icon: User },
+            { href: '/admin/equipo', label: 'Equipo', icon: User },
+            { href: '/admin/agenda', label: 'Agenda', icon: Calendar }, // New Agenda
+        ];
+    } else if (user.rol === 'staff') {
+        navItems = [
+            { href: '/admin', label: 'Pedidos', icon: ShoppingBag },
+            { href: '/variedades', label: 'Catálogo', icon: Flower2 },
+            { href: '/admin/products', label: 'Productos', icon: CheckCircle },
+            { href: '/admin/socios', label: 'Socios', icon: User },
+            { href: '/admin/agenda', label: 'Agenda', icon: Calendar }, // Staff can manage agenda
         ];
     } else {
         navItems = [
@@ -59,8 +79,10 @@ export default function DashboardLayout({
             {/* Desktop Sidebar */}
             <aside className={styles.sidebar}>
                 <div className={styles.logo}>
-                    <Leaf size={24} />
-                    <span>ACIACAM</span>
+                    <picture style={{ display: 'block', width: '100px', height: 'auto' }}>
+                        <source srcSet="/logo-night.png" media="(prefers-color-scheme: dark)" />
+                        <img src="/logo-day.png" alt="ACIACAM" style={{ width: '100%', height: 'auto', objectFit: 'contain' }} />
+                    </picture>
                 </div>
 
                 <nav className={styles.nav}>
@@ -80,7 +102,7 @@ export default function DashboardLayout({
                     })}
 
                     {/* Cart Item - Only for Members */}
-                    {user.rol !== 'admin' && (
+                    {user.rol !== 'admin' && user.rol !== 'staff' && (
                         <Link
                             href="/checkout"
                             className={`${styles.navItem} ${pathname === '/checkout' ? styles.navItemActive : ''}`}
@@ -152,7 +174,7 @@ export default function DashboardLayout({
                 })}
 
                 {/* Mobile Cart - Only for Members */}
-                {user.rol !== 'admin' && (
+                {user.rol !== 'admin' && user.rol !== 'staff' && (
                     <Link
                         href="/checkout"
                         className={`${styles.mobileNavItem} ${pathname === '/checkout' ? styles.mobileNavItemActive : ''}`}
@@ -193,6 +215,11 @@ export default function DashboardLayout({
                     <span style={{ color: 'hsl(var(--destructive))' }}>Salir</span>
                 </button>
             </nav>
+
+            {/* Chat Widget - DISABLED for Production Stability */}
+            {/*
+            {user && session?.access_token && <ChatWidget key={session.access_token} />}
+            */}
 
         </div>
     );

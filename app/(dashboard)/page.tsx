@@ -1,78 +1,60 @@
 "use client";
 
+import React, { useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import styles from './dashboard.module.css';
+import { useRouter } from 'next/navigation';
 
-// We can recycle some dashboard styles or create new ones. 
-// For now, let's use inline for specific page content or reuse globals.
+/**
+ * SessionGate (Root Page)
+ * Centralizes redirection logic based on authentication and socio status.
+ */
+export default function DashboardPage() {
+    const { user, isInitialized } = useAuth(); // Use isInitialized instead of loading
+    const router = useRouter();
 
-export default function DashboardHome() {
-    const { user } = useAuth();
+    useEffect(() => {
+        // Only decide when AuthContext has EXPLICITLY finished initializing
+        if (!isInitialized) return;
 
+        console.log("SessionGate: Checking state...", { user: user?.id, role: user?.rol });
+
+        // 1. No Session? -> Login
+        if (!user) {
+            console.log("Redirect -> /login");
+            router.replace('/login');
+            return;
+        }
+
+        // 2. Socio Loaded? -> Check Status
+        // Assuming 'estado' or similar property logic. 
+        const socio = user as any;
+
+        if (socio.estado === 'pendiente') {
+            console.log("Redirect -> /pendiente-aprobacion");
+            router.replace('/pendiente-aprobacion');
+        } else {
+            // 3. Active Socio -> Dashboard or Catalog
+            if (socio.rol === 'admin') {
+                console.log("Redirect -> /admin/socios (Admin)");
+                router.replace('/admin/socios');
+            } else if (socio.rol === 'staff') {
+                console.log("Redirect -> /admin (Staff)");
+                router.replace('/admin');
+            } else {
+                console.log("Redirect -> /variedades (Catalog)");
+                router.replace('/variedades');
+            }
+        }
+
+    }, [user, isInitialized, router]);
+
+
+    // Show generic loader while deciding
     return (
-        <div>
-            <header style={{ marginBottom: '2rem' }}>
-                <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Hola, {user?.nombre} 👋</h1>
-                <p style={{ color: 'hsl(var(--muted-foreground))' }}>Bienvenido a la plataforma de socios de ACIACAM.</p>
-            </header>
-
-            <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                gap: '1.5rem'
-            }}>
-                {/* Quick Actions Cards */}
-                <div style={{
-                    backgroundColor: 'hsl(var(--card))',
-                    padding: '1.5rem',
-                    borderRadius: 'var(--radius)',
-                    border: '1px solid hsl(var(--border))',
-                    boxShadow: '0 2px 10px rgba(0,0,0,0.05)'
-                }}>
-                    <h3 style={{ marginBottom: '1rem' }}>Hacer un pedido</h3>
-                    <p style={{ marginBottom: '1.5rem', color: 'hsl(var(--muted-foreground))', fontSize: '0.9rem' }}>
-                        Explora nuestras variedades y solicitá retiro en sede o delivery.
-                    </p>
-                    <a href="/variedades" style={{
-                        display: 'inline-block',
-                        backgroundColor: 'hsl(var(--primary))',
-                        color: 'hsl(var(--primary-foreground))',
-                        padding: '0.75rem 1.5rem',
-                        borderRadius: 'var(--radius)',
-                        fontSize: '0.9rem',
-                        fontWeight: 600
-                    }}>
-                        Ver Variedades
-                    </a>
-                </div>
-
-                <div style={{
-                    backgroundColor: 'hsl(var(--card))',
-                    padding: '1.5rem',
-                    borderRadius: 'var(--radius)',
-                    border: '1px solid hsl(var(--border))',
-                    boxShadow: '0 2px 10px rgba(0,0,0,0.05)'
-                }}>
-                    <h3 style={{ marginBottom: '1rem' }}>Mi Estado</h3>
-                    <p style={{ marginBottom: '0.5rem', color: 'hsl(var(--muted-foreground))', fontSize: '0.9rem' }}>
-                        Estado de cuenta: <span style={{ color: 'hsl(var(--primary))', fontWeight: 'bold' }}>Al día</span>
-                    </p>
-                    <p style={{ marginBottom: '1.5rem', color: 'hsl(var(--muted-foreground))', fontSize: '0.9rem' }}>
-                        Último pago: {user?.estadoCuenta.ultimaCuotaPaga}
-                    </p>
-                    <a href="/cuenta" style={{
-                        display: 'inline-block',
-                        backgroundColor: 'transparent',
-                        border: '1px solid hsl(var(--border))',
-                        color: 'hsl(var(--foreground))',
-                        padding: '0.75rem 1.5rem',
-                        borderRadius: 'var(--radius)',
-                        fontSize: '0.9rem',
-                        fontWeight: 600
-                    }}>
-                        Ver Detalles
-                    </a>
-                </div>
+        <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ textAlign: 'center' }}>
+                <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Cargando sesión...</h2>
+                <p style={{ color: '#666', fontSize: '0.9rem' }}>Verificando credenciales</p>
             </div>
         </div>
     );

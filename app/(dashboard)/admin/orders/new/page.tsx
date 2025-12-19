@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { Socio, Producto, OrderType, OrderItem } from '@/types';
 import { ArrowLeft, User, ShoppingBag, Truck, Check } from 'lucide-react';
+import { SlotSelector } from '@/app/components/SlotSelector';
 
 export default function NewDispensePage() {
     const { user, loading: authLoading } = useAuth();
@@ -22,8 +23,13 @@ export default function NewDispensePage() {
     const today = new Date().toISOString().split('T')[0];
     const [orderType, setOrderType] = useState<OrderType>('retiro_sede');
     const [address, setAddress] = useState('');
-    const [date, setDate] = useState(today);
+    const [date, setDate] = useState(today); // Legacy, kept for fallback
     const [notes, setNotes] = useState('');
+
+    // Slot Logic
+    const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+    const [slotLabel, setSlotLabel] = useState('');
+    const [slotDate, setSlotDate] = useState('');
 
     // Step 3: Products
     const [products, setProducts] = useState<Producto[]>([]);
@@ -31,7 +37,7 @@ export default function NewDispensePage() {
 
     useEffect(() => {
         if (!authLoading) {
-            if (!user || user.rol !== 'admin') {
+            if (!user || (user.rol !== 'admin' && user.rol !== 'staff')) {
                 router.push('/');
                 return;
             }
@@ -50,6 +56,18 @@ export default function NewDispensePage() {
         setAddress(s.direccion || '');
         setStep(2);
     };
+
+    const handleNextStep = () => {
+        if (orderType === 'retiro_sede' && !selectedSlotId) {
+            alert('Por favor selecciona un turno de retiro.');
+            return;
+        }
+        if (orderType === 'delivery' && !address) {
+            alert('Por favor completa la dirección.');
+            return;
+        }
+        setStep(3);
+    }
 
     const handleAddToCart = (id: string, qty: number) => {
         setCart(prev => ({ ...prev, [id]: Math.max(0, (prev[id] || 0) + qty) }));
@@ -81,7 +99,8 @@ export default function NewDispensePage() {
                 origen: 'admin',
                 direccionEntrega: orderType === 'delivery' ? address : undefined,
                 observaciones: notes,
-                fechaRetiroPreferida: orderType === 'retiro_sede' ? date : undefined,
+                fechaRetiroPreferida: orderType === 'retiro_sede' ? slotDate : undefined,
+                slotId: orderType === 'retiro_sede' ? selectedSlotId! : undefined,
                 estado: 'confirmado' // Auto-confirm admin orders
             });
             alert('Dispensa creada correctamente');
@@ -188,8 +207,15 @@ export default function NewDispensePage() {
 
                     {orderType === 'retiro_sede' ? (
                         <div style={{ marginBottom: '1rem' }}>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Fecha Aproximada de Retiro</label>
-                            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }} />
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Turno de Retiro</label>
+                            <SlotSelector
+                                selectedSlotId={selectedSlotId}
+                                onSelect={(id, label, date) => {
+                                    setSelectedSlotId(id);
+                                    setSlotLabel(label);
+                                    setSlotDate(date);
+                                }}
+                            />
                         </div>
                     ) : (
                         <div style={{ marginBottom: '1rem' }}>
@@ -204,7 +230,7 @@ export default function NewDispensePage() {
                     </div>
 
                     <button
-                        onClick={() => setStep(3)}
+                        onClick={handleNextStep}
                         style={{ width: '100%', padding: '1rem', backgroundColor: 'hsl(var(--primary))', color: 'white', border: 'none', borderRadius: 'var(--radius)', fontSize: '1rem', fontWeight: 600, cursor: 'pointer' }}
                     >
                         Continuar

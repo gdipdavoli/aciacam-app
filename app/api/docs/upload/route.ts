@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 export const runtime = "nodejs";
 
 // Server-side ONLY environment variables
-const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export async function POST(req: NextRequest) {
@@ -44,19 +44,43 @@ export async function POST(req: NextRequest) {
 
         const buffer = Buffer.from(await file.arrayBuffer());
 
-        const { data, error } = await supabaseAdmin.storage
+        const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
             .from(bucket)
             .upload(path, buffer, {
                 contentType: file.type,
                 upsert: false
             });
 
-        if (error) {
-            console.error("Supabase Storage Upload Error:", error);
-            return NextResponse.json({ error: error.message }, { status: 500 });
+        if (uploadError) {
+            console.error("Supabase Storage Upload Error:", uploadError);
+            return NextResponse.json({ error: uploadError.message }, { status: 500 });
         }
 
-        return NextResponse.json({ path: data.path }, { status: 200 });
+        // 2. UPSERT in Database (documentos_socio)
+        // We use onConflict on (socio_id, tipo)
+        // We do NOT update 'estado' as it is deprecated.
+        const { error: dbError } = await supabaseAdmin
+            .from('documentos_socio')
+            .upsert({
+                socio_id: socioId,
+                tipo: docType,
+                archivo_path: path,
+                // verificacion_estado: 'pendiente' // OPTIONAL: Do we want to reset verification on new upload? 
+                // Let's assume YES, strict mode: New Document -> New Verification needed.
+                verificacion_estado: 'pendiente',
+                verificado_at: null,
+                verificado_por: null
+            }, {
+                onConflict: 'socio_id, tipo'
+            });
+
+        if (dbError) {
+            console.error("Supabase DB Insert Error:", dbError);
+            // Optional: Rollback storage if DB fails? For now, just report error.
+            return NextResponse.json({ error: "Upload successful but DB insert failed: " + dbError.message }, { status: 500 });
+        }
+
+        return NextResponse.json({ path: uploadData.path, success: true }, { status: 200 });
 
     } catch (error: any) {
         console.error("Upload API Error:", error);

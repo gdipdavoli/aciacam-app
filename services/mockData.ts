@@ -8,7 +8,7 @@ export const MOCK_SOCIOS: Socio[] = [
         dni: '12345678',
         telefono: '1155556666',
         email: 'juan@example.com',
-        rol: 'member',
+        rol: 'socio',
 
         ordenLibro: 10,
         actaNumero: 100,
@@ -46,7 +46,7 @@ export const MOCK_SOCIOS: Socio[] = [
         dni: '22333444',
         telefono: '1199998888',
         email: 'carlos@example.com',
-        rol: 'member',
+        rol: 'socio',
 
         vinculacion: 'Particular',
         activo: false,
@@ -60,7 +60,7 @@ export const MOCK_SOCIOS: Socio[] = [
 
         documentacion: {
             contrato: { estado: 'vencido', fechaEmision: '2022-01-01', fechaVencimiento: '2023-01-01', observaciones: 'Renovar urgente' },
-            recetaMedica: { estado: 'pendiente', observaciones: 'Falta presentar nueva receta' }
+
         },
         estadoCuenta: {
             saldo: 0,

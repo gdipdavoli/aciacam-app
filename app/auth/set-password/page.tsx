@@ -1,0 +1,143 @@
+"use client";
+
+import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/services/supabaseClient';
+
+export default function SetPasswordPage() {
+    const router = useRouter();
+    const [password, setPassword] = useState('');
+    const [confirm, setConfirm] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError(null);
+
+        if (password !== confirm) {
+            setError("Las contraseñas no coinciden.");
+            return;
+        }
+
+        if (password.length < 6) {
+            setError("La contraseña debe tener al menos 6 caracteres.");
+            return;
+        }
+
+        setLoading(true);
+
+        try {
+            if (!supabase) throw new Error("Supabase no inicializado");
+
+            // Verify session exists
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                // If session is lost (e.g. Safari private), we can't set password without token.
+                // We should guide user to recover.
+
+                // Note: We can Try to extract 'access_token' from URL hash manually if Supabase client missed it?
+                // But usually Supabase client handles it.
+
+                // Show Error and Link to Login/Reset
+                setError("SESSION_EXPIRED");
+                setLoading(false);
+                return;
+            }
+
+            const { error: updateError } = await supabase.auth.updateUser({
+                password: password
+            });
+
+            if (updateError) throw updateError;
+
+            // Success!
+            // Optional: Update metadata so we know they set it? 
+            // supabase.auth.updateUser takes care of the password.
+            // We can now proceed to Terms or Onboarding.
+
+            // Check if Terms accepted? AuthContext will handle that gate.
+            // We just redirect to root or /terms
+            router.replace('/terms');
+
+        } catch (err: any) {
+            console.error(err);
+            setError(err.message || "Error al guardar la contraseña.");
+        } finally {
+            // Only stop loading if we didn't return early
+            if (loading) setLoading(false);
+        }
+    };
+
+    if (error === "SESSION_EXPIRED") {
+        return (
+            <div style={{ maxWidth: '400px', margin: '4rem auto', padding: '2rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', textAlign: 'center' }}>
+                <h1 style={{ fontSize: '1.2rem', marginBottom: '1rem', color: 'hsl(var(--destructive))' }}>Enlace Expirado o Sesión Inválida</h1>
+                <p style={{ marginBottom: '1.5rem', color: 'hsl(var(--muted-foreground))' }}>
+                    No pudimos detectar tu sesión de invitación. Esto puede pasar si el enlace ya fue usado o expiró.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <button
+                        onClick={() => router.push('/login')}
+                        style={{ padding: '0.75rem', backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--secondary-foreground))', border: 'none', borderRadius: 'var(--radius)', cursor: 'pointer' }}>
+                        Ir al Login / Recuperar cuenta
+                    </button>
+                    {/* Optional: Mailto help */}
+                    <a href="mailto:soporte@aciacam.org" style={{ fontSize: '0.9rem', color: 'hsl(var(--primary))' }}>Contactar Soporte</a>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div style={{ maxWidth: '400px', margin: '4rem auto', padding: '2rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))' }}>
+            <h1 style={{ fontSize: '1.5rem', marginBottom: '1.5rem', textAlign: 'center' }}>Crear Contraseña</h1>
+            <p style={{ marginBottom: '1.5rem', color: 'hsl(var(--muted-foreground))', textAlign: 'center' }}>
+                Para completar la activación de tu cuenta, por favor definí una contraseña segura.
+            </p>
+
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Nueva Contraseña</label>
+                    <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--input))' }}
+                    />
+                </div>
+                <div>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Confirmar Contraseña</label>
+                    <input
+                        type="password"
+                        value={confirm}
+                        onChange={(e) => setConfirm(e.target.value)}
+                        required
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--input))' }}
+                    />
+                </div>
+
+                {error && <div style={{ color: 'red', fontSize: '0.9rem' }}>{error}</div>}
+
+                <button
+                    type="submit"
+                    disabled={loading}
+                    style={{
+                        marginTop: '1rem',
+                        padding: '0.75rem',
+                        backgroundColor: 'hsl(var(--primary))',
+                        color: 'hsl(var(--primary-foreground))',
+                        border: 'none',
+                        borderRadius: 'var(--radius)',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        opacity: loading ? 0.7 : 1
+                    }}
+                >
+                    {loading ? 'Guardando...' : 'Guardar y Continuar'}
+                </button>
+            </form>
+        </div>
+    );
+}

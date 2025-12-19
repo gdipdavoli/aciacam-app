@@ -6,7 +6,8 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { OrderType } from '@/types';
 import { useRouter } from 'next/navigation';
-import { Trash2, Plus, Minus } from 'lucide-react';
+import { Trash2, Plus, Minus, MapPin, CheckCircle, ExternalLink } from 'lucide-react';
+import { SlotSelector } from '@/app/components/SlotSelector'; // Import Component
 
 export default function CheckoutPage() {
     const { items, removeItem, itemCount, clearCart, updateQuantity } = useCart();
@@ -28,13 +29,16 @@ export default function CheckoutPage() {
     const [direccion, setDireccion] = useState(user?.direccion || '');
     const [localidad, setLocalidad] = useState('');
 
-    // Retiro fields
-    const [fechaRetiro, setFechaRetiro] = useState('');
-    const [franjaHoraria, setFranjaHoraria] = useState('');
+    // Retiro fields -- REPLACED manual fields with Slot State
+    const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+    const [slotLabel, setSlotLabel] = useState('');
+    const [slotDate, setSlotDate] = useState('');
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    if (itemCount === 0) {
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+    if (itemCount === 0 && !showSuccessModal) {
         return (
             <div style={{ textAlign: 'center', padding: '4rem' }}>
                 <h2>Tu carrito está vacío</h2>
@@ -47,6 +51,17 @@ export default function CheckoutPage() {
 
     const handleCheckout = async () => {
         if (!user) return;
+
+        // VALIDATION
+        if (orderType === 'retiro_sede' && !selectedSlotId) {
+            alert("Por favor selecciona un turno para retirar.");
+            return;
+        }
+        if (orderType === 'delivery' && (!direccion || !localidad)) {
+            alert("Por favor completa los datos de envío.");
+            return;
+        }
+
         setIsSubmitting(true);
 
         try {
@@ -54,12 +69,18 @@ export default function CheckoutPage() {
                 observaciones,
                 direccionEntrega: orderType === 'delivery' ? direccion : undefined,
                 localidad: orderType === 'delivery' ? localidad : undefined,
-                fechaRetiroPreferida: orderType === 'retiro_sede' ? fechaRetiro : undefined,
-                franjaHoraria: orderType === 'retiro_sede' ? franjaHoraria : undefined
+                // Pass ISO Date for database compatibility (was slotLabel "Lunes...")
+                fechaRetiroPreferida: orderType === 'retiro_sede' ? slotDate : undefined,
+                slotId: orderType === 'retiro_sede' ? selectedSlotId! : undefined
             });
 
             clearCart();
-            router.push('/pedidos'); // Go to orders list
+
+            if (orderType === 'retiro_sede') {
+                setShowSuccessModal(true);
+            } else {
+                router.push('/pedidos'); // Go to orders list
+            }
         } catch (error) {
             console.error("Failed to create order", error);
             alert("Hubo un error al crear el pedido");
@@ -69,18 +90,61 @@ export default function CheckoutPage() {
     };
 
     return (
-        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+        <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+            {showSuccessModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-border p-6 animate-in zoom-in-95 duration-200">
+                        <div className="flex flex-col items-center text-center mb-6">
+                            <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-4">
+                                <CheckCircle size={32} />
+                            </div>
+                            <h2 className="text-2xl font-bold text-foreground">¡Pedido Confirmado!</h2>
+                            <p className="text-muted-foreground mt-2">
+                                Tu pedido ha sido registrado correctamente. Te esperamos en nuestra sede.
+                            </p>
+                        </div>
+
+                        <div className="bg-muted/50 rounded-lg p-4 mb-6 border border-border">
+                            <div className="flex items-start gap-3">
+                                <MapPin className="text-primary mt-1 shrink-0" size={20} />
+                                <div className="text-left">
+                                    <h3 className="font-semibold text-foreground">Dirección de Retiro</h3>
+                                    <p className="text-muted-foreground text-sm mt-1">
+                                        Alberdi 760, Ciudad de San Luis
+                                    </p>
+                                    <a
+                                        href="https://maps.app.goo.gl/HtCe4QQrq5GptKZt8"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1.5 text-primary hover:underline text-sm mt-2 font-medium"
+                                    >
+                                        Ver ubicación en mapa <ExternalLink size={12} />
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={() => router.push('/pedidos')}
+                            className="w-full py-3 px-4 bg-primary text-primary-foreground rounded-lg font-semibold hover:opacity-90 transition-opacity"
+                        >
+                            Ir a Mis Pedidos
+                        </button>
+                    </div>
+                </div>
+            )}
+
             <h1 style={{ marginBottom: '2rem', fontSize: '2rem' }}>Finalizar Pedido</h1>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '2rem', alignItems: 'start' }}>
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_350px] gap-8 items-start">
 
                 {/* Left Column: Form */}
-                <div>
+                <div className="min-w-0">
                     {step === 1 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                             <section style={{ backgroundColor: 'hsl(var(--card))', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
                                 <h3 style={{ marginBottom: '1rem' }}>Tipo de Pedido</h3>
-                                <div style={{ display: 'flex', gap: '1rem' }}>
+                                <div className="flex flex-col sm:flex-row gap-4">
                                     <label style={{
                                         flex: 1,
                                         padding: '1rem',
@@ -104,21 +168,54 @@ export default function CheckoutPage() {
                                         flex: 1,
                                         padding: '1rem',
                                         borderRadius: 'var(--radius)',
-                                        border: `2px solid ${orderType === 'delivery' ? 'hsl(var(--primary))' : 'hsl(var(--border))'}`,
-                                        cursor: 'pointer',
-                                        backgroundColor: orderType === 'delivery' ? 'hsl(var(--primary) / 0.05)' : 'transparent'
+                                        border: `2px solid ${!user?.envios_habilitados ? 'hsl(var(--muted))' : (orderType === 'delivery' ? 'hsl(var(--primary))' : 'hsl(var(--border))')}`,
+                                        cursor: user?.envios_habilitados ? 'pointer' : 'not-allowed',
+                                        backgroundColor: user?.envios_habilitados
+                                            ? (orderType === 'delivery' ? 'hsl(var(--primary) / 0.05)' : 'transparent')
+                                            : 'hsl(var(--muted) / 0.5)',
+                                        opacity: user?.envios_habilitados ? 1 : 0.7,
+                                        position: 'relative'
                                     }}>
-                                        <input
-                                            type="radio"
-                                            name="orderType"
-                                            value="delivery"
-                                            checked={orderType === 'delivery'}
-                                            onChange={() => setOrderType('delivery')}
-                                            style={{ marginRight: '0.5rem' }}
-                                        />
-                                        Delivery
+                                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                                            <input
+                                                type="radio"
+                                                name="orderType"
+                                                value="delivery"
+                                                checked={orderType === 'delivery'}
+                                                onChange={() => setOrderType('delivery')}
+                                                disabled={!user?.envios_habilitados}
+                                                style={{ marginRight: '0.5rem' }}
+                                            />
+                                            <div>
+                                                <span style={{ display: 'block', fontWeight: 500 }}>Envío a Domicilio</span>
+                                                {!user?.envios_habilitados && (
+                                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>No habilitado</span>
+                                                )}
+                                            </div>
+                                        </div>
                                     </label>
                                 </div>
+
+                                {orderType === 'delivery' && (
+                                    <div style={{
+                                        marginTop: '1rem',
+                                        padding: '0.75rem',
+                                        backgroundColor: 'hsl(var(--primary) / 0.1)',
+                                        border: '1px solid hsl(var(--primary) / 0.2)',
+                                        borderRadius: 'var(--radius)',
+                                        fontSize: '0.85rem',
+                                        color: 'hsl(var(--primary))',
+                                        display: 'flex',
+                                        alignItems: 'start',
+                                        gap: '0.5rem'
+                                    }}>
+                                        <span>🚚</span>
+                                        <span>
+                                            <strong>Nota Importante:</strong> El envío se realiza mediante <strong>Andreani</strong>.
+                                            El costo del mismo corre por cuenta del destinatario y será informado/abonado al momento del despacho o recepción.
+                                        </span>
+                                    </div>
+                                )}
                             </section>
 
                             <section style={{ backgroundColor: 'hsl(var(--card))', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
@@ -127,29 +224,19 @@ export default function CheckoutPage() {
                                 {orderType === 'retiro_sede' ? (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                         <div>
-                                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Día preferido</label>
-                                            <input
-                                                type="date"
-                                                value={fechaRetiro}
-                                                onChange={(e) => setFechaRetiro(e.target.value)}
-                                                style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--input))' }}
+                                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Seleccionar Turno de Retiro</label>
+                                            <SlotSelector
+                                                selectedSlotId={selectedSlotId}
+                                                onSelect={(id, label, date) => {
+                                                    setSelectedSlotId(id);
+                                                    setSlotLabel(label);
+                                                    setSlotDate(date);
+                                                }}
                                             />
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Franja Horaria</label>
-                                            <select
-                                                value={franjaHoraria}
-                                                onChange={(e) => setFranjaHoraria(e.target.value)}
-                                                style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--input))' }}
-                                            >
-                                                <option value="">Seleccionar...</option>
-                                                <option value="manana">Mañana (10 - 13hs)</option>
-                                                <option value="tarde">Tarde (15 - 19hs)</option>
-                                            </select>
                                         </div>
                                     </div>
                                 ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                    <div className="flex flex-col gap-4">
                                         <div>
                                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Dirección de Entrega</label>
                                             <input
@@ -157,7 +244,7 @@ export default function CheckoutPage() {
                                                 value={direccion}
                                                 onChange={(e) => setDireccion(e.target.value)}
                                                 placeholder="Calle 123, Depto 4B"
-                                                style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--input))' }}
+                                                className="w-full p-3 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                                             />
                                         </div>
                                         <div>
@@ -167,12 +254,9 @@ export default function CheckoutPage() {
                                                 value={localidad}
                                                 onChange={(e) => setLocalidad(e.target.value)}
                                                 placeholder="Palermo, CABA"
-                                                style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--input))' }}
+                                                className="w-full p-3 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                                             />
                                         </div>
-                                        <p style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>
-                                            * El costo de envío se confirmará al procesar el pedido.
-                                        </p>
                                     </div>
                                 )}
 
@@ -183,7 +267,7 @@ export default function CheckoutPage() {
                                         onChange={(e) => setObservaciones(e.target.value)}
                                         rows={3}
                                         placeholder="Alguna aclaración..."
-                                        style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--input))', resize: 'vertical' }}
+                                        className="w-full p-3 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
                                     />
                                 </div>
                             </section>

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Producto } from '@/types';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
-import { Plus } from 'lucide-react';
+import { Plus, ImageIcon } from 'lucide-react';
 
 
 interface ProductCardProps {
@@ -27,90 +27,82 @@ export default function ProductCard({ product }: ProductCardProps) {
     const isOutOfStock = product.stockDisponible === 0;
 
     return (
-        <div style={{
-            backgroundColor: 'hsl(var(--card))',
-            borderRadius: 'var(--radius)',
-            border: '1px solid hsl(var(--border))',
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-            transition: 'transform 0.2s',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
-        }}>
-            <div style={{
-                height: '140px',
-                backgroundColor: 'hsl(var(--muted))', // Placeholder for image
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'hsl(var(--muted-foreground))',
-                fontSize: '0.8rem'
-            }}>
-                {product.tipo.toUpperCase()}
-            </div>
+        <div className="bg-card rounded-xl border shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow">
+            <div className="h-48 bg-muted relative">
+                {product.imagen ? (
+                    <img
+                        src={product.imagen}
+                        alt={product.nombre}
+                        className="w-full h-full object-cover"
+                    />
+                ) : (
+                    <div className="w-full h-full flex items-center justify-center text-muted-foreground bg-gray-100">
+                        <div className="flex flex-col items-center gap-2">
+                            <ImageIcon size={32} className="opacity-20" />
+                            <span className="text-xs uppercase font-medium tracking-wider opacity-40">{product.tipo}</span>
+                        </div>
+                    </div>
+                )}
 
-            <div style={{ padding: '1rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.5rem' }}>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>{product.nombre}</h3>
-                    <span style={{
-                        fontSize: '0.7rem',
-                        padding: '0.2rem 0.6rem',
-                        borderRadius: '999px',
-                        backgroundColor: 'hsl(var(--accent))',
-                        color: 'hsl(var(--accent-foreground))'
-                    }}>
+                {/* Badge Overlay */}
+                <div className="absolute top-3 left-3">
+                    <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-black/60 backdrop-blur-sm text-white border border-white/10 uppercase tracking-wide shadow-sm">
                         {product.categoria}
                     </span>
                 </div>
+            </div>
 
-                <p style={{ fontSize: '0.9rem', color: 'hsl(var(--muted-foreground))', marginBottom: '1rem', flex: 1 }}>
+            <div className="p-4 flex flex-col flex-1">
+                <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-lg font-bold leading-tight line-clamp-2">{product.nombre}</h3>
+                </div>
+
+                <p className="text-sm text-muted-foreground mb-4 line-clamp-3 flex-1">
                     {product.descripcion}
                 </p>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto' }}>
-                    <div style={{ fontSize: '0.8rem' }}>
-                        {isOutOfStock ? (
-                            <span style={{ color: 'hsl(var(--destructive))', fontWeight: 500 }}>Sin stock</span>
-                        ) : isLowStock ? (
-                            <span style={{ color: 'orange', fontWeight: 500 }}>Últimas unidades</span>
+                <div className="flex justify-between items-center mt-auto pt-4 border-t border-dashed">
+                    <div className="text-xs font-medium">
+                        {(user?.rol === 'admin' || user?.rol === 'staff') ? (
+                            // Admin/Staff View: Show Exact Stock
+                            <span className={product.stockDisponible > 0 ? "text-blue-600" : "text-destructive"}>
+                                Stock: {product.stockDisponible}
+                            </span>
                         ) : (
-                            <span style={{ color: 'hsl(var(--primary))', fontWeight: 500 }}>Disponible</span>
+                            // Socio View: Generic Status
+                            isOutOfStock ? (
+                                <span className="text-destructive">Sin stock</span>
+                            ) : (
+                                <span className="text-green-600">Disponible</span>
+                            )
                         )}
                     </div>
 
-                    {user?.rol !== 'admin' && (
+                    {user?.rol !== 'admin' && user?.rol !== 'staff' && (
                         <button
                             onClick={handleAdd}
                             disabled={!product.activo || isOutOfStock}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.5rem',
-                                backgroundColor: 'hsl(var(--primary))',
-                                filter: added ? 'brightness(0.9)' : 'none',
-                                color: 'hsl(var(--primary-foreground))',
-                                border: 'none',
-                                padding: '0.5rem 1rem',
-                                borderRadius: 'var(--radius)',
-                                fontSize: '0.9rem',
-                                fontWeight: 500,
-                                cursor: isOutOfStock ? 'not-allowed' : 'pointer',
-                                opacity: isOutOfStock ? 0.5 : 1,
-                                transition: 'all 0.2s'
-                            }}
+                            className={`
+                                flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all
+                                ${added
+                                    ? 'bg-green-600 text-white hover:bg-green-700'
+                                    : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                                }
+                                ${(!product.activo || isOutOfStock) ? 'opacity-50 cursor-not-allowed' : ''}
+                            `}
                         >
                             {added ? (
-                                <>Agregado!</>
+                                <span>Agregado</span>
                             ) : (
                                 <>
                                     <Plus size={16} />
-                                    Agregar
+                                    <span>Agregar</span>
                                 </>
                             )}
                         </button>
                     )}
                 </div>
             </div>
-        </div >
+        </div>
     );
 }

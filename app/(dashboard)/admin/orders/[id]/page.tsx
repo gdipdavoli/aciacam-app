@@ -7,6 +7,8 @@ import { StoreService } from '@/services/storeService';
 import { Pedido, Socio, OrderType } from '@/types';
 import { ArrowLeft, CheckCircle, Clock, Package } from 'lucide-react';
 
+import { getStatusLabel, getNextStatusOptions } from '@/helpers/orderHelpers';
+
 export default function OrderDetailsPage() {
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
@@ -17,11 +19,20 @@ export default function OrderDetailsPage() {
     const [socio, setSocio] = useState<Socio | null>(null);
     const [loading, setLoading] = useState(true);
 
+    // Edit & Products State
+    const [isEditing, setIsEditing] = useState(false);
+    const [editedItems, setEditedItems] = useState<any[]>([]);
+    const [allProducts, setAllProducts] = useState<any[]>([]);
+    const [showAddProduct, setShowAddProduct] = useState(false);
 
+    // Confirmation State
+    const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+    const [showStatusConfirm, setShowStatusConfirm] = useState(false);
+    const [showSaveConfirm, setShowSaveConfirm] = useState(false);
 
     useEffect(() => {
         if (!authLoading) {
-            if (!user || user.rol !== 'admin') {
+            if (!user || (user.rol !== 'admin' && user.rol !== 'staff')) {
                 router.push('/');
                 return;
             }
@@ -31,6 +42,7 @@ export default function OrderDetailsPage() {
                 const foundOrder = allOrders.find(o => o.id === id);
                 if (foundOrder) {
                     setOrder(foundOrder);
+                    setEditedItems(foundOrder.items); // Init edit state
                     // Load Socio
                     const allSocios = await StoreService.getAllSocios();
                     const foundSocio = allSocios.find(s => s.id === foundOrder.socioId);
@@ -38,22 +50,66 @@ export default function OrderDetailsPage() {
                 }
                 setLoading(false);
             });
+
+            // Load Products for Editing
+            StoreService.getProductos(true).then(setAllProducts);
         }
     }, [user, authLoading, router, id]);
+    const handleStatusChangeRequest = (newStatus: string) => {
+        setPendingStatus(newStatus);
+        setShowStatusConfirm(true);
+    };
 
-    const handleStatusChange = async (newStatus: string) => {
+    const confirmStatusChange = async () => {
+        if (order && pendingStatus) {
+            await StoreService.updatePedidoStatus(order.id, pendingStatus as any);
+            // No need to setOrder locally if we are redirecting
+            // setOrder({ ...order, estado: pendingStatus as any });
+            setShowStatusConfirm(false);
+            setPendingStatus(null);
+            router.push('/admin'); // Redirect to list
+        }
+    };
+
+    // Edit Logic
+    const deleteItem = (idx: number) => {
+        const newItems = [...editedItems];
+        newItems.splice(idx, 1);
+        setEditedItems(newItems);
+    };
+
+    const updateItemQuantity = (idx: number, change: number) => {
+        const newItems = [...editedItems];
+        const item = { ...newItems[idx] };
+        item.cantidad = Math.max(1, item.cantidad + change);
+        newItems[idx] = item;
+        setEditedItems(newItems);
+    };
+
+    const addItemToOrder = (productId: string) => {
+        const product = allProducts.find(p => p.id === productId);
+        if (product) {
+            setEditedItems([...editedItems, {
+                productoId: product.id,
+                productoNombre: product.nombre,
+                cantidad: 1,
+                precioUnitario: product.precio
+            }]);
+            setShowAddProduct(false);
+        }
+    };
+
+    const saveOrderChanges = async () => {
         if (order) {
-            await StoreService.updatePedidoStatus(order.id, newStatus as any);
-            setOrder({ ...order, estado: newStatus as any });
+            await StoreService.updatePedidoItems(order.id, editedItems);
+            setOrder({ ...order, items: editedItems });
+            setIsEditing(false);
+            setShowSaveConfirm(false);
         }
     };
 
     if (loading || authLoading) return <div style={{ padding: '2rem' }}>Cargando detalle...</div>;
     if (!order) return <div style={{ padding: '2rem' }}>Pedido no encontrado.</div>;
-
-    const translateStatus = (status: string) => {
-        return status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ');
-    };
 
     return (
         <div style={{ maxWidth: '800px', margin: '0 auto', paddingBottom: '2rem' }}>
@@ -82,29 +138,33 @@ export default function OrderDetailsPage() {
                     </p>
                 </div>
 
-                <div style={{ textAlign: 'right' }}>
-                    <div style={{ marginBottom: '0.5rem', fontWeight: 600 }}>Estado Actual</div>
-                    <select
-                        value={order.estado}
-                        onChange={(e) => handleStatusChange(e.target.value)}
-                        style={{
-                            padding: '0.5rem',
-                            borderRadius: 'var(--radius)',
-                            border: '1px solid hsl(var(--border))',
-                            fontSize: '1rem'
-                        }}
-                    >
-                        <option value="pendiente">Pendiente</option>
-                        <option value="confirmado">Confirmado</option>
-                        <option value="en_preparacion">En Preparación</option>
-                        <option value="en_camino">En Camino</option>
-                        <option value="retirado">Retirado</option>
-                        <option value="entregado">Entregado</option>
-                        <option value="cancelado">Cancelado</option>
-                    </select>
+                <div className="text-right">
+                    <div className="mb-2 font-semibold">Estado Actual</div>
+                    <div className="relative inline-block w-full max-w-[200px]">
+                        <select
+                            value={order.estado}
+                            onChange={(e) => handleStatusChangeRequest(e.target.value)}
+                            className={`w-full appearance-none px-4 py-2 pr-10 rounded-lg border border-input text-base font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors cursor-pointer ${pendingStatus
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-700'
+                                    : 'bg-background text-foreground'
+                                }`}
+                        >
+                            {getNextStatusOptions(order.tipoPedido).map(opt => (
+                                <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                </option>
+                            ))}
+                        </select>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-muted-foreground">
+                            <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                                <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                            </svg>
+                        </div>
+                    </div>
                 </div>
             </div>
 
+            {/* ... (sections same) ... */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
 
                 {/* Datos del Pedido */}
@@ -196,23 +256,182 @@ export default function OrderDetailsPage() {
                     border: '1px solid hsl(var(--border))',
                     padding: '1.5rem'
                 }}>
-                    <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.5rem' }}>
-                        Productos ({order.items.length})
-                    </h3>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.5rem' }}>
+                        <h3 style={{ margin: 0 }}>
+                            Productos ({isEditing ? editedItems.length : order.items.length})
+                        </h3>
+                        {!isEditing ? (
+                            <button
+                                onClick={() => setIsEditing(true)}
+                                style={{
+                                    fontSize: '0.85rem',
+                                    padding: '0.25rem 0.5rem',
+                                    backgroundColor: 'hsl(var(--secondary))',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Modificar
+                            </button>
+                        ) : (
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button
+                                    onClick={() => {
+                                        setEditedItems(order.items);
+                                        setIsEditing(false);
+                                    }}
+                                    style={{
+                                        fontSize: '0.85rem',
+                                        padding: '0.25rem 0.5rem',
+                                        background: 'none',
+                                        border: '1px solid hsl(var(--border))',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={() => setShowSaveConfirm(true)}
+                                    style={{
+                                        fontSize: '0.85rem',
+                                        padding: '0.25rem 0.5rem',
+                                        backgroundColor: 'hsl(var(--primary))',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    Guardar
+                                </button>
+                            </div>
+                        )}
+                    </div>
 
                     <ul style={{ listStyle: 'none', padding: 0 }}>
-                        {order.items.map((item, idx) => (
+                        {(isEditing ? editedItems : order.items).map((item, idx) => (
                             <li key={idx} style={{
                                 display: 'flex',
                                 justifyContent: 'space-between',
-                                borderBottom: idx < order.items.length - 1 ? '1px solid hsl(var(--border))' : 'none',
+                                alignItems: 'center',
+                                borderBottom: '1px solid hsl(var(--border))',
                                 padding: '0.75rem 0'
                             }}>
-                                <span style={{ fontWeight: 500 }}>{item.cantidad}x {item.productoNombre}</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    {isEditing && (
+                                        <button
+                                            onClick={() => deleteItem(idx)}
+                                            style={{ color: 'red', background: 'none', border: 'none', cursor: 'pointer', padding: '0 0.5rem' }}
+                                            title="Eliminar"
+                                        >x</button>
+                                    )}
+                                    <span style={{ fontWeight: 500 }}>
+                                        {item.productoNombre}
+                                    </span>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                    {isEditing ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', backgroundColor: 'hsl(var(--muted))', borderRadius: '4px', padding: '2px' }}>
+                                            <button onClick={() => updateItemQuantity(idx, -1)} style={{ width: '24px', border: 'none', background: 'none', cursor: 'pointer' }}>-</button>
+                                            <span style={{ fontWeight: 600, minWidth: '20px', textAlign: 'center' }}>{item.cantidad}</span>
+                                            <button onClick={() => updateItemQuantity(idx, 1)} style={{ width: '24px', border: 'none', background: 'none', cursor: 'pointer' }}>+</button>
+                                        </div>
+                                    ) : (
+                                        <span style={{ fontWeight: 600 }}>x{item.cantidad}</span>
+                                    )}
+                                </div>
                             </li>
                         ))}
                     </ul>
+
+                    {isEditing && (
+                        <div style={{ marginTop: '1rem', borderTop: '1px dashed hsl(var(--border))', paddingTop: '1rem' }}>
+                            {!showAddProduct ? (
+                                <button
+                                    onClick={() => setShowAddProduct(true)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '0.5rem',
+                                        border: '1px dashed hsl(var(--muted-foreground))',
+                                        background: 'hsl(var(--muted) / 0.3)',
+                                        color: 'hsl(var(--muted-foreground))',
+                                        cursor: 'pointer',
+                                        borderRadius: 'var(--radius)'
+                                    }}
+                                >
+                                    + Agregar Producto
+                                </button>
+                            ) : (
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <select
+                                        onChange={(e) => addItemToOrder(e.target.value)}
+                                        defaultValue=""
+                                        style={{ flex: 1, padding: '0.5rem', borderRadius: '4px', border: '1px solid hsl(var(--input))' }}
+                                    >
+                                        <option value="" disabled>Seleccionar producto...</option>
+                                        {allProducts.map(p => (
+                                            <option key={p.id} value={p.id}>{p.nombre} ({p.stockDisponible})</option>
+                                        ))}
+                                    </select>
+                                    <button onClick={() => setShowAddProduct(false)} style={{ padding: '0.5rem', cursor: 'pointer' }}>Cancelar</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </section>
+
+                {/* Confirm Modals (Simple Inline Overlays) */}
+                {showStatusConfirm && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div className="bg-card p-8 rounded-xl max-w-md w-full border border-border shadow-xl">
+                            <h3 className="text-xl font-bold mb-4">¿Confirmar cambio de estado?</h3>
+                            <p className="text-muted-foreground mb-6">
+                                El pedido pasará a <strong className="text-foreground">{getStatusLabel(pendingStatus as any, order.tipoPedido)}</strong>.
+                            </p>
+                            <div className="flex justify-end gap-3">
+                                <button
+                                    onClick={() => setShowStatusConfirm(false)}
+                                    className="px-4 py-2 rounded-lg hover:bg-muted transition-colors font-medium"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={confirmStatusChange}
+                                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity font-medium"
+                                >
+                                    Confirmar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+
+                {showSaveConfirm && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div className="bg-card p-8 rounded-xl max-w-md w-full border border-border shadow-xl">
+                            <h3 className="text-xl font-bold mb-4">¿Guardar cambios en el pedido?</h3>
+                            <p className="text-muted-foreground mb-6">Se actualizarán los items y cantidades.</p>
+                            <div className="flex justify-end gap-3">
+                                <button
+                                    onClick={() => setShowSaveConfirm(false)}
+                                    className="px-4 py-2 rounded-lg hover:bg-muted transition-colors font-medium"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={saveOrderChanges}
+                                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity font-medium"
+                                >
+                                    Guardar Cambios
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
             </div>
         </div>

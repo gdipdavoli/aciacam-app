@@ -1,151 +1,145 @@
-"use client";
+'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '@/context/AuthContext';
-import styles from './login.module.css';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/services/supabaseClient';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useAuth } from '@/context/AuthContext';
 
 export default function LoginPage() {
-    const [step, setStep] = useState<'contact' | 'code'>('contact');
-    const [contact, setContact] = useState('');
-    const [code, setCode] = useState('');
-    const [error, setError] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-
-    const { login, verify, user } = useAuth();
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const router = useRouter();
+    const { authError, isInitialized, user } = useAuth(); // Connect to Context
 
-    // Redirect if already logged in
+    // Effect: React to Context Error or Success
     useEffect(() => {
+        if (authError) {
+            setLoading(false);
+            setError(authError);
+        }
+
+        // Safety Fallback: If user is detected (AuthContext has finished loading user),
+        // we should redirect even if AuthContext handles it globally, to update UI state.
         if (user) {
-            if (user.rol === 'admin') {
-                router.push('/admin');
-            } else {
-                router.push('/');
-            }
+            console.log("LoginPage: User detected. Redirecting...");
+            setLoading(true); // Keep spinner
+            // Short delay to allow Context to do its job, otherwise force it
+            const timer = setTimeout(() => {
+                if (user.rol === 'admin' || user.rol === 'staff') {
+                    router.push('/admin');
+                } else {
+                    router.push('/variedades');
+                }
+            }, 500);
+            return () => clearTimeout(timer);
         }
-    }, [user, router]);
+    }, [authError, user, router]);
 
-
-    const handleSendCode = async (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
-        setError('');
-        setIsSubmitting(true);
 
-        try {
-            if (!contact.trim()) {
-                throw new Error('Por favor ingresa tu email o teléfono');
-            }
-
-            const success = await login(contact);
-            if (success) {
-                setStep('code');
-            } else {
-                setError('No pudimos enviar el código. Intenta nuevamente.');
-            }
-        } catch (err: any) {
-            setError(err.message || 'Ocurrió un error');
-        } finally {
-            setIsSubmitting(false);
+        // Client-side validation to prevent AuthApiError
+        if (!email?.trim() || !password?.trim()) {
+            setError("Por favor complete todos los campos.");
+            return;
         }
-    };
 
-    const handleVerify = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError('');
-        setIsSubmitting(true);
+        if (!supabase) {
+            setError("Error de configuración (Supabase Client missing)");
+            return;
+        }
 
-        try {
-            const success = await verify(contact, code);
-            if (success) {
-                // Redirect handled by useEffect, but for good UX we can also push here if we access user
-                // But useEffect is robust.
-            } else {
-                setError('Código incorrecto. Intenta "123456"'); // Hint for mock
-            }
-        } catch (err: any) {
-            setError(err.message || 'Error al verificar');
-        } finally {
-            setIsSubmitting(false);
+        setLoading(true);
+        setError(null);
+
+        console.log("Attempting login with email:", email);
+
+        const { error } = await supabase.auth.signInWithPassword({
+            email: email.trim(),
+            password,
+        });
+
+        if (error) {
+            console.error("Login Error:", error);
+            setError(error.message);
+            setLoading(false);
+        } else {
+            console.log("Login Action Successful. Waiting for AuthContext redirect...");
+            // Keep loading true. AuthContext listener will trigger `handleUserSession`.
         }
     };
 
     return (
-        <div className={styles.container}>
-            <div className={styles.card}>
-                <div className={styles.header}>
-                    <h1 className={styles.title}>ACIACAM</h1>
-                    <p className={styles.subtitle}>
-                        {step === 'contact'
-                            ? 'Ingresa tus datos para continuar'
-                            : 'Ingresa el código enviado'}
-                    </p>
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'hsl(var(--background))' }}>
+            <div style={{ padding: '2rem', maxWidth: '400px', width: '100%', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))' }}>
+                <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'center' }}>
+                    <picture style={{ display: 'block', width: '130px', height: 'auto' }}>
+                        <source srcSet="/logo-night.png" media="(prefers-color-scheme: dark)" />
+                        <img src="/logo-day.png" alt="ACIACAM" style={{ width: '100%', height: 'auto', objectFit: 'contain' }} />
+                    </picture>
                 </div>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '1.5rem', textAlign: 'center' }}>Ingresar</h1>
 
-                {error && <div className={styles.error}>{error}</div>}
+                <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-                {step === 'contact' ? (
-                    <form onSubmit={handleSendCode} className={styles.form}>
-                        <div className={styles.inputGroup}>
-                            <label htmlFor="contact" className={styles.label}>
-                                Email o Teléfono
-                            </label>
-                            <input
-                                id="contact"
-                                type="text"
-                                placeholder="ej. juan@email.com"
-                                className={styles.input}
-                                value={contact}
-                                onChange={(e) => setContact(e.target.value)}
-                                autoFocus
-                            />
+                    {error && (
+                        <div style={{ padding: '0.75rem', backgroundColor: '#fee2e2', color: '#991b1b', borderRadius: '4px', fontSize: '0.9rem' }}>
+                            {error}
                         </div>
-                        <button
-                            type="submit"
-                            className={`${styles.button} ${styles.buttonPrimary}`}
-                            disabled={isSubmitting}
-                        >
-                            {isSubmitting ? 'Enviando...' : 'Pedir Código'}
-                        </button>
-                    </form>
-                ) : (
-                    <form onSubmit={handleVerify} className={styles.form}>
-                        <div className={styles.inputGroup}>
-                            <label htmlFor="code" className={styles.label}>
-                                Código de verificación
-                            </label>
-                            <input
-                                id="code"
-                                type="text"
-                                placeholder="123456"
-                                className={styles.input}
-                                value={code}
-                                onChange={(e) => setCode(e.target.value)}
-                                autoFocus
-                            />
-                        </div>
-                        <button
-                            type="submit"
-                            className={`${styles.button} ${styles.buttonPrimary}`}
-                            disabled={isSubmitting}
-                        >
-                            {isSubmitting ? 'Verificando...' : 'Ingresar'}
-                        </button>
+                    )}
 
-                        <button
-                            type="button"
-                            className={`${styles.button} ${styles.buttonSecondary}`}
-                            onClick={() => {
-                                setStep('contact');
-                                setError('');
-                            }}
-                        >
-                            Volver atrás
-                        </button>
-                    </form>
-                )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        <label htmlFor="email" style={{ fontSize: '0.9rem', fontWeight: 500 }}>Email</label>
+                        <input
+                            id="email"
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                            autoComplete="username"
+                            style={{ padding: '0.6rem', border: '1px solid hsl(var(--border))', borderRadius: '4px' }}
+                        />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        <label htmlFor="password" style={{ fontSize: '0.9rem', fontWeight: 500 }}>Contraseña</label>
+                        <input
+                            id="password"
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required
+                            autoComplete="current-password"
+                            style={{ padding: '0.6rem', border: '1px solid hsl(var(--border))', borderRadius: '4px' }}
+                        />
+                        <div style={{ textAlign: 'right' }}>
+                            <Link href="/forgot-password" style={{ fontSize: '0.8rem', color: 'hsl(var(--primary))', textDecoration: 'none' }}>
+                                ¿Olvidaste tu contraseña?
+                            </Link>
+                        </div>
+                    </div>
+
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        style={{
+                            marginTop: '0.5rem',
+                            padding: '0.75rem',
+                            backgroundColor: 'hsl(var(--primary))',
+                            color: 'hsl(var(--primary-foreground))',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontWeight: 600,
+                            cursor: loading ? 'wait' : 'pointer'
+                        }}
+                    >
+                        {loading ? 'Ingresando...' : 'Ingresar'}
+                    </button>
+                </form>
             </div>
         </div>
     );
 }
-

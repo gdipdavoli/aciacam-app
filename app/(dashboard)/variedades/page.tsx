@@ -15,6 +15,7 @@ export default function VariedadesPage() {
 
     useEffect(() => {
         async function fetchProducts() {
+            // Service now fetches only active products by default for public
             const data = await StoreService.getProductos();
             setProducts(data);
             setFilteredProducts(data);
@@ -47,67 +48,36 @@ export default function VariedadesPage() {
     const types = ['todos', ...Array.from(new Set(products.map(p => p.tipo)))];
 
     return (
-        <div>
-            <div style={{ marginBottom: '2rem' }}>
-                <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Variedades Disponibles</h1>
-                <p style={{ color: 'hsl(var(--muted-foreground))' }}>
+        <div className="space-y-6">
+            <div>
+                <h1 className="text-3xl font-bold tracking-tight mb-2">Variedades Disponibles</h1>
+                <p className="text-muted-foreground">
                     Explora nuestro catálogo y agregá productos a tu pedido.
                 </p>
             </div>
 
             {/* Filters */}
-            <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '1rem',
-                marginBottom: '2rem',
-                alignItems: 'center'
-            }}>
-                <div style={{
-                    position: 'relative',
-                    flex: 1,
-                    minWidth: '250px',
-                    maxWidth: '400px'
-                }}>
-                    <Search size={18} style={{
-                        position: 'absolute',
-                        left: '12px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        color: 'hsl(var(--muted-foreground))'
-                    }} />
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                <div className="relative w-full max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                     <input
                         type="text"
                         placeholder="Buscar..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        style={{
-                            width: '100%',
-                            padding: '0.75rem 0.75rem 0.75rem 2.5rem',
-                            borderRadius: 'var(--radius)',
-                            border: '1px solid hsl(var(--input))',
-                            backgroundColor: 'hsl(var(--background))',
-                            fontSize: '0.95rem'
-                        }}
+                        className="w-full pl-10 pr-4 py-2 rounded-lg border bg-background focus:ring-2 focus:ring-primary focus:outline-none"
                     />
                 </div>
 
-                <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.25rem' }}>
+                <div className="flex gap-2 overflow-x-auto pb-2 w-full sm:w-auto">
                     {types.map(type => (
                         <button
                             key={type}
                             onClick={() => setSelectedType(type)}
-                            style={{
-                                padding: '0.5rem 1rem',
-                                borderRadius: '999px',
-                                border: '1px solid hsl(var(--border))',
-                                backgroundColor: selectedType === type ? 'hsl(var(--primary))' : 'transparent',
-                                color: selectedType === type ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))',
-                                cursor: 'pointer',
-                                textTransform: 'capitalize',
-                                fontSize: '0.9rem',
-                                whiteSpace: 'nowrap'
-                            }}
+                            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors capitalize whitespace-nowrap ${selectedType === type
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                                }`}
                         >
                             {type}
                         </button>
@@ -116,13 +86,9 @@ export default function VariedadesPage() {
             </div>
 
             {loading ? (
-                <p>Cargando catálogo...</p>
+                <div className="text-center py-12 text-muted-foreground">Cargando catálogo...</div>
             ) : (
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                    gap: '1.5rem'
-                }}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                     {filteredProducts.map(p => (
                         <ProductCard key={p.id} product={p} />
                     ))}
@@ -130,7 +96,7 @@ export default function VariedadesPage() {
             )}
 
             {!loading && filteredProducts.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '3rem', color: 'hsl(var(--muted-foreground))' }}>
+                <div className="text-center py-12 text-muted-foreground">
                     No se encontraron productos.
                 </div>
             )}
