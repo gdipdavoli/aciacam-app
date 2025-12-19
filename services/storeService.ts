@@ -595,6 +595,8 @@ export const StoreService = {
             dni: socio.dni,
             email: socio.email,
             telefono: socio.telefono,
+            rol: socio.rol || 'socio', // Add role persistence
+            activo: socio.activo !== undefined ? socio.activo : true
         };
 
         const { data, error } = await supabase
