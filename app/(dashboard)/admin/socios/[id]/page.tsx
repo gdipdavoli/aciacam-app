@@ -1036,13 +1036,28 @@ export default function SocioDetailsPage() {
                             />
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                            <InputGroup
-                                label="Fecha Ingreso"
-                                type="date"
-                                value={editingSection === 'admin' ? socio.fechaIngresoOng : socio.fechaIngresoOng}
-                                onChange={(v: string) => setSocio({ ...socio, fechaIngresoOng: v })}
-                                readOnly={editingSection !== 'admin'}
-                            />
+                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                                <InputGroup
+                                    label="Fecha Ingreso"
+                                    type="date"
+                                    value={editingSection === 'admin' ? socio.fechaIngresoOng : socio.fechaIngresoOng}
+                                    onChange={(v: string) => setSocio({ ...socio, fechaIngresoOng: v })}
+                                    readOnly={editingSection !== 'admin'}
+                                    width="50%"
+                                />
+                                <SelectGroup
+                                    label="Rol del Usuario"
+                                    value={socio.rol}
+                                    onChange={(v: any) => setSocio({ ...socio, rol: v })}
+                                    options={[
+                                        { val: 'socio', label: 'Socio (Cliente)' },
+                                        { val: 'staff', label: 'Staff' },
+                                        { val: 'admin', label: 'Administrador' }
+                                    ]}
+                                    readOnly={editingSection !== 'admin'}
+                                    width="50%"
+                                />
+                            </div>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
                                 <SelectGroup
                                     label="Estado"
