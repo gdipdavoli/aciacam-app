@@ -102,7 +102,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     console.warn("AuthContext: User authenticated but NO socio linked.");
                     setIsUnlinked(true);
                     setUser(null);
-                    router.replace('/pendiente-aprobacion');
+
+                    // Allow Auth Setup Pages to proceed without redirect loop
+                    if (!pathname?.startsWith('/auth/')) {
+                        router.replace('/pendiente-aprobacion');
+                    }
                 }
             } catch (fetchErr: any) {
                 console.error("AuthContext: Fetch Socio Failed. Details:", fetchErr);
