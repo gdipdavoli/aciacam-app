@@ -1045,18 +1045,20 @@ export default function SocioDetailsPage() {
                                     readOnly={editingSection !== 'admin'}
                                     width="50%"
                                 />
-                                <SelectGroup
-                                    label="Rol del Usuario"
-                                    value={socio.rol}
-                                    onChange={(v: any) => setSocio({ ...socio, rol: v })}
-                                    options={[
-                                        { val: 'socio', label: 'Socio (Cliente)' },
-                                        { val: 'staff', label: 'Staff' },
-                                        { val: 'admin', label: 'Administrador' }
-                                    ]}
-                                    readOnly={editingSection !== 'admin'}
-                                    width="50%"
-                                />
+                                {user?.rol === 'admin' && (
+                                    <SelectGroup
+                                        label="Rol del Usuario"
+                                        value={socio.rol}
+                                        onChange={(v: any) => setSocio({ ...socio, rol: v })}
+                                        options={[
+                                            { val: 'socio', label: 'Socio (Cliente)' },
+                                            { val: 'staff', label: 'Staff' },
+                                            { val: 'admin', label: 'Administrador' }
+                                        ]}
+                                        readOnly={editingSection !== 'admin'}
+                                        width="50%"
+                                    />
+                                )}
                             </div>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
                                 <SelectGroup
