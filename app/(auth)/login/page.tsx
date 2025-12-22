@@ -100,7 +100,7 @@ export default function LoginPage() {
                             onChange={(e) => setEmail(e.target.value)}
                             required
                             autoComplete="username"
-                            style={{ padding: '0.6rem', border: '1px solid hsl(var(--border))', borderRadius: '4px' }}
+                            style={{ padding: '0.6rem', border: '1px solid hsl(var(--border))', borderRadius: '4px', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
                         />
                     </div>
 
@@ -113,7 +113,7 @@ export default function LoginPage() {
                             onChange={(e) => setPassword(e.target.value)}
                             required
                             autoComplete="current-password"
-                            style={{ padding: '0.6rem', border: '1px solid hsl(var(--border))', borderRadius: '4px' }}
+                            style={{ padding: '0.6rem', border: '1px solid hsl(var(--border))', borderRadius: '4px', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
                         />
                         <div style={{ textAlign: 'right' }}>
                             <Link href="/forgot-password" style={{ fontSize: '0.8rem', color: 'hsl(var(--primary))', textDecoration: 'none' }}>
