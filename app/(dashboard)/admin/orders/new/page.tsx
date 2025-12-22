@@ -144,7 +144,7 @@ export default function NewDispensePage() {
                                 placeholder="Nombre, DNI..."
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
-                                style={{ width: '100%', padding: '0.75rem', paddingLeft: '2.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}
+                                style={{ width: '100%', padding: '0.75rem', paddingLeft: '2.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
                                 autoFocus
                             />
                             <SearchIcon style={{ position: 'absolute', left: 10, top: 12, opacity: 0.5 }} size={18} />
@@ -220,13 +220,13 @@ export default function NewDispensePage() {
                     ) : (
                         <div style={{ marginBottom: '1rem' }}>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Dirección de Entrega</label>
-                            <input type="text" value={address} onChange={e => setAddress(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }} />
+                            <input type="text" value={address} onChange={e => setAddress(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }} />
                         </div>
                     )}
 
                     <div style={{ marginBottom: '2rem' }}>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Observaciones / Notas</label>
-                        <textarea value={notes} onChange={e => setNotes(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', minHeight: '80px' }} placeholder="Opcional..." />
+                        <textarea value={notes} onChange={e => setNotes(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', minHeight: '80px', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }} placeholder="Opcional..." />
                     </div>
 
                     <button
