@@ -6,6 +6,7 @@ import { StoreService } from '@/services/storeService';
 import { Pedido } from '@/types';
 import { useRouter } from 'next/navigation';
 import { getStatusLabel, getNextStatusOptions, shouldShowInDefaultList, isFinalStatus } from '@/helpers/orderHelpers';
+import { MoreVertical } from 'lucide-react'; // Added for Mobile Menu
 
 export default function AdminPage() {
     const { user, loading: authLoading } = useAuth();
@@ -97,95 +98,89 @@ export default function AdminPage() {
                     <p style={{ color: 'hsl(var(--muted-foreground))' }}>Gestión de pedidos.</p>
                 </div>
 
-                <div style={{ display: 'flex', gap: '1rem' }}>
+                <div className="flex items-center gap-2">
+                    {/* Primary Action - Always Visible but compact on mobile */}
                     <button
                         onClick={() => router.push('/admin/orders/new')}
-                        style={{
-                            padding: '0.5rem 1rem',
-                            borderRadius: 'var(--radius)',
-                            backgroundColor: 'hsl(var(--primary))',
-                            color: 'hsl(var(--primary-foreground))',
-                            border: 'none',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            cursor: 'pointer',
-                            fontSize: '0.9rem',
-                            fontWeight: 500
-                        }}
+                        className="flex items-center gap-2 bg-primary text-primary-foreground px-3 py-2 rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
                     >
-                        + Nueva Dispensa
+                        <span>+ <span className="hidden sm:inline">Nueva Dispensa</span><span className="sm:hidden">Nueva</span></span>
                     </button>
 
-                    <button
-                        onClick={async () => {
-                            if (confirm('¿Archivar todos los pedidos finalizados (Entregados/Cancelados/Retirados) de la lista? No se borrarán de la base de datos.')) {
-                                setLoading(true);
-                                try {
-                                    await StoreService.archiveFinishedOrders();
-                                    // Refresh
-                                    const ordersData = await StoreService.getAllPedidos();
-                                    setOrders(ordersData.sort((a, b) => {
-                                        const dateA = a.fechaRetiroPreferida ? new Date(a.fechaRetiroPreferida).getTime() : new Date(a.fechaCreacion).getTime();
-                                        const dateB = b.fechaRetiroPreferida ? new Date(b.fechaRetiroPreferida).getTime() : new Date(b.fechaCreacion).getTime();
-                                        return dateA - dateB;
-                                    }));
-                                } catch (e) {
-                                    alert('Error al archivar pedidos');
-                                    console.error(e);
-                                } finally {
-                                    setLoading(false);
+                    {/* Desktop Secondary Actions */}
+                    <div className="hidden md:flex gap-2">
+                        <button
+                            onClick={async () => {
+                                if (confirm('¿Archivar todos los pedidos finalizados (Entregados/Cancelados/Retirados) de la lista? No se borrarán de la base de datos.')) {
+                                    setLoading(true);
+                                    try {
+                                        await StoreService.archiveFinishedOrders();
+                                        // Refresh
+                                        const ordersData = await StoreService.getAllPedidos();
+                                        setOrders(ordersData.sort((a, b) => {
+                                            const dateA = a.fechaRetiroPreferida ? new Date(a.fechaRetiroPreferida).getTime() : new Date(a.fechaCreacion).getTime();
+                                            const dateB = b.fechaRetiroPreferida ? new Date(b.fechaRetiroPreferida).getTime() : new Date(b.fechaCreacion).getTime();
+                                            return dateA - dateB;
+                                        }));
+                                    } catch (e) {
+                                        alert('Error al archivar pedidos');
+                                        console.error(e);
+                                    } finally {
+                                        setLoading(false);
+                                    }
                                 }
-                            }
-                        }}
-                        style={{
-                            padding: '0.5rem 1rem',
-                            borderRadius: 'var(--radius)',
-                            border: '1px solid hsl(var(--border))',
-                            backgroundColor: 'hsl(var(--card))',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            cursor: 'pointer',
-                            fontSize: '0.9rem',
-                            fontWeight: 500,
-                            color: 'hsl(var(--muted-foreground))'
-                        }}
-                        title="Archivar pedidos finalizados"
-                    >
-                        🧹 Limpiar
-                    </button>
+                            }}
+                            className="flex items-center gap-2 bg-card border border-border px-3 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+                            title="Archivar pedidos finalizados"
+                        >
+                            🧹 Limpiar
+                        </button>
 
-                    <a href="/admin/products" style={{
-                        padding: '0.5rem 1rem',
-                        borderRadius: 'var(--radius)',
-                        border: '1px solid hsl(var(--border))',
-                        backgroundColor: 'hsl(var(--card))',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        textDecoration: 'none',
-                        color: 'inherit',
-                        fontSize: '0.9rem',
-                        fontWeight: 500
-                    }}>
-                        📦 Productos
-                    </a>
+                        <a href="/admin/products" className="flex items-center gap-2 bg-card border border-border px-3 py-2 rounded-md text-sm font-medium text-foreground hover:bg-muted transition-colors no-underline">
+                            📦 Productos
+                        </a>
+                    </div>
 
-                    <div className="relative inline-block w-full max-w-[200px]">
+                    {/* Mobile Menu for Secondary Actions */}
+                    <div className="md:hidden relative">
+                        <details className="group relative">
+                            <summary className="list-none cursor-pointer p-2 border border-border rounded bg-card text-foreground hover:bg-muted">
+                                <MoreVertical size={20} />
+                            </summary>
+                            <div className="absolute right-0 top-full mt-2 w-48 bg-card border border-border rounded shadow-lg z-50 p-1 flex flex-col gap-1">
+                                <button
+                                    onClick={async () => {
+                                        if (confirm('¿Archivar todos los pedidos finalizados?')) {
+                                            setLoading(true);
+                                            try { await StoreService.archiveFinishedOrders(); window.location.reload(); } catch (e) { console.error(e); setLoading(false); }
+                                        }
+                                    }}
+                                    className="text-left w-full px-4 py-2 text-sm hover:bg-muted rounded text-foreground"
+                                >
+                                    🧹 Limpiar Lista
+                                </button>
+                                <a href="/admin/products" className="block w-full px-4 py-2 text-sm hover:bg-muted rounded text-foreground no-underline">
+                                    📦 Ver Productos
+                                </a>
+                            </div>
+                        </details>
+                    </div>
+
+                    {/* Filter Select */}
+                    <div className="relative inline-block w-full max-w-[140px] md:max-w-[200px]">
                         <select
                             value={filterStatus}
                             onChange={(e) => setFilterStatus(e.target.value)}
-                            className="w-full appearance-none px-4 py-2 pr-8 rounded-lg border border-input bg-background/50 hover:bg-background text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors cursor-pointer"
+                            className="w-full appearance-none px-3 py-2 pr-8 rounded-lg border border-input bg-background/50 hover:bg-background text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors cursor-pointer"
                         >
-                            <option value="active">Activos (Por defecto)</option>
-                            <option value="finalized">Entregados / Finalizados</option>
-                            <option value="all">Ver Todos</option>
+                            <option value="active">Activos</option>
+                            <option value="finalized">Finalizados</option>
+                            <option value="all">Todos</option>
                             <option disabled>──────────</option>
                             <option value="pendiente">Pendiente</option>
-                            <option value="en_preparacion">En Preparación</option>
-                            <option value="confirmado">Confirmado (Retiro)</option>
-                            <option value="en_camino">Despachado (Delivery)</option>
+                            <option value="en_preparacion">En Prep.</option>
+                            <option value="confirmado">Confirmado</option>
+                            <option value="en_camino">En Camino</option>
                             <option value="entregado">Entregado</option>
                         </select>
                         <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-muted-foreground">
@@ -197,7 +192,8 @@ export default function AdminPage() {
                 </div>
             </div>
 
-            <div style={{ overflowX: 'auto' }}>
+            {/* Desktop Table */}
+            <div className="hidden md:block" style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
                     <thead>
                         <tr style={{ borderBottom: '1px solid hsl(var(--border))', textAlign: 'left' }}>
@@ -301,6 +297,66 @@ export default function AdminPage() {
                 {filteredOrders.length === 0 && (
                     <div style={{ padding: '2rem', textAlign: 'center', color: 'hsl(var(--muted-foreground))' }}>
                         No hay pedidos en esta vista ({filterStatus === 'active' ? 'Activos' : filterStatus}).
+                    </div>
+                )}
+            </div>
+
+            {/* Mobile Cards View */}
+            <div className="md:hidden flex flex-col gap-4">
+                {filteredOrders.map(order => {
+                    let displayDate: Date;
+                    const isAgendaDate = !!order.fechaRetiroPreferida;
+                    if (order.fechaRetiroPreferida && order.fechaRetiroPreferida.length === 10) {
+                        displayDate = new Date(`${order.fechaRetiroPreferida}T00:00:00`);
+                    } else {
+                        displayDate = order.fechaRetiroPreferida ? new Date(order.fechaRetiroPreferida) : new Date(order.fechaCreacion);
+                    }
+
+                    return (
+                        <div
+                            key={order.id}
+                            onClick={() => router.push(`/admin/orders/${order.id}`)}
+                            className="bg-card border border-border rounded-lg p-4 shadow-sm active:scale-[0.98] transition-transform"
+                        >
+                            <div className="flex justify-between items-start mb-3">
+                                <div>
+                                    <div className="font-semibold text-lg">{socios[order.socioId] || 'Desconocido'}</div>
+                                    <div className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
+                                        {order.tipoPedido === 'retiro_sede' ? '🏢 Retiro' : '🛵 Delivery'}
+                                        <span>•</span>
+                                        <span>{displayDate.toLocaleDateString()}</span>
+                                    </div>
+                                </div>
+                                <span className={`
+                                    px-2 py-1 rounded text-xs font-bold uppercase tracking-wide
+                                    ${order.estado === 'pendiente' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' : 'bg-muted text-muted-foreground'}
+                                `}>
+                                    {getStatusLabel(order.estado, order.tipoPedido)}
+                                </span>
+                            </div>
+
+                            <div className="mb-4 text-sm bg-muted/50 p-2 rounded">
+                                {order.items.map(i => `${i.cantidad}x ${i.productoNombre}`).join(', ')}
+                            </div>
+
+                            <div onClick={e => e.stopPropagation()}>
+                                <select
+                                    value={order.estado}
+                                    onChange={(e) => handleStatusChangeRequest(order.id, e.target.value)}
+                                    className="w-full bg-background border border-input text-foreground px-3 py-2 rounded-md text-sm font-medium"
+                                >
+                                    <option value="" disabled>Cambiar estado...</option>
+                                    {getNextStatusOptions(order.tipoPedido).map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    );
+                })}
+                {filteredOrders.length === 0 && (
+                    <div className="text-center p-8 text-muted-foreground">
+                        No hay pedidos ({filterStatus === 'active' ? 'Activos' : filterStatus}).
                     </div>
                 )}
             </div>

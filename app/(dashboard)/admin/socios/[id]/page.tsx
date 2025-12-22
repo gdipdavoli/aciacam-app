@@ -18,31 +18,32 @@ const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; has
 
 // --- HELPER COMPONENTS (Moved outside to prevent re-mounts) ---
 
-const Section = ({ title, children, icon: Icon, actions }: any) => (
-    <section style={{
-        backgroundColor: 'hsl(var(--card))',
-        borderRadius: 'var(--radius)',
-        border: '1px solid hsl(var(--border))',
-        marginBottom: '1.5rem',
-        overflow: 'hidden'
-    }}>
-        <div style={{
-            padding: '1rem 1.5rem',
-            borderBottom: '1px solid hsl(var(--border))',
-            backgroundColor: 'hsl(var(--muted))',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem'
-        }}>
-            {Icon && <Icon size={18} />}
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 600 }}>{title}</h3>
-            {actions && <div style={{ marginLeft: 'auto' }}>{actions}</div>}
-        </div>
-        <div style={{ padding: '1.5rem' }}>
-            {children}
-        </div>
-    </section>
-);
+const Section = ({ title, children, icon: Icon, actions, defaultOpen = false }: any) => {
+    const [isOpen, setIsOpen] = useState(defaultOpen);
+
+    return (
+        <section className="bg-card border border-border rounded-lg mb-6 overflow-hidden">
+            <div
+                className="p-4 border-b border-border bg-muted flex items-center gap-2 cursor-pointer md:cursor-default"
+                onClick={() => setIsOpen(!isOpen)}
+            >
+                {Icon && <Icon size={18} />}
+                <h3 className="text-lg font-semibold flex-1">{title}</h3>
+
+                {/* Mobile Chevron */}
+                <div className="md:hidden text-muted-foreground">
+                    {isOpen ? <div style={{ transform: 'rotate(180deg)' }}>▼</div> : <div>▼</div>}
+                </div>
+
+                {actions && <div className="ml-auto" onClick={e => e.stopPropagation()}>{actions}</div>}
+            </div>
+            {/* Content: Hidden on mobile unless open, Always visible on desktop */}
+            <div className={`${isOpen ? 'block' : 'hidden'} md:block p-6 transition-all`}>
+                {children}
+            </div>
+        </section>
+    );
+};
 
 const InputGroup = ({ label, value, onChange, type = 'text', width = '100%', multiline = false, placeholder, readOnly = false }: any) => (
     <div style={{ marginBottom: '1rem', width }}>
