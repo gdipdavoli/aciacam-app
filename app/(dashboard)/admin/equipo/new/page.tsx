@@ -101,7 +101,7 @@ export default function NewStaffPage() {
                             name="nombre"
                             value={formData.nombre}
                             onChange={handleChange}
-                            style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}
+                            style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
                         />
                     </div>
                     <div>
@@ -111,7 +111,7 @@ export default function NewStaffPage() {
                             name="apellido"
                             value={formData.apellido}
                             onChange={handleChange}
-                            style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}
+                            style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
                         />
                     </div>
                 </div>
@@ -125,7 +125,7 @@ export default function NewStaffPage() {
                             name="email"
                             value={formData.email}
                             onChange={handleChange}
-                            style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}
+                            style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
                         />
                     </div>
                     <div>
@@ -136,7 +136,7 @@ export default function NewStaffPage() {
                             placeholder="Legajo o DNI"
                             value={formData.dni}
                             onChange={handleChange}
-                            style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}
+                            style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
                         />
                     </div>
                 </div>
@@ -148,7 +148,7 @@ export default function NewStaffPage() {
                         name="telefono"
                         value={formData.telefono}
                         onChange={handleChange}
-                        style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}
+                        style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
                     />
                 </div>
 
