@@ -61,7 +61,10 @@ export default function NewSocioPage() {
             router.push('/admin/socios');
         } catch (error) {
             console.error(error);
-            alert('Error al crear socio');
+            console.error(error);
+            const msg = (error as any)?.message || 'Error desconocido';
+            const details = (error as any)?.details || '';
+            alert(`Error al crear socio: ${msg} ${details}`);
         } finally {
             setLoading(false);
         }
