@@ -662,4 +662,27 @@ export const StoreService = {
         if (!res.ok) throw new Error(data.error || 'Failed to invite');
         return data;
     }
+},
+
+    bulkInviteSocios: async (socioIds: string[]): Promise<any> => {
+        if (!supabase) throw new Error("Supabase client not initialized");
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error("No active session");
+
+        const res = await fetch('/api/admin/invite/bulk', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({
+                socioIds,
+                redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined
+            })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to bulk invite');
+        return data;
+    }
 };

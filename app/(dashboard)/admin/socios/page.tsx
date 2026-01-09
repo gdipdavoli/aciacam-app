@@ -47,6 +47,38 @@ export default function AdminSociosPage() {
     const getReprocannStatus = (socio: Socio) => socio.reprocann?.estado || 'pendiente';
     const getContractStatus = (socio: Socio) => socio.documentacion?.contrato?.estado || 'pendiente';
 
+    const getSocioStatus = (socio: Socio) => {
+        if (socio.auth_user_id) return 'activo';
+        if (socio.invited_at) return 'invitado';
+        return 'pendiente';
+    };
+
+    const handleBulkInvite = async () => {
+        const pendingSocios = socios.filter(s => getSocioStatus(s) === 'pendiente');
+        if (pendingSocios.length === 0) return;
+
+        if (!confirm(`¿Estás seguro de enviar invitación a ${pendingSocios.length} socios pendientes?`)) return;
+
+        setLoading(true);
+        try {
+            const ids = pendingSocios.map(s => s.id);
+            const res = await StoreService.bulkInviteSocios(ids);
+
+            alert(`Invitaciones enviadas. Exitosas: ${res.succeeded}, Fallidas: ${res.failed}, Omitidas: ${res.skipped}`);
+
+            // Refresh
+            const updated = await StoreService.getAllSocios('socio');
+            setSocios(updated);
+        } catch (e: any) {
+            console.error(e);
+            alert('Error enviando invitaciones masivas: ' + e.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const pendingCount = socios.filter(s => getSocioStatus(s) === 'pendiente').length;
+
     const filteredSocios = socios.filter(s => {
         const matchesSearch =
             s.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -80,13 +112,24 @@ export default function AdminSociosPage() {
                     <h1 className="text-3xl font-bold mb-2">Gestión de Socios</h1>
                     <p className="text-muted-foreground">Administrar pacientes y documentación.</p>
                 </div>
-                <button
-                    onClick={() => router.push('/admin/socios/new')}
-                    className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-3 rounded-xl flex items-center gap-2 font-medium transition-colors"
-                >
-                    <Plus size={18} />
-                    Nuevo Socio
-                </button>
+                <div className="flex gap-3">
+                    {pendingCount > 0 && (
+                        <button
+                            onClick={handleBulkInvite}
+                            className="bg-secondary text-secondary-foreground hover:bg-secondary/80 px-4 py-3 rounded-xl flex items-center gap-2 font-medium transition-colors border border-border"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></svg>
+                            Invitar Pendientes ({pendingCount})
+                        </button>
+                    )}
+                    <button
+                        onClick={() => router.push('/admin/socios/new')}
+                        className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-3 rounded-xl flex items-center gap-2 font-medium transition-colors"
+                    >
+                        <Plus size={18} />
+                        Nuevo Socio
+                    </button>
+                </div>
             </div>
 
             {/* Filters */}
@@ -120,6 +163,7 @@ export default function AdminSociosPage() {
                     <thead>
                         <tr className="border-b border-border text-left bg-muted/50">
                             <th className="p-4 text-muted-foreground font-medium">Socio</th>
+                            <th className="p-4 text-muted-foreground font-medium">Estado</th>
                             <th className="p-4 text-muted-foreground font-medium">DNI</th>
                             <th className="p-4 text-muted-foreground font-medium">Ubicación</th>
                             <th className="p-4 text-muted-foreground font-medium">REPROCANN</th>
@@ -130,6 +174,7 @@ export default function AdminSociosPage() {
                     <tbody>
                         {filteredSocios.map(socio => {
                             const reprocann = getReprocannStatus(socio);
+                            const status = getSocioStatus(socio);
 
                             // Calculate Doc Status
                             const docs = [
@@ -160,6 +205,11 @@ export default function AdminSociosPage() {
                                     <td className="p-4">
                                         <div className="font-medium">{socio.nombre} {socio.apellido}</div>
                                         <div className="text-sm text-muted-foreground">{socio.email}</div>
+                                    </td>
+                                    <td className="p-4">
+                                        {status === 'activo' && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">Activo</span>}
+                                        {status === 'invitado' && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 border border-yellow-200">Invitado</span>}
+                                        {status === 'pendiente' && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">Borrador</span>}
                                     </td>
                                     <td className="p-4">{socio.dni}</td>
                                     <td className="p-4">{socio.localidad || '-'}</td>

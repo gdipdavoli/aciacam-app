@@ -29,6 +29,27 @@ export default function NewProductPage() {
         imagen: ''
     });
 
+    // Load draft on mount
+    React.useEffect(() => {
+        const saved = localStorage.getItem('new_product_draft');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                setFormData(prev => ({ ...prev, ...parsed }));
+            } catch (e) {
+                console.error("Failed to parse product draft", e);
+            }
+        }
+    }, []);
+
+    // Save draft on change
+    React.useEffect(() => {
+        const timeout = setTimeout(() => {
+            localStorage.setItem('new_product_draft', JSON.stringify(formData));
+        }, 500);
+        return () => clearTimeout(timeout);
+    }, [formData]);
+
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
@@ -69,12 +90,13 @@ export default function NewProductPage() {
                 }
             }
 
+            localStorage.removeItem('new_product_draft');
             router.push('/admin/products');
             router.refresh();
 
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            alert('Error al crear producto');
+            alert(`Error al crear producto: ${error.message || JSON.stringify(error)}`);
         } finally {
             setLoading(false);
         }
