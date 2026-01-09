@@ -662,7 +662,7 @@ export const StoreService = {
         if (!res.ok) throw new Error(data.error || 'Failed to invite');
         return data;
     }
-},
+    ,
 
     bulkInviteSocios: async (socioIds: string[]): Promise<any> => {
         if (!supabase) throw new Error("Supabase client not initialized");
