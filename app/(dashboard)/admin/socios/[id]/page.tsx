@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { StorageService } from '@/services/storageService';
+import type { TipoDocumento } from '@/services/documentacionService';
 import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento } from '@/types';
 import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus } from 'lucide-react';
 
@@ -661,6 +662,14 @@ export default function SocioDetailsPage() {
     const handleSaveDoc = async (formData: DocumentoSocio, file: File | null) => {
         if (!socio || !editingDocKey) return;
 
+        const docKeyToTipo: Record<string, any> = {
+            'declaracionJurada': 'declaracion_jurada',
+            'consentimiento': 'consentimiento',
+            'contrato_autocultivo': 'contrato_autocultivo',
+            'contrato_madre': 'contrato_madre',
+            'contrato': 'contrato'
+        };
+
         setUploading(true);
         try {
             let newPath = formData.archivoPath;
@@ -699,8 +708,15 @@ export default function SocioDetailsPage() {
                 })
             });
 
-            // 2. Save to Store (Mock/Local Persistence)
-            await StoreService.updateSocioDocumentacion(socio.id, editingDocKey as string, newDocData);
+            // 2. Save to Store (DB Persistence via Service)
+            await StoreService.upsertDocumentoSocio(
+              socio.id,
+              editingDocKey as TipoDocumento,
+              {
+                verificacion_estado: newDocData.estado || 'pendiente',
+                archivo_path: newDocData.archivoPath,
+              }
+            );
 
             setEditingDocKey(null);
 
