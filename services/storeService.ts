@@ -1,6 +1,7 @@
 import { Producto, Pedido, OrderType, OrderItem, Socio } from '@/types';
 import { MOCK_PRODUCTOS, MOCK_SOCIOS } from './mockData';
 import { supabase } from './supabaseClient';
+import * as DocService from './documentacionService';
 
 const STORAGE_KEY_PEDIDOS = 'aciacam_pedidos';
 // const STORAGE_KEY_SOCIOS = 'aciacam_socios'; // No longer used for reading
@@ -633,12 +634,17 @@ export const StoreService = {
         }
     },
 
-    updateSocioDocumentacion: async (id: string, docKey: string, updates: Partial<any>): Promise<void> => {
-        // This is very specific. 
-        // If we want to support this, we need to map back to specific columns like 'reprocann_estado' etc.
-        // Implementation omitted for diagnosis scope to avoid breaking existing logic if not careful.
-        console.log('updateSocioDocumentacion not fully ported to Supabase yet', id, docKey);
-    },
+    // --- DOCUMENTACION: DELEGATED TO DocService ---
+    getDocumentosBySocio: DocService.getDocumentosBySocio,
+    getDocumentoByTipo: DocService.getDocumentoByTipo,
+    upsertDocumentoSocio: DocService.upsertDocumentoSocio,
+    verificarDocumento: DocService.verificarDocumento,
+    uploadDocumento: DocService.uploadDocumento,
+    getUrlDocumento: DocService.getUrlDocumento,
+    registrarRecordatorioEnviado: DocService.registrarRecordatorioEnviado,
+    getEstadoDocumentacionTodos: DocService.getEstadoDocumentacionTodos,
+    getSociosConDocsPendientes: DocService.getSociosConDocsPendientes,
+    getSociosReprocannPorVencer: DocService.getSociosReprocannPorVencer,
 
     inviteSocio: async (socioId: string): Promise<any> => {
         // Retrieve Token using Supabase Client (Auth Context)

@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { StoreService } from '@/services/storeService';
 import { Producto } from '@/types';
 import ProductCard from '@/app/components/products/ProductCard';
-import { Search } from 'lucide-react';
+import { Search, Leaf } from 'lucide-react';
 
 export default function VariedadesPage() {
     const [products, setProducts] = useState<Producto[]>([]);
@@ -56,49 +56,62 @@ export default function VariedadesPage() {
                 </p>
             </div>
 
-            {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                <div className="relative w-full max-w-md">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                    <input
-                        type="text"
-                        placeholder="Buscar..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 rounded-lg border bg-background focus:ring-2 focus:ring-primary focus:outline-none"
-                    />
-                </div>
-
-                <div className="flex gap-2 overflow-x-auto pb-2 w-full sm:w-auto">
-                    {types.map(type => (
-                        <button
-                            key={type}
-                            onClick={() => setSelectedType(type)}
-                            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors capitalize whitespace-nowrap ${selectedType === type
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-                                }`}
-                        >
-                            {type}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
+            {/* Rendering Catalog or Empty State */}
             {loading ? (
                 <div className="text-center py-12 text-muted-foreground">Cargando catálogo...</div>
+            ) : products.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 px-4 mt-8 rounded-2xl border-2 border-dashed border-green-200 bg-green-50">
+                    <div className="bg-green-100 text-green-700 p-5 rounded-full mb-5 shadow-sm">
+                        <Leaf size={40} strokeWidth={1.5} />
+                    </div>
+                    <h2 className="text-2xl font-bold mb-2 text-green-900">¡Estamos prontos a cosechar!</h2>
+                    <p className="text-green-800/80 max-w-md text-center text-lg">
+                        En este momento no hay variedades activas en el catálogo. Preparando la próxima temporada para ti 🌱.
+                    </p>
+                </div>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {filteredProducts.map(p => (
-                        <ProductCard key={p.id} product={p} />
-                    ))}
-                </div>
-            )}
+                <>
+                    {/* Filters */}
+                    <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center mt-6">
+                        <div className="relative w-full max-w-md">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                            <input
+                                type="text"
+                                placeholder="Buscar..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 rounded-lg border bg-background focus:ring-2 focus:ring-primary focus:outline-none"
+                            />
+                        </div>
 
-            {!loading && filteredProducts.length === 0 && (
-                <div className="text-center py-12 text-muted-foreground">
-                    No se encontraron productos.
-                </div>
+                        <div className="flex gap-2 overflow-x-auto pb-2 w-full sm:w-auto">
+                            {types.map(type => (
+                                <button
+                                    key={type}
+                                    onClick={() => setSelectedType(type)}
+                                    className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors capitalize whitespace-nowrap ${selectedType === type
+                                            ? 'bg-primary text-primary-foreground'
+                                            : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                                        }`}
+                                >
+                                    {type}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mt-6">
+                        {filteredProducts.map(p => (
+                            <ProductCard key={p.id} product={p} />
+                        ))}
+                    </div>
+
+                    {filteredProducts.length === 0 && (
+                        <div className="text-center py-12 text-muted-foreground">
+                            No se encontraron productos para tu búsqueda.
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );
