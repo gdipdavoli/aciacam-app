@@ -713,7 +713,7 @@ export default function SocioDetailsPage() {
               socio.id,
               editingDocKey as TipoDocumento,
               {
-                verificacion_estado: newDocData.estado || 'pendiente',
+                verificacion_estado: newDocData.verificacion_estado || 'pendiente',
                 archivo_path: newDocData.archivoPath,
               }
             );
