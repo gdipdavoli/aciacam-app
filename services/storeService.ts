@@ -1,10 +1,20 @@
-import { Producto, Pedido, OrderType, OrderItem, Socio } from '@/types';
+import { Producto, Pedido, OrderType, OrderItem, Socio, Pago } from '@/types';
 import { MOCK_PRODUCTOS, MOCK_SOCIOS } from './mockData';
 import { supabase } from './supabaseClient';
 import * as DocService from './documentacionService';
 
 const STORAGE_KEY_PEDIDOS = 'aciacam_pedidos';
 // const STORAGE_KEY_SOCIOS = 'aciacam_socios'; // No longer used for reading
+
+// Helper to map DB row to Pago type
+const mapPagoFromDB = (row: any): Pago => ({
+    id: row.id,
+    socioId: row.socio_id,
+    fecha: row.fecha,
+    concepto: row.concepto,
+    monto: parseFloat(row.monto),
+    medioDePago: row.medio_de_pago
+});
 
 // Helper to map DB row to Socio type
 const mapSocioFromDB = (row: any): Socio => {
@@ -255,12 +265,49 @@ export const StoreService = {
         return (data || []).map(mapPedidoFromDB);
     },
 
-    getPagosBySocio: async (socioId: string): Promise<any[]> => {
-        // Mock for now, pending Payments Table
-        return [
-            { id: 'pay-1', socioId, fecha: '2025-11-05', concepto: 'Cuota Noviembre', monto: 5000, medioDePago: 'Transferencia' },
-            { id: 'pay-2', socioId, fecha: '2025-10-05', concepto: 'Cuota Octubre', monto: 5000, medioDePago: 'Efectivo' }
-        ];
+    getPagosBySocio: async (socioId: string): Promise<Pago[]> => {
+        if (!supabase) return [];
+
+        const { data, error } = await supabase
+            .from('pagos')
+            .select('*')
+            .eq('socio_id', socioId)
+            .order('fecha', { ascending: false });
+
+        if (error) {
+            console.error("StoreService: Get Pagos Failed", error.message || error);
+            return [];
+        }
+
+        return (data || []).map(mapPagoFromDB);
+    },
+
+    createPago: async (pago: Omit<Pago, 'id'>, actorId: string): Promise<Pago> => {
+        if (!supabase) throw new Error("Supabase client not initialized");
+
+        const dbRow = {
+            socio_id: pago.socioId,
+            fecha: pago.fecha,
+            concepto: pago.concepto,
+            monto: pago.monto,
+            medio_de_pago: pago.medioDePago,
+            created_by: actorId
+        };
+
+        const { data, error } = await supabase
+            .from('pagos')
+            .insert(dbRow)
+            .select()
+            .single();
+
+        if (error) {
+            console.error("StoreService: Create Pago Failed", error);
+            throw error;
+        }
+
+        await StoreService.createAuditLog(actorId, 'CREATE', 'PAYMENT', data.id, dbRow);
+
+        return mapPagoFromDB(data);
     },
 
     getAllPedidos: async (includeArchived = false): Promise<Pedido[]> => {

@@ -6,8 +6,8 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { StorageService } from '@/services/storageService';
 import type { TipoDocumento, EstadoVerificacion } from '@/services/documentacionService';
-import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento } from '@/types';
-import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus } from 'lucide-react';
+import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento, Pago } from '@/types';
+import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus, CreditCard } from 'lucide-react';
 
 const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
     consentimiento: { needsFecha: false, needsMonto: false, hasExpiration: false },
@@ -513,15 +513,26 @@ export default function SocioDetailsPage() {
     const [editingSection, setEditingSection] = useState<string | null>(null); // 'personal' | 'admin' | 'reprocann' | 'domicilio' | 'medico'
 
     const [orders, setOrders] = useState<Pedido[]>([]);
+    const [pagos, setPagos] = useState<Pago[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
-    // Document Editing State
+    // New Payment Form State
+    const [showPagoForm, setShowPagoForm] = useState(false);
+    const [newPago, setNewPago] = useState<Omit<Pago, 'id'>>({
+        socioId: id,
+        fecha: new Date().toISOString().split('T')[0],
+        concepto: 'Cuota Mensual',
+        monto: 5000,
+        medioDePago: 'Transferencia'
+    });
+    const [registeringPago, setRegisteringPago] = useState(false);
+
+    const [compliance, setCompliance] = useState<any>(null);
     const [editingDocKey, setEditingDocKey] = useState<keyof DocumentacionSocio | null>(null);
     // Removed docForm and selectedFile derived state from here; now handled in modal
     const [uploading, setUploading] = useState(false);
 
-    const [compliance, setCompliance] = useState<any>(null);
 
     const docDefinitions: { key: keyof DocumentacionSocio, label: string }[] = [
         { key: 'declaracionJurada', label: 'Declaración Jurada' },
@@ -543,8 +554,9 @@ export default function SocioDetailsPage() {
             Promise.all([
                 StoreService.getSocioById(id),
                 StoreService.getPedidosBySocio(id),
+                StoreService.getPagosBySocio(id),
                 fetch(`/api/socios/${id}/compliance`).then(res => res.ok ? res.json() : null)
-            ]).then(([socioData, ordersData, complianceData]) => {
+            ]).then(([socioData, ordersData, pagosData, complianceData]) => {
                 if (socioData) {
                     // Initialize nested objects
                     const initializedSocio = {
@@ -561,6 +573,7 @@ export default function SocioDetailsPage() {
                     setSocio(initializedSocio);
                     setOriginalSocio(JSON.parse(JSON.stringify(initializedSocio))); // Deep copy for snapshot
                     setOrders(ordersData.sort((a, b) => new Date(b.fechaCreacion).getTime() - new Date(a.fechaCreacion).getTime()));
+                    setPagos(pagosData);
                     setCompliance(complianceData);
                 }
                 setLoading(false);
@@ -742,6 +755,29 @@ export default function SocioDetailsPage() {
             window.open(url, '_blank');
         } else {
             alert('No se pudo generar el enlace seguro.');
+        }
+    };
+
+    const handleRegisterPago = async () => {
+        if (!user) return;
+        setRegisteringPago(true);
+        try {
+            const result = await StoreService.createPago(newPago, user.id);
+            setPagos([result, ...pagos]);
+            setShowPagoForm(false);
+            alert('Pago registrado con éxito');
+            // Reset form
+            setNewPago({
+                socioId: id,
+                fecha: new Date().toISOString().split('T')[0],
+                concepto: 'Cuota Mensual',
+                monto: 5000,
+                medioDePago: 'Transferencia'
+            });
+        } catch (e: any) {
+            alert('Error al registrar pago: ' + e.message);
+        } finally {
+            setRegisteringPago(false);
         }
     };
 
@@ -1027,6 +1063,102 @@ export default function SocioDetailsPage() {
                                             <td style={{ padding: '0.75rem 0' }}>{order.tipoPedido}</td>
                                             <td style={{ padding: '0.75rem 0', fontWeight: 600 }}>{order.estado}</td>
                                             <td style={{ padding: '0.75rem 0', textAlign: 'right' }}><a href="#" style={{ color: 'hsl(var(--primary))' }}>Ver</a></td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </Section>
+
+                    <Section
+                        title={`Historial de Pagos (${pagos.length})`}
+                        icon={CreditCard}
+                        actions={
+                            <button
+                                onClick={() => setShowPagoForm(!showPagoForm)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.4rem',
+                                    fontSize: '0.85rem',
+                                    color: 'hsl(var(--primary-foreground))',
+                                    backgroundColor: 'hsl(var(--primary))',
+                                    border: 'none',
+                                    borderRadius: 'var(--radius)',
+                                    padding: '0.35rem 0.8rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer'
+                                }}>
+                                <Plus size={14} /> Registrar Pago
+                            </button>
+                        }
+                    >
+                        {showPagoForm && (
+                            <div style={{
+                                marginBottom: '1.5rem',
+                                padding: '1rem',
+                                backgroundColor: 'hsl(var(--muted) / 0.5)',
+                                borderRadius: 'var(--radius)',
+                                border: '1px solid hsl(var(--border))'
+                            }}>
+                                <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '1rem' }}>Saldar Cuota / Registrar nuevo pago</h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                    <InputGroup label="Fecha" type="date" value={newPago.fecha} onChange={(v: string) => setNewPago({ ...newPago, fecha: v })} />
+                                    <InputGroup label="Concepto" value={newPago.concepto} onChange={(v: string) => setNewPago({ ...newPago, concepto: v })} />
+                                    <InputGroup label="Monto ($)" type="number" value={newPago.monto} onChange={(v: string) => setNewPago({ ...newPago, monto: parseFloat(v) })} />
+                                    <SelectGroup
+                                        label="Medio de Pago"
+                                        value={newPago.medioDePago}
+                                        onChange={(v: string) => setNewPago({ ...newPago, medioDePago: v })}
+                                        options={[
+                                            { val: 'Transferencia', label: 'Transferencia' },
+                                            { val: 'Efectivo', label: 'Efectivo' },
+                                            { val: 'Mercado Pago', label: 'Mercado Pago' },
+                                            { val: 'Otro', label: 'Otro' },
+                                        ]}
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
+                                    <button onClick={() => setShowPagoForm(false)} style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', background: 'none', border: 'none', cursor: 'pointer' }}>Cancelar</button>
+                                    <button
+                                        onClick={handleRegisterPago}
+                                        disabled={registeringPago}
+                                        style={{
+                                            padding: '0.5rem 1rem',
+                                            backgroundColor: 'hsl(var(--primary))',
+                                            color: 'hsl(var(--primary-foreground))',
+                                            border: 'none',
+                                            borderRadius: 'var(--radius)',
+                                            fontSize: '0.85rem',
+                                            fontWeight: 600,
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        {registeringPago ? 'Registrando...' : 'Confirmar Pago'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                            <thead>
+                                <tr style={{ borderBottom: '1px solid hsl(var(--border))', textAlign: 'left', color: 'hsl(var(--muted-foreground))' }}>
+                                    <th style={{ padding: '0.75rem 0' }}>Fecha</th>
+                                    <th style={{ padding: '0.75rem 0' }}>Concepto</th>
+                                    <th style={{ padding: '0.75rem 0' }}>Medio</th>
+                                    <th style={{ padding: '0.75rem 0', textAlign: 'right' }}>Monto</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {pagos.length === 0 ? (
+                                    <tr><td colSpan={4} style={{ padding: '1rem', color: 'hsl(var(--muted-foreground))', textAlign: 'center' }}>No hay pagos registrados</td></tr>
+                                ) : (
+                                    pagos.map(pago => (
+                                        <tr key={pago.id} style={{ borderBottom: '1px dashed hsl(var(--border))' }}>
+                                            <td style={{ padding: '0.75rem 0' }}>{new Date(pago.fecha).toLocaleDateString()}</td>
+                                            <td style={{ padding: '0.75rem 0' }}>{pago.concepto}</td>
+                                            <td style={{ padding: '0.75rem 0' }}>{pago.medioDePago}</td>
+                                            <td style={{ padding: '0.75rem 0', textAlign: 'right', fontWeight: 600, color: 'hsl(var(--primary))' }}>${pago.monto}</td>
                                         </tr>
                                     ))
                                 )}
