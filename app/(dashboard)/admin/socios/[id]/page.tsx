@@ -5,7 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { StorageService } from '@/services/storageService';
-import type { TipoDocumento } from '@/services/documentacionService';
+import type { TipoDocumento, EstadoVerificacion } from '@/services/documentacionService';
 import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento } from '@/types';
 import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus } from 'lucide-react';
 
@@ -710,12 +710,16 @@ export default function SocioDetailsPage() {
 
             // 2. Save to Store (DB Persistence via Service)
             await StoreService.upsertDocumentoSocio(
-              socio.id,
-              editingDocKey as TipoDocumento,
-              {
-                verificacion_estado: newDocData.verificacion_estado || 'pendiente',
-                archivo_path: newDocData.archivoPath,
-              }
+             socio.id,
+             editingDocKey as TipoDocumento,
+             {
+               verificacion_estado: (
+                ['pendiente', 'en_revision', 'aprobado', 'rechazado'].includes(newDocData.estado)
+                  ? newDocData.estado
+                  : 'pendiente'
+               ) as EstadoVerificacion,
+               archivo_path: newDocData.archivoPath,
+             }
             );
 
             setEditingDocKey(null);
