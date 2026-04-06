@@ -73,12 +73,22 @@ export async function DELETE(
         }
 
         // 3. Delete Auth User (if linked)
+        let authUserDeleted = false;
         if (targetSocio.auth_user_id) {
             const { error: deleteAuthError } = await supabaseAdmin.auth.admin.deleteUser(targetSocio.auth_user_id);
-            if (deleteAuthError) {
-                console.error("Failed to delete auth user", deleteAuthError);
-                // Continue to delete socio? Or block?
-                // Usually we want to clean up socio even if auth fails (or auth was already deleted).
+            if (!deleteAuthError) authUserDeleted = true;
+            else console.error("Failed to delete auth user by ID", deleteAuthError);
+        }
+
+        // 3.1 Robust Cleanup: Search by email if not deleted yet
+        if (!authUserDeleted && targetSocio.email) {
+            const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+            if (!listError) {
+                const orphanUser = users.find(u => u.email === targetSocio.email);
+                if (orphanUser) {
+                    console.log(`Clearing orphan auth user: ${orphanUser.id} for email ${targetSocio.email}`);
+                    await supabaseAdmin.auth.admin.deleteUser(orphanUser.id);
+                }
             }
         }
 
