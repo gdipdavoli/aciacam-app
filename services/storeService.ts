@@ -188,16 +188,19 @@ export const StoreService = {
 
         // --- PRE-FLIGHT CHECKS (DEBUGGING 400 ERROR) ---
 
-        // 1. Check Socio
+        // 1. Check Socio (Optional Debug Check - Modified to be less brittle)
         const { data: socioCheck, error: socioError } = await supabase
             .from('socios')
             .select('id')
             .eq('id', socioId)
-            .single();
+            .maybeSingle(); // Use maybeSingle to avoid 406 on 0 rows
 
-        if (socioError || !socioCheck) {
-            console.error("DEBUG: Socio ID Invalid or Not Found:", socioId);
-            throw new Error(`DEBUG: Socio no encontrado en DB (${socioId})`);
+        if (socioError) {
+            console.error("DEBUG: Socio ID Check Error:", socioError);
+            // We don't throw here to let the INSERT attempt proceed (it will fail with RLS if truly forbidden)
+        } else if (!socioCheck) {
+            console.warn("DEBUG: Socio ID not found via client RLS:", socioId);
+            // throw new Error(`DEBUG: Socio no encontrado en DB (${socioId})`);
         }
 
         // 2. Check Slot (if required)
@@ -206,11 +209,10 @@ export const StoreService = {
                 .from('pickup_slots')
                 .select('id')
                 .eq('id', details.slotId)
-                .single();
+                .maybeSingle();
 
             if (slotError || !slotCheck) {
                 console.error("DEBUG: Slot ID Invalid or Not Found:", details.slotId);
-                throw new Error(`DEBUG: Turno no encontrado en DB (${details.slotId})`);
             }
         }
 
@@ -562,7 +564,8 @@ export const StoreService = {
         const clientPromise = supabase
             .from('socios')
             .select('*')
-            .eq('user_id', userId)
+            // Fix: Check both auth_user_id and legacy user_id
+            .or(`auth_user_id.eq.${userId},user_id.eq.${userId}`)
             .maybeSingle()
             .then(res => ({ source: 'client', ...res }));
 
