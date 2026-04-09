@@ -4,9 +4,11 @@ import { useState, useEffect } from 'react';
 
 export default function PWAInstaller() {
     const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+    const [isMobile, setIsMobile] = useState(false);
     const [isIOS, setIsIOS] = useState(false);
     const [isStandalone, setIsStandalone] = useState(false);
     const [showIOSInstructions, setShowIOSInstructions] = useState(false);
+    const [showAndroidInstructions, setShowAndroidInstructions] = useState(false);
 
     useEffect(() => {
         // Detectar si ya está instalada
@@ -16,20 +18,24 @@ export default function PWAInstaller() {
         
         setIsStandalone(isStandaloneMode);
 
-        // Detectar iOS
+        // Detectar Dispositivo
         const userAgent = window.navigator.userAgent.toLowerCase();
         const isIOSDevice = /iphone|ipad|ipod/.test(userAgent);
+        const isMobileDevice = /android|iphone|ipad|ipod|webos|blackberry|iemobile|opera mini/.test(userAgent);
+        
         setIsIOS(isIOSDevice);
+        setIsMobile(isMobileDevice);
 
         // Capturar evento de instalación en Android / Chrome
         const handleBeforeInstallPrompt = (e: Event) => {
+            console.log('Evento beforeinstallprompt capturado');
             e.preventDefault();
             setDeferredPrompt(e);
         };
 
         window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-        // Registrar Service Worker si no está registrado
+        // Registrar Service Worker
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js')
                 .then(reg => console.log('SW registrado:', reg.scope))
@@ -43,86 +49,132 @@ export default function PWAInstaller() {
 
     const handleInstallClick = async () => {
         if (deferredPrompt) {
-            deferredPrompt.prompt();
-            const { outcome } = await deferredPrompt.userChoice;
-            console.log(`User response to install prompt: ${outcome}`);
-            setDeferredPrompt(null);
+            try {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                console.log(`User response to install prompt: ${outcome}`);
+                setDeferredPrompt(null);
+            } catch (err) {
+                console.error('Error al disparar prompt nativo:', err);
+                setShowAndroidInstructions(true);
+            }
         } else if (isIOS) {
             setShowIOSInstructions(true);
+        } else if (isMobile) {
+            // Caso Android donde el evento aún no se disparó o no es compatible con prompt nativo
+            setShowAndroidInstructions(true);
+        } else {
+            // Desktop fallback o debug
+            alert('Para instalar, busca el icono de instalación en la barra de direcciones de tu navegador.');
         }
     };
 
     // Si ya está instalada, no mostramos nada
     if (isStandalone) return null;
 
-    // Si no es iOS y no hay prompt diferido (y no es standalone), 
-    // podrías querer ocultarlo o mostrar algo genérico.
-    // Pero en Android/Chrome a veces el prompt tarda un poco.
-    if (!deferredPrompt && !isIOS) return null;
+    // Si no es móvil y no hay prompt, ocultamos (en PC no queremos el botón siempre)
+    if (!isMobile && !deferredPrompt) return null;
 
     return (
-        <div style={{ marginTop: '2rem', textAlign: 'center' }}>
+        <div style={{ marginTop: '1rem', textAlign: 'center' }}>
             <button
                 id="btnInstalar"
                 onClick={handleInstallClick}
                 style={{
                     width: '100%',
-                    padding: '1rem',
+                    padding: '0.8rem 1rem',
                     backgroundColor: '#0056b3',
                     color: 'white',
                     border: 'none',
                     borderRadius: '8px',
                     fontWeight: 'bold',
-                    fontSize: '1rem',
+                    fontSize: '0.95rem',
                     cursor: 'pointer',
                     boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '0.5rem'
+                    gap: '0.5rem',
+                    transition: 'background-color 0.2s'
                 }}
             >
                 <InstallIcon />
                 AGREGAR APLICACIÓN A MI CELULAR
             </button>
 
+            {/* MODAL IOS */}
             {showIOSInstructions && (
-                <div style={{
-                    position: 'fixed',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    backgroundColor: 'white',
-                    padding: '1.5rem',
-                    borderTopLeftRadius: '20px',
-                    borderTopRightRadius: '20px',
-                    boxShadow: '0 -10px 25px rgba(0,0,0,0.1)',
-                    zIndex: 9999,
-                    color: '#333',
-                    textAlign: 'left'
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700 }}>Instalar en iPhone</h3>
-                        <button onClick={() => setShowIOSInstructions(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer' }}>×</button>
-                    </div>
+                <InstructionModal 
+                    title="Instalar en iPhone" 
+                    onClose={() => setShowIOSInstructions(false)}
+                >
                     <p style={{ fontSize: '0.95rem', lineHeight: '1.4', marginBottom: '1rem' }}>
                         Para instalar ACIACAM en tu iPhone:
                     </p>
                     <ol style={{ paddingLeft: '1.2rem', fontSize: '0.95rem', lineHeight: '1.6' }}>
-                        <li>Toca el botón <strong>Compartir</strong> (el cuadrado con la flecha hacia arriba <ShareIcon />) en la barra inferior de Safari.</li>
+                        <li>Toca el botón <strong>Compartir</strong> (<ShareIcon />) en la barra inferior de Safari.</li>
                         <li>Desliza hacia abajo y selecciona <strong>"Agregar al inicio"</strong>.</li>
                         <li>Toca <strong>"Agregar"</strong> en la esquina superior derecha.</li>
                     </ol>
-                    <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
-                        <button 
-                            onClick={() => setShowIOSInstructions(false)}
-                            style={{ padding: '0.6rem 2rem', backgroundColor: '#f0f0f0', border: 'none', borderRadius: '20px', fontWeight: 600 }}
-                        >
-                            Entendido
-                        </button>
-                    </div>
-                </div>
+                </InstructionModal>
             )}
+
+            {/* MODAL ANDROID FALLBACK */}
+            {showAndroidInstructions && (
+                <InstructionModal 
+                    title="Instalar en Android" 
+                    onClose={() => setShowAndroidInstructions(false)}
+                >
+                    <p style={{ fontSize: '0.95rem', lineHeight: '1.4', marginBottom: '1rem' }}>
+                        Si el botón de instalación automática no funciona en tu navegador:
+                    </p>
+                    <ol style={{ paddingLeft: '1.2rem', fontSize: '0.95rem', lineHeight: '1.6' }}>
+                        <li>Toca los <strong>tres puntos</strong> (⋮) en la esquina superior derecha de Chrome.</li>
+                        <li>Selecciona <strong>"Instalar aplicación"</strong> o "Agregar a la pantalla de inicio".</li>
+                        <li>Confirma la instalación en el mensaje que aparecerá.</li>
+                    </ol>
+                </InstructionModal>
+            )}
+        </div>
+    );
+}
+
+function InstructionModal({ title, onClose, children }: { title: string, onClose: () => void, children: React.ReactNode }) {
+    return (
+        <div style={{
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            backgroundColor: 'white',
+            padding: '1.5rem',
+            borderTopLeftRadius: '20px',
+            borderTopRightRadius: '20px',
+            boxShadow: '0 -10px 25px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            color: '#333',
+            textAlign: 'left',
+            animation: 'slideUp 0.3s ease-out'
+        }}>
+            <style>{`
+                @keyframes slideUp {
+                    from { transform: translateY(100%); }
+                    to { transform: translateY(0); }
+                }
+            `}</style>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700 }}>{title}</h3>
+                <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#666' }}>×</button>
+            </div>
+            {children}
+            <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
+                <button 
+                    onClick={onClose}
+                    style={{ padding: '0.6rem 2rem', backgroundColor: '#0056b3', color: 'white', border: 'none', borderRadius: '20px', fontWeight: 600 }}
+                >
+                    Entendido
+                </button>
+            </div>
         </div>
     );
 }
