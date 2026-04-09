@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
+import PWAInstaller from '@/app/components/PWAInstaller';
 
 export default function OnboardingPage() {
     const router = useRouter();
@@ -42,6 +43,16 @@ export default function OnboardingPage() {
             >
                 Comenzar
             </button>
+
+            <div style={{ marginTop: '3rem', borderTop: '1px solid hsl(var(--border))', paddingTop: '2rem' }}>
+                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>📱 Llevá ACIACAM con vos</h3>
+                <p style={{ color: 'hsl(var(--muted-foreground))', marginBottom: '1.5rem' }}>
+                    Instalá nuestra aplicación para acceder más rápido y recibir notificaciones.
+                </p>
+                <div style={{ maxWidth: '300px', margin: '0 auto' }}>
+                    <PWAInstaller />
+                </div>
+            </div>
         </div>
     );
 }
