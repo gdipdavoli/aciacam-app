@@ -12,7 +12,7 @@ import { SlotSelector } from '@/app/components/SlotSelector'; // Import Componen
 export default function CheckoutPage() {
     const { items, removeItem, itemCount, clearCart, updateQuantity } = useCart();
 
-    const { user } = useAuth();
+    const { user, refreshUser } = useAuth();
     const router = useRouter();
 
     React.useEffect(() => {
@@ -40,6 +40,17 @@ export default function CheckoutPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+    // Sync address fields with profile when it loads (one-time sync on load)
+    React.useEffect(() => {
+        if (user && !direccion && !localidad) {
+            if (user.direccion) setDireccion(user.direccion);
+            if (user.localidad) setLocalidad(user.localidad);
+        }
+    }, [user]);
+
+    const hasStoredAddress = !!(user?.direccion || user?.localidad);
+    const isDifferentFromStored = user && (direccion !== user.direccion || localidad !== (user.localidad || ''));
 
     const handleGetLocation = () => {
         if (!navigator.geolocation) {
@@ -109,6 +120,7 @@ export default function CheckoutPage() {
                         direccion,
                         localidad
                     });
+                    await refreshUser(); // Sync local AuthContext
                 } catch (profileError) {
                     console.error("Failed to update profile", profileError);
                     // Don't block the success flow if profile update fails
@@ -289,7 +301,21 @@ export default function CheckoutPage() {
                                             />
                                         </div>
                                         <div>
-                                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Localidad / Barrio</label>
+                                            <div className="flex justify-between items-end mb-2">
+                                                <label style={{ display: 'block', fontSize: '0.9rem' }}>Localidad / Barrio</label>
+                                                {hasStoredAddress && isDifferentFromStored && (
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setDireccion(user.direccion || '');
+                                                            setLocalidad(user.localidad || '');
+                                                        }}
+                                                        className="text-xs text-primary font-semibold hover:underline flex items-center gap-1"
+                                                    >
+                                                        🏠 Usar mi domicilio guardado
+                                                    </button>
+                                                )}
+                                            </div>
                                             <input
                                                 type="text"
                                                 value={localidad}

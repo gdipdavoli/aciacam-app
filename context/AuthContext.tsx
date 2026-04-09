@@ -14,6 +14,7 @@ interface AuthContextType {
     isUnlinked?: boolean;
     isInitialized: boolean;
     logout: () => Promise<void>;
+    refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -261,8 +262,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const refreshUser = async () => {
+        if (!session?.user?.id) return;
+        try {
+            const socio = await StoreService.getSocioByUserId(session.user.id);
+            if (socio) {
+                // Keep admin role override logic if applicable
+                const authRole = session?.user?.app_metadata?.role;
+                if (authRole === 'admin') {
+                    socio.rol = 'admin';
+                }
+                setUser(socio);
+            }
+        } catch (error) {
+            console.error("AuthContext: refreshUser failed", error);
+        }
+    };
+
     return (
-        <AuthContext.Provider value={{ user, session, loading, isInitialized, logout, authError, isUnlinked }}>
+        <AuthContext.Provider value={{ user, session, loading, isInitialized, logout, refreshUser, authError, isUnlinked }}>
             {children}
         </AuthContext.Provider>
     );
