@@ -6,7 +6,7 @@ import { StoreService } from '@/services/storeService';
 import { Pedido } from '@/types';
 import { useRouter } from 'next/navigation';
 import { getStatusLabel, getNextStatusOptions, shouldShowInDefaultList, isFinalStatus } from '@/helpers/orderHelpers';
-import { MoreVertical } from 'lucide-react'; // Added for Mobile Menu
+import { MoreVertical, Navigation } from 'lucide-react'; // Added for Mobile Menu
 
 export default function AdminPage() {
     const { user, loading: authLoading } = useAuth();
@@ -238,11 +238,25 @@ export default function AdminPage() {
                                         <div style={{ fontWeight: 500 }}>{socios[order.socioId] || 'Desconocido'}</div>
                                     </td>
                                     <td style={{ padding: '1rem' }}>
-                                        {order.tipoPedido === 'retiro_sede' ? (
-                                            <span className="text-amber-600 dark:text-amber-400 font-medium">Retiro</span>
-                                        ) : (
-                                            <span className="text-blue-600 dark:text-blue-400 font-medium">Delivery</span>
-                                        )}
+                                        <div className="flex items-center gap-2">
+                                            {order.tipoPedido === 'retiro_sede' ? (
+                                                <span className="text-amber-600 dark:text-amber-400 font-medium">Retiro</span>
+                                            ) : (
+                                                <span className="text-blue-600 dark:text-blue-400 font-medium">Delivery</span>
+                                            )}
+                                            {order.ubicacion_gps && (
+                                                <a 
+                                                    href={order.ubicacion_gps} 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer" 
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className="p-1 px-2.5 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors"
+                                                    title="Ver GPS"
+                                                >
+                                                    <Navigation size={12} className="rotate-45" />
+                                                </a>
+                                            )}
+                                        </div>
                                     </td>
 
                                     <td style={{ padding: '1rem' }}>
@@ -325,6 +339,20 @@ export default function AdminPage() {
                                         {order.tipoPedido === 'retiro_sede' ? '🏢 Retiro' : '🛵 Delivery'}
                                         <span>•</span>
                                         <span>{displayDate.toLocaleDateString()}</span>
+                                        {order.ubicacion_gps && (
+                                            <>
+                                                <span>•</span>
+                                                <a 
+                                                    href={order.ubicacion_gps} 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer" 
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className="text-green-600 font-bold flex items-center gap-1"
+                                                >
+                                                    <Navigation size={12} className="rotate-45" /> Map Pin
+                                                </a>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                                 <span className={`

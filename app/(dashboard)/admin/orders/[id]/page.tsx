@@ -5,7 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { Pedido, Socio, OrderType } from '@/types';
-import { ArrowLeft, CheckCircle, Clock, Package } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Package, ExternalLink } from 'lucide-react';
 
 import { getStatusLabel, getNextStatusOptions } from '@/helpers/orderHelpers';
 
@@ -205,6 +205,20 @@ export default function OrderDetailsPage() {
                                     <span style={{ display: 'block', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>Localidad</span>
                                     <span>{order.localidad || '-'}</span>
                                 </div>
+
+                                {order.ubicacion_gps && (
+                                    <div style={{ gridColumn: 'span 2' }}>
+                                        <span style={{ display: 'block', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>Ubicación exacta (GPS)</span>
+                                        <a 
+                                            href={order.ubicacion_gps} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-2 text-primary hover:underline font-semibold mt-1"
+                                        >
+                                            Ver en Google Maps <ExternalLink size={14} />
+                                        </a>
+                                    </div>
+                                )}
                             </>
                         )}
 

@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { OrderType } from '@/types';
 import { useRouter } from 'next/navigation';
-import { Trash2, Plus, Minus, MapPin, CheckCircle, ExternalLink } from 'lucide-react';
+import { Trash2, Plus, Minus, MapPin, CheckCircle, ExternalLink, Navigation, ShieldCheck } from 'lucide-react';
 import { SlotSelector } from '@/app/components/SlotSelector'; // Import Component
 
 export default function CheckoutPage() {
@@ -27,7 +27,10 @@ export default function CheckoutPage() {
 
     // Delivery fields
     const [direccion, setDireccion] = useState(user?.direccion || '');
-    const [localidad, setLocalidad] = useState('');
+    const [localidad, setLocalidad] = useState(user?.localidad || '');
+    const [ubicacionGps, setUbicacionGps] = useState('');
+    const [guardarPerfil, setGuardarPerfil] = useState(false);
+    const [isFetchingLocation, setIsFetchingLocation] = useState(false);
 
     // Retiro fields -- REPLACED manual fields with Slot State
     const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
@@ -37,6 +40,30 @@ export default function CheckoutPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+    const handleGetLocation = () => {
+        if (!navigator.geolocation) {
+            alert("Tu navegador no soporta geolocalización");
+            return;
+        }
+
+        setIsFetchingLocation(true);
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const { latitude, longitude } = position.coords;
+                const mapsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
+                setUbicacionGps(mapsLink);
+                setIsFetchingLocation(false);
+                alert("📍 Ubicación capturada con éxito. Se enviará junto a tu pedido.");
+            },
+            (error) => {
+                console.error("Geolocation error:", error);
+                setIsFetchingLocation(false);
+                alert("No pudimos obtener tu ubicación. Por favor, asegúrate de dar permisos al navegador.");
+            },
+            { enableHighAccuracy: true, timeout: 10000 }
+        );
+    };
 
     if (itemCount === 0 && !showSuccessModal) {
         return (
@@ -69,10 +96,24 @@ export default function CheckoutPage() {
                 observaciones,
                 direccionEntrega: orderType === 'delivery' ? direccion : undefined,
                 localidad: orderType === 'delivery' ? localidad : undefined,
+                ubicacion_gps: orderType === 'delivery' ? ubicacionGps : undefined,
                 // Pass ISO Date for database compatibility (was slotLabel "Lunes...")
                 fechaRetiroPreferida: orderType === 'retiro_sede' ? slotDate : undefined,
                 slotId: orderType === 'retiro_sede' ? selectedSlotId! : undefined
             });
+
+            // 2. Persistent Profile Update (Optional)
+            if (orderType === 'delivery' && guardarPerfil) {
+                try {
+                    await StoreService.updateSocio(user.id, {
+                        direccion,
+                        localidad
+                    });
+                } catch (profileError) {
+                    console.error("Failed to update profile", profileError);
+                    // Don't block the success flow if profile update fails
+                }
+            }
 
             clearCart();
 
@@ -256,6 +297,48 @@ export default function CheckoutPage() {
                                                 placeholder="Palermo, CABA"
                                                 className="w-full p-3 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                                             />
+                                        </div>
+
+                                        <div className="pt-2 border-t border-border mt-2">
+                                            <div className="flex flex-col gap-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleGetLocation}
+                                                    disabled={isFetchingLocation}
+                                                    className={`flex items-center justify-center gap-2 w-full p-2.5 rounded-md border text-sm font-medium transition-all ${
+                                                        ubicacionGps 
+                                                        ? 'bg-green-50 border-green-200 text-green-700' 
+                                                        : 'bg-secondary/50 border-border text-foreground hover:bg-secondary'
+                                                    }`}
+                                                >
+                                                    {isFetchingLocation ? (
+                                                        <>Capturando...</>
+                                                    ) : ubicacionGps ? (
+                                                        <>
+                                                            <ShieldCheck size={18} />
+                                                            Ubicación GPS capturada
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Navigation size={18} className="rotate-45" />
+                                                            Compartir mi ubicación GPS (Opcional)
+                                                        </>
+                                                    )}
+                                                </button>
+
+                                                <label className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={guardarPerfil}
+                                                        onChange={(e) => setGuardarPerfil(e.target.checked)}
+                                                        className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                    />
+                                                    <div className="flex flex-col">
+                                                        <span className="text-sm font-semibold">Guardar domicilio</span>
+                                                        <span className="text-xs text-muted-foreground">Usar esta dirección para mis futuros pedidos</span>
+                                                    </div>
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
                                 )}

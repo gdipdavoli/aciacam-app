@@ -133,6 +133,7 @@ export interface Pedido {
     // Specific to delivery
     direccionEntrega?: string;
     localidad?: string;
+    ubicacion_gps?: string;
 
     // Specific to retiro
     fechaRetiroPreferida?: string;

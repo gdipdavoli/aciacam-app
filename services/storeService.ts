@@ -124,6 +124,7 @@ const mapPedidoFromDB = (row: any): Pedido => ({
     observaciones: row.observaciones,
     direccionEntrega: row.direccion_entrega,
     localidad: row.localidad,
+    ubicacion_gps: row.ubicacion_gps,
     fechaRetiroPreferida: row.fecha_retiro_preferida,
     franjaHoraria: row.franja_horaria,
     archivado: row.archivado
@@ -227,6 +228,7 @@ export const StoreService = {
             observaciones: details.observaciones,
             direccion_entrega: details.direccionEntrega,
             localidad: details.localidad,
+            ubicacion_gps: details.ubicacion_gps,
             fecha_retiro_preferida: details.fechaRetiroPreferida,
             franja_horaria: details.franjaHoraria,
             slot_id: details.slotId
