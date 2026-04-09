@@ -148,7 +148,7 @@ function ActivateContent() {
             .then(() => {
                 setStatus('success');
                 setTimeout(() => {
-                    router.push('/portal');
+                    router.push('/registro-exitoso');
                 }, 2000);
             })
             .catch(err => {

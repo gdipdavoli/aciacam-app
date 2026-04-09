@@ -5,6 +5,7 @@ import { supabase } from '@/services/supabaseClient';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
+import PWAInstaller from '@/app/components/PWAInstaller';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
@@ -139,6 +140,8 @@ export default function LoginPage() {
                         {loading ? 'Ingresando...' : 'Ingresar'}
                     </button>
                 </form>
+
+                <PWAInstaller />
             </div>
         </div>
     );
