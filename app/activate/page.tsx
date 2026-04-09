@@ -2,6 +2,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/services/supabaseClient';
+import PWAInstaller from '@/app/components/PWAInstaller';
 
 function ActivateContent() {
     const searchParams = useSearchParams();
@@ -221,6 +222,7 @@ function ActivateContent() {
                             {settingPassLoading ? 'Guardando...' : 'Finalizar Activación'}
                         </button>
                     </div>
+                    <PWAInstaller />
                 </div>
             </div>
         );
