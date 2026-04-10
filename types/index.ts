@@ -158,9 +158,12 @@ export interface Pago {
 export interface Notificacion {
     id: string;
     socioId: string;
+    remitenteId?: string;
+    remitenteNombre?: string;
     titulo: string;
     mensaje: string;
     leido: boolean;
+    esParaAdmin: boolean;
     tipo: 'general' | 'delivery' | 'order' | string;
     metadata?: any;
     fechaCreacion: string;

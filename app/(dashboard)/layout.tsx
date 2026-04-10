@@ -25,14 +25,20 @@ export default function DashboardLayout({
     const [unreadCount, setUnreadCount] = React.useState(0);
 
     useEffect(() => {
-        if (user && user.rol !== 'admin' && user.rol !== 'staff') {
-            NotificationService.getUnreadCount(user.id).then(setUnreadCount);
-            // Poll every 2 minutes for new notifications
-            const interval = setInterval(() => {
-                NotificationService.getUnreadCount(user.id).then(setUnreadCount);
-            }, 120000);
-            return () => clearInterval(interval);
-        }
+        if (!user) return;
+
+        const isAdmin = user.rol === 'admin' || user.rol === 'staff';
+        const fetchCount = () => {
+            NotificationService.getUnreadCount({ 
+                socioId: !isAdmin ? user.id : undefined, 
+                isAdminInbox: isAdmin 
+            }).then(setUnreadCount);
+        };
+
+        fetchCount();
+        // Poll every 2 minutes for new notifications
+        const interval = setInterval(fetchCount, 120000);
+        return () => clearInterval(interval);
     }, [user]);
 
     useEffect(() => {
@@ -61,22 +67,14 @@ export default function DashboardLayout({
     // Define navigation based on role
     let navItems = [];
 
-    if (user.rol === 'admin') {
+    if (user?.rol === 'admin' || user?.rol === 'staff') {
         navItems = [
-            { href: '/admin', label: 'Pedidos', icon: ShoppingBag }, // Admin "Home" is Orders
-            { href: '/variedades', label: 'Catálogo', icon: Flower2 },
-            { href: '/admin/products', label: 'Productos', icon: CheckCircle },
-            { href: '/admin/socios', label: 'Socios', icon: User },
-            { href: '/admin/equipo', label: 'Equipo', icon: User },
-            { href: '/admin/agenda', label: 'Agenda', icon: Calendar }, // New Agenda
-        ];
-    } else if (user.rol === 'staff') {
-        navItems = [
+            { href: '/admin/notificaciones', label: 'Mensajes', icon: Bell, badge: unreadCount },
             { href: '/admin', label: 'Pedidos', icon: ShoppingBag },
             { href: '/variedades', label: 'Catálogo', icon: Flower2 },
             { href: '/admin/products', label: 'Productos', icon: CheckCircle },
             { href: '/admin/socios', label: 'Socios', icon: User },
-            { href: '/admin/agenda', label: 'Agenda', icon: Calendar }, // Staff can manage agenda
+            { href: '/admin/agenda', label: 'Agenda', icon: Calendar },
         ];
     } else {
         navItems = [

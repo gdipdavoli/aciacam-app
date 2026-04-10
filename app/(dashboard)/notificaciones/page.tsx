@@ -10,6 +10,12 @@ export default function NotificacionesPage() {
     const { user } = useAuth();
     const [notifications, setNotifications] = useState<Notificacion[]>([]);
     const [loading, setLoading] = useState(true);
+    
+    // New Message form
+    const [showForm, setShowForm] = useState(false);
+    const [notifTitulo, setNotifTitulo] = useState('');
+    const [notifMensaje, setNotifMensaje] = useState('');
+    const [isSending, setIsSending] = useState(false);
 
     const fetchNotifications = async () => {
         if (!user) return;
@@ -38,6 +44,27 @@ export default function NotificacionesPage() {
         }
     };
 
+    const handleSendToAdmin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user || !notifTitulo || !notifMensaje) return;
+        setIsSending(true);
+        try {
+            await NotificationService.sendToAdmin({
+                socioId: user.id,
+                titulo: notifTitulo,
+                mensaje: notifMensaje
+            });
+            alert("Mensaje enviado a la administración.");
+            setShowForm(false);
+            setNotifTitulo('');
+            setNotifMensaje('');
+        } catch (error) {
+            alert("Error al enviar mensaje");
+        } finally {
+            setIsSending(false);
+        }
+    };
+
     const getIcon = (type: string) => {
         switch (type) {
             case 'delivery': return <MapPin size={20} className="text-primary" />;
@@ -57,7 +84,79 @@ export default function NotificacionesPage() {
                         Mantenete al tanto de tus pedidos y novedades de ACIACAM.
                     </p>
                 </div>
+                <button 
+                    onClick={() => setShowForm(!showForm)}
+                    style={{
+                        padding: '0.6rem 1.2rem',
+                        backgroundColor: showForm ? 'hsl(var(--muted))' : 'hsl(var(--primary))',
+                        color: showForm ? 'hsl(var(--foreground))' : 'hsl(var(--primary-foreground))',
+                        borderRadius: 'var(--radius)',
+                        border: 'none',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem'
+                    }}
+                >
+                    {showForm ? 'Cancelar' : <><MessageSquare size={18} /> Contactar Soporte</>}
+                </button>
             </div>
+
+            {showForm && (
+                <div style={{ 
+                    backgroundColor: 'hsl(var(--card))', 
+                    border: '1px solid hsl(var(--primary) / 0.2)', 
+                    borderRadius: 'var(--radius)', 
+                    padding: '1.5rem', 
+                    marginBottom: '2rem',
+                    boxShadow: '0 10px 15px -3px hsl(var(--primary) / 0.05)'
+                }}>
+                    <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '1rem' }}>Enviar mensaje a administración</h3>
+                    <form onSubmit={handleSendToAdmin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.3rem' }}>Asunto</label>
+                            <input 
+                                type="text"
+                                required
+                                value={notifTitulo}
+                                onChange={(e) => setNotifTitulo(e.target.value)}
+                                placeholder="Ej: Duda sobre mi envío"
+                                style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', background: 'transparent' }}
+                            />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.3rem' }}>Mensaje</label>
+                            <textarea 
+                                rows={3}
+                                required
+                                value={notifMensaje}
+                                onChange={(e) => setNotifMensaje(e.target.value)}
+                                placeholder="Escribí tu consulta aquí..."
+                                style={{ width: '100%', padding: '0.6rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', background: 'transparent' }}
+                            />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <button 
+                                type="submit"
+                                disabled={isSending}
+                                style={{
+                                    padding: '0.6rem 2rem',
+                                    backgroundColor: 'hsl(var(--primary))',
+                                    color: 'hsl(var(--primary-foreground))',
+                                    borderRadius: 'var(--radius)',
+                                    border: 'none',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    opacity: isSending ? 0.7 : 1
+                                }}
+                            >
+                                {isSending ? 'Enviando...' : 'Enviar Consulta'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
 
             {loading ? (
                 <div style={{ padding: '4rem', textAlign: 'center' }}>
