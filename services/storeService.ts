@@ -635,6 +635,19 @@ export const StoreService = {
 
         return undefined;
     },
+    
+    getSocios: async (): Promise<Socio[]> => {
+        if (!supabase) return [];
+        const { data, error } = await supabase
+            .from('socios')
+            .select('*')
+            .eq('status', 'active')
+            .order('apellido', { ascending: true });
+
+        if (error) throw error;
+        return (data || []).map(mapSocioFromDB);
+    },
+
 
     getSocioByEmail: async (email: string): Promise<Socio | undefined> => {
         if (!supabase) return MOCK_SOCIOS.find(s => s.email === email);

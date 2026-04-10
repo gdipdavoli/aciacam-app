@@ -94,41 +94,57 @@ export const NotificationService = {
     },
 
     /**
-     * Broadcast a notification to all active socios
+     * Broadcast a notification to a group of socios
      */
     sendMassiveNotification: async (params: {
         titulo: string;
         mensaje: string;
         tipo?: string;
+        filters?: {
+            reprocann_estado?: string;
+            socioIds?: string[];
+        }
     }): Promise<void> => {
         if (!supabase) return;
 
-        // 1. Fetch all active socios
-        const { data: socios, error: socioError } = await supabase
-            .from('socios')
-            .select('id')
-            .eq('status', 'active');
+        let socioIds: string[] = [];
 
-        if (socioError) throw socioError;
-        if (!socios || socios.length === 0) return;
+        // 1. Identify Target Socios
+        if (params.filters?.socioIds && params.filters.socioIds.length > 0) {
+            // Manual selection
+            socioIds = params.filters.socioIds;
+        } else {
+            // Filtered or All
+            let query = supabase.from('socios').select('id').eq('status', 'active');
+            
+            if (params.filters?.reprocann_estado) {
+                query = query.eq('reprocann_estado', params.filters.reprocann_estado);
+            }
+
+            const { data: socios, error: socioError } = await query;
+            if (socioError) throw socioError;
+            if (!socios || socios.length === 0) return;
+            socioIds = socios.map(s => s.id);
+        }
 
         // 2. Prepare bulk insert
-        const inserts = socios.map(s => ({
-            socio_id: s.id,
+        const inserts = socioIds.map(id => ({
+            socio_id: id,
             titulo: params.titulo,
             mensaje: params.mensaje,
-            tipo: params.tipo || 'general',
+            tipo: params.tipo || 'massive',
             leido: false,
             es_para_admin: false
         }));
 
-        // 3. Insert in batches if necessary (Supabase handles moderate size)
+        // 3. Insert
         const { error } = await supabase
             .from('notificaciones')
             .insert(inserts);
 
         if (error) throw error;
     },
+
 
     /**
      * Send message from socio to administration
