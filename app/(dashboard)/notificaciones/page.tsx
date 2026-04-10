@@ -114,7 +114,7 @@ export default function NotificacionesPage() {
                                     display: 'flex', 
                                     alignItems: 'center', 
                                     justifyContent: 'center',
-                                    shrink: 0
+                                    flexShrink: 0
                                 }}>
                                     {getIcon(n.tipo)}
                                 </div>
