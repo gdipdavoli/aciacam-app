@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { NotificationService } from '@/services/notificationService';
 import { Notificacion } from '@/types';
-import { Bell, Check, Clock, Package, MapPin, Trash2, MailOpen, Mail } from 'lucide-react';
+import { Bell, Check, Clock, Package, MapPin, Trash2, MailOpen, Mail, MessageSquare } from 'lucide-react';
 
 export default function NotificacionesPage() {
     const { user } = useAuth();
