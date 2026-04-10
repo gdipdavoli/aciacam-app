@@ -34,8 +34,104 @@ export const NotificationService = {
             tipo: row.tipo,
             esParaAdmin: row.es_para_admin,
             metadata: row.metadata,
-            fechaCreacion: row.fecha_creacion
+            fechaCreacion: row.fecha_creacion,
+            // New ticketing fields mapping
+            parentId: row.parent_id,
+            estado: row.estado,
+            esInformativo: row.es_informativo,
+            asignadoA: row.asignado_a
         }));
+    },
+
+    /**
+     * Get unique cases (Tickets) for administration
+     */
+    getTickets: async (filters?: { estado?: string }): Promise<Notificacion[]> => {
+        if (!supabase) return [];
+
+        let query = supabase
+            .from('notificaciones')
+            .select(`
+                *,
+                remitente:socios!remitente_id (nombre, apellido)
+            `)
+            .is('parent_id', null)
+            .eq('es_informativo', false);
+
+        if (filters?.estado) {
+            query = query.eq('estado', filters.estado);
+        }
+
+        const { data, error } = await query.order('fecha_creacion', { ascending: false });
+        if (error) throw error;
+
+        return (data || []).map(row => ({
+            id: row.id,
+            socioId: row.socio_id,
+            remitenteId: row.remitente_id,
+            remitenteNombre: row.remitente ? `${row.remitente.nombre} ${row.remitente.apellido}` : undefined,
+            titulo: row.titulo,
+            mensaje: row.mensaje,
+            leido: row.leido,
+            tipo: row.tipo,
+            esParaAdmin: row.es_para_admin,
+            metadata: row.metadata,
+            fechaCreacion: row.fecha_creacion,
+            parentId: row.parent_id,
+            estado: row.estado,
+            esInformativo: row.es_informativo,
+            asignadoA: row.asignado_a
+        }));
+    },
+
+    /**
+     * Get all messages in a specific thread
+     */
+    getThread: async (parentId: string): Promise<Notificacion[]> => {
+        if (!supabase) return [];
+
+        const { data, error } = await supabase
+            .from('notificaciones')
+            .select(`
+                *,
+                remitente:socios!remitente_id (nombre, apellido)
+            `)
+            .or(`id.eq.${parentId},parent_id.eq.${parentId}`)
+            .order('fecha_creacion', { ascending: true });
+
+        if (error) throw error;
+
+        return (data || []).map(row => ({
+            id: row.id,
+            socioId: row.socio_id,
+            remitenteId: row.remitente_id,
+            remitenteNombre: row.remitente ? `${row.remitente.nombre} ${row.remitente.apellido}` : undefined,
+            titulo: row.titulo,
+            mensaje: row.mensaje,
+            leido: row.leido,
+            tipo: row.tipo,
+            esParaAdmin: row.es_para_admin,
+            metadata: row.metadata,
+            fechaCreacion: row.fecha_creacion,
+            parentId: row.parent_id,
+            estado: row.estado,
+            esInformativo: row.es_informativo,
+            asignadoA: row.asignado_a
+        }));
+    },
+
+    /**
+     * Update case status
+     */
+    updateTicketStatus: async (ticketId: string, estado: string): Promise<void> => {
+        if (!supabase) return;
+
+        const { error } = await supabase
+            .from('notificaciones')
+            .update({ estado })
+            .eq('id', ticketId);
+
+        if (error) throw error;
     },
 
     /**
@@ -62,6 +158,9 @@ export const NotificationService = {
         tipo?: string;
         metadata?: any;
         remitenteId?: string;
+        parentId?: string;
+        estado?: string;
+        esInformativo?: boolean;
     }): Promise<Notificacion> => {
         if (!supabase) throw new Error("Supabase client not initialized");
 
@@ -75,7 +174,10 @@ export const NotificationService = {
                 tipo: params.tipo || 'general',
                 metadata: params.metadata || {},
                 leido: false,
-                es_para_admin: false
+                es_para_admin: false,
+                parent_id: params.parentId,
+                estado: params.estado || 'abierto',
+                es_informativo: params.esInformativo || false
             }])
             .select()
             .single();
@@ -91,7 +193,10 @@ export const NotificationService = {
             tipo: data.tipo,
             esParaAdmin: data.es_para_admin,
             metadata: data.metadata,
-            fechaCreacion: data.fecha_creacion
+            fechaCreacion: data.fecha_creacion,
+            parentId: data.parent_id,
+            estado: data.estado,
+            esInformativo: data.es_informativo
         };
     },
 
@@ -138,7 +243,8 @@ export const NotificationService = {
             mensaje: params.mensaje,
             tipo: params.tipo || 'massive',
             leido: false,
-            es_para_admin: false
+            es_para_admin: false,
+            es_informativo: true // Set massive notifications as informative
         }));
 
         // 3. Insert
@@ -169,7 +275,9 @@ export const NotificationService = {
                 mensaje: params.mensaje,
                 tipo: 'socio_message',
                 leido: false,
-                es_para_admin: true
+                es_para_admin: true,
+                estado: 'abierto',
+                es_informativo: false
             }]);
 
         if (error) throw error;
@@ -198,3 +306,4 @@ export const NotificationService = {
         return count || 0;
     }
 };
+

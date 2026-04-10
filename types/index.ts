@@ -155,6 +155,8 @@ export interface Pago {
     medioDePago: string;
 }
 
+export type EstadoTicket = 'abierto' | 'pendiente' | 'cerrado';
+
 export interface Notificacion {
     id: string;
     socioId: string;
@@ -164,8 +166,15 @@ export interface Notificacion {
     mensaje: string;
     leido: boolean;
     esParaAdmin: boolean;
-    tipo: 'general' | 'delivery' | 'order' | string;
+    tipo: 'general' | 'delivery' | 'order' | 'socio_message' | string;
     metadata?: any;
     fechaCreacion: string;
+    
+    // Ticketing fields
+    parentId?: string;
+    estado?: EstadoTicket;
+    esInformativo?: boolean;
+    asignadoA?: string;
 }
+
 
