@@ -20,7 +20,7 @@ export default function NotificacionesPage() {
     const fetchNotifications = async () => {
         if (!user) return;
         try {
-            const data = await NotificationService.getNotifications(user.id);
+            const data = await NotificationService.getNotifications({ socioId: user.id });
             setNotifications(data);
         } catch (error) {
             console.error("Error fetching notifications", error);
