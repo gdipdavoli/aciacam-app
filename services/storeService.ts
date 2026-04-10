@@ -127,6 +127,7 @@ const mapPedidoFromDB = (row: any): Pedido => ({
     ubicacion_gps: row.ubicacion_gps,
     fechaRetiroPreferida: row.fecha_retiro_preferida,
     franjaHoraria: row.franja_horaria,
+    entrega_estimada: row.entrega_estimada,
     archivado: row.archivado
 });
 
@@ -231,6 +232,7 @@ export const StoreService = {
             ubicacion_gps: details.ubicacion_gps,
             fecha_retiro_preferida: details.fechaRetiroPreferida,
             franja_horaria: details.franjaHoraria,
+            entrega_estimada: details.entrega_estimada,
             slot_id: details.slotId
         };
 
@@ -373,6 +375,17 @@ export const StoreService = {
         const { error } = await supabase
             .from('pedidos')
             .update({ items: items }) // JSONB Update
+            .eq('id', pedidoId);
+
+        if (error) throw error;
+    },
+
+    updatePedidoDelivery: async (pedidoId: string, deliveryInfo: { entrega_estimada?: string }): Promise<void> => {
+        if (!supabase) return;
+
+        const { error } = await supabase
+            .from('pedidos')
+            .update(deliveryInfo)
             .eq('id', pedidoId);
 
         if (error) throw error;

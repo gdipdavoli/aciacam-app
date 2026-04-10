@@ -5,7 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { Pedido, Socio, OrderType } from '@/types';
-import { ArrowLeft, CheckCircle, Clock, Package, ExternalLink } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Package, ExternalLink, Send, Calendar } from 'lucide-react';
 
 import { getStatusLabel, getNextStatusOptions } from '@/helpers/orderHelpers';
 
@@ -30,6 +30,10 @@ export default function OrderDetailsPage() {
     const [showStatusConfirm, setShowStatusConfirm] = useState(false);
     const [showSaveConfirm, setShowSaveConfirm] = useState(false);
 
+    // Delivery Assignment State
+    const [isUpdatingDelivery, setIsUpdatingDelivery] = useState(false);
+    const [editedEntregaEstimada, setEditedEntregaEstimada] = useState('');
+
     useEffect(() => {
         if (!authLoading) {
             if (!user || (user.rol !== 'admin' && user.rol !== 'staff')) {
@@ -43,6 +47,7 @@ export default function OrderDetailsPage() {
                 if (foundOrder) {
                     setOrder(foundOrder);
                     setEditedItems(foundOrder.items); // Init edit state
+                    setEditedEntregaEstimada(foundOrder.entrega_estimada || '');
                     // Load Socio
                     const allSocios = await StoreService.getAllSocios();
                     const foundSocio = allSocios.find(s => s.id === foundOrder.socioId);
@@ -106,6 +111,33 @@ export default function OrderDetailsPage() {
             setIsEditing(false);
             setShowSaveConfirm(false);
         }
+    };
+
+    const handleUpdateDelivery = async () => {
+        if (order) {
+            setIsUpdatingDelivery(true);
+            try {
+                await StoreService.updatePedidoDelivery(order.id, {
+                    entrega_estimada: editedEntregaEstimada
+                });
+                setOrder({ ...order, entrega_estimada: editedEntregaEstimada });
+                alert("Programación de entrega actualizada");
+            } catch (error) {
+                console.error("Failed to update delivery", error);
+                alert("Error al actualizar la entrega");
+            } finally {
+                setIsUpdatingDelivery(false);
+            }
+        }
+    };
+
+    const sendWhatsAppNotification = () => {
+        if (!socio || !order) return;
+        
+        const message = `Hola ${socio.nombre}! Te informamos que tu pedido #${order.id.slice(-6)} de ACIACAM tiene una visita programada para el día/horario: ${editedEntregaEstimada || order.entrega_estimada}. ¡Muchas gracias!`;
+        const encodedMessage = encodeURIComponent(message);
+        const url = `https://wa.me/${socio.telefono.replace(/\D/g, '')}?text=${encodedMessage}`;
+        window.open(url, '_blank');
     };
 
     if (loading || authLoading) return <div style={{ padding: '2rem' }}>Cargando detalle...</div>;
@@ -223,10 +255,46 @@ export default function OrderDetailsPage() {
                         )}
 
                         <div style={{ gridColumn: 'span 2' }}>
-                            <span style={{ display: 'block', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>Observaciones</span>
+                            <span style={{ display: 'block', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>Observaciones / Disponibilidad</span>
                             <span style={{ fontStyle: 'italic' }}>{order.observaciones || 'Sin observaciones'}</span>
                         </div>
                     </div>
+
+                    {order.tipoPedido === 'delivery' && (
+                        <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px dashed hsl(var(--border))' }}>
+                            <h4 style={{ marginBottom: '1rem', fontSize: '0.95rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <Calendar size={18} className="text-primary" />
+                                Programación de Entrega
+                            </h4>
+                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'end' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))', marginBottom: '0.25rem' }}>Día y Horario Estimado</label>
+                                    <input 
+                                        type="text"
+                                        value={editedEntregaEstimada}
+                                        onChange={(e) => setEditedEntregaEstimada(e.target.value)}
+                                        placeholder="Ej: Lunes de 10 a 14hs"
+                                        className="w-full p-2 rounded-md border border-input bg-background"
+                                    />
+                                </div>
+                                <button 
+                                    onClick={handleUpdateDelivery}
+                                    disabled={isUpdatingDelivery || editedEntregaEstimada === order.entrega_estimada}
+                                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 disabled:opacity-50 transition-all"
+                                >
+                                    {isUpdatingDelivery ? 'Guardando...' : 'Guardar'}
+                                </button>
+                                <button 
+                                    onClick={sendWhatsAppNotification}
+                                    disabled={!order.entrega_estimada && !editedEntregaEstimada}
+                                    className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 transition-all flex items-center gap-2"
+                                    title="Notificar por WhatsApp"
+                                >
+                                    <Send size={16} /> Notificar
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </section>
 
                 {/* Datos del Socio */}

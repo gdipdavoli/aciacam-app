@@ -22,7 +22,7 @@ export default function CheckoutPage() {
     }, [user, router]);
 
     const [step, setStep] = useState<1 | 2>(1);
-    const [orderType, setOrderType] = useState<OrderType>('retiro_sede');
+    const [orderType, setOrderType] = useState<OrderType>('delivery');
     const [observaciones, setObservaciones] = useState('');
 
     // Delivery fields
@@ -222,11 +222,9 @@ export default function CheckoutPage() {
                                         padding: '1rem',
                                         borderRadius: 'var(--radius)',
                                         border: `2px solid ${!user?.envios_habilitados ? 'hsl(var(--muted))' : (orderType === 'delivery' ? 'hsl(var(--primary))' : 'hsl(var(--border))')}`,
-                                        cursor: user?.envios_habilitados ? 'pointer' : 'not-allowed',
-                                        backgroundColor: user?.envios_habilitados
-                                            ? (orderType === 'delivery' ? 'hsl(var(--primary) / 0.05)' : 'transparent')
-                                            : 'hsl(var(--muted) / 0.5)',
-                                        opacity: user?.envios_habilitados ? 1 : 0.7,
+                                        cursor: 'pointer',
+                                        backgroundColor: orderType === 'delivery' ? 'hsl(var(--primary) / 0.05)' : 'transparent',
+                                        opacity: 1,
                                         position: 'relative'
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -236,39 +234,14 @@ export default function CheckoutPage() {
                                                 value="delivery"
                                                 checked={orderType === 'delivery'}
                                                 onChange={() => setOrderType('delivery')}
-                                                disabled={!user?.envios_habilitados}
                                                 style={{ marginRight: '0.5rem' }}
                                             />
                                             <div>
                                                 <span style={{ display: 'block', fontWeight: 500 }}>Envío a Domicilio</span>
-                                                {!user?.envios_habilitados && (
-                                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>No habilitado</span>
-                                                )}
                                             </div>
                                         </div>
                                     </label>
                                 </div>
-
-                                {orderType === 'delivery' && (
-                                    <div style={{
-                                        marginTop: '1rem',
-                                        padding: '0.75rem',
-                                        backgroundColor: 'hsl(var(--primary) / 0.1)',
-                                        border: '1px solid hsl(var(--primary) / 0.2)',
-                                        borderRadius: 'var(--radius)',
-                                        fontSize: '0.85rem',
-                                        color: 'hsl(var(--primary))',
-                                        display: 'flex',
-                                        alignItems: 'start',
-                                        gap: '0.5rem'
-                                    }}>
-                                        <span>🚚</span>
-                                        <span>
-                                            <strong>Nota Importante:</strong> El envío se realiza mediante <strong>Andreani</strong>.
-                                            El costo del mismo corre por cuenta del destinatario y será informado/abonado al momento del despacho o recepción.
-                                        </span>
-                                    </div>
-                                )}
                             </section>
 
                             <section style={{ backgroundColor: 'hsl(var(--card))', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
@@ -370,12 +343,12 @@ export default function CheckoutPage() {
                                 )}
 
                                 <div style={{ marginTop: '1rem' }}>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Observaciones</label>
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Disponibilidad Horaria / Observaciones</label>
                                     <textarea
                                         value={observaciones}
                                         onChange={(e) => setObservaciones(e.target.value)}
                                         rows={3}
-                                        placeholder="Alguna aclaración..."
+                                        placeholder="Ej: Disponible de lunes a viernes después de las 17hs..."
                                         className="w-full p-3 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
                                     />
                                 </div>

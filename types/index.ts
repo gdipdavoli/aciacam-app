@@ -139,6 +139,9 @@ export interface Pedido {
     fechaRetiroPreferida?: string;
     franjaHoraria?: string;
 
+    // Delivery schedule
+    entrega_estimada?: string;
+
     // Soft delete/Archive
     archivado?: boolean;
 }
