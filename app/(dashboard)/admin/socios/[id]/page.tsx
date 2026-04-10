@@ -7,8 +7,8 @@ import { StoreService } from '@/services/storeService';
 import { NotificationService } from '@/services/notificationService';
 import { StorageService } from '@/services/storageService';
 import type { TipoDocumento, EstadoVerificacion } from '@/services/documentacionService';
-import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento, Pago } from '@/types';
-import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus, CreditCard, Send, Bell } from 'lucide-react';
+import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento, Pago, Notificacion } from '@/types';
+import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus, CreditCard, Send, Bell, MessageSquare } from 'lucide-react';
 
 const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
     consentimiento: { needsFecha: false, needsMonto: false, hasExpiration: false },
