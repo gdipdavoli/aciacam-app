@@ -534,10 +534,23 @@ export default function SocioDetailsPage() {
     // Removed docForm and selectedFile derived state from here; now handled in modal
     const [uploading, setUploading] = useState(false);
 
-    // Notification State
     const [notifTitulo, setNotifTitulo] = useState('');
     const [notifMensaje, setNotifMensaje] = useState('');
     const [notifSending, setNotifSending] = useState(false);
+    const [notifHistory, setNotifHistory] = useState<Notificacion[]>([]);
+    const [loadingNotifs, setLoadingNotifs] = useState(false);
+
+    const fetchNotifHistory = async () => {
+        setLoadingNotifs(true);
+        try {
+            const data = await NotificationService.getNotifications({ socioId: id });
+            setNotifHistory(data);
+        } catch (e) {
+            console.error("Error fetching history", e);
+        } finally {
+            setLoadingNotifs(false);
+        }
+    };
 
     const handleSendNotification = async () => {
         if (!socio || !notifTitulo || !notifMensaje) {
@@ -553,9 +566,9 @@ export default function SocioDetailsPage() {
                 mensaje: notifMensaje,
                 tipo: 'general'
             });
-            alert("Notificación enviada con éxito");
             setNotifTitulo('');
             setNotifMensaje('');
+            fetchNotifHistory(); // Refresh history
         } catch (e: any) {
             alert("Error al enviar notificación: " + e.message);
         } finally {
@@ -605,6 +618,7 @@ export default function SocioDetailsPage() {
                     setOrders(ordersData.sort((a, b) => new Date(b.fechaCreacion).getTime() - new Date(a.fechaCreacion).getTime()));
                     setPagos(pagosData);
                     setCompliance(complianceData);
+                    fetchNotifHistory();
                 }
                 setLoading(false);
             });
@@ -947,6 +961,43 @@ export default function SocioDetailsPage() {
                                     <Send size={16} />
                                     {notifSending ? 'Enviando...' : 'Enviar Notificación App'}
                                 </button>
+                            </div>
+
+                            {/* Thread History */}
+                            <div style={{ marginTop: '2rem', borderTop: '1px solid hsl(var(--border))', paddingTop: '1.5rem' }}>
+                                <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                    <MessageSquare size={16} /> Historial de Comunicaciones
+                                </h4>
+                                
+                                {loadingNotifs ? (
+                                    <p style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>Cargando historial...</p>
+                                ) : notifHistory.length === 0 ? (
+                                    <p style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', fontStyle: 'italic' }}>No hay mensajes previos.</p>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '400px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                                        {notifHistory.map(n => (
+                                            <div key={n.id} style={{
+                                                padding: '0.75rem',
+                                                borderRadius: 'var(--radius)',
+                                                backgroundColor: n.esParaAdmin ? 'hsl(var(--primary) / 0.05)' : 'hsl(var(--muted) / 0.2)',
+                                                border: `1px solid ${n.esParaAdmin ? 'hsl(var(--primary) / 0.1)' : 'hsl(var(--border))'}`,
+                                                alignSelf: n.esParaAdmin ? 'flex-start' : 'flex-end',
+                                                width: '90%'
+                                            }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                                                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: n.esParaAdmin ? 'hsl(var(--primary))' : 'inherit' }}>
+                                                        {n.esParaAdmin ? 'Recibido de Socio' : 'Enviado por Admin'}
+                                                        <span style={{ fontWeight: 400, opacity: 0.6, marginLeft: '0.5rem' }}> - {n.titulo}</span>
+                                                    </span>
+                                                    <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>
+                                                        {new Date(n.fechaCreacion).toLocaleString()}
+                                                    </span>
+                                                </div>
+                                                <p style={{ fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{n.mensaje}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </Section>

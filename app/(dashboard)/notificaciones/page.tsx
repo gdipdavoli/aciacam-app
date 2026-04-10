@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { NotificationService } from '@/services/notificationService';
 import { Notificacion } from '@/types';
-import { Bell, Check, Clock, Package, MapPin, Trash2, MailOpen, Mail, MessageSquare } from 'lucide-react';
+import { Bell, Check, Clock, Package, MapPin, Trash2, MailOpen, Mail, MessageSquare, Send } from 'lucide-react';
 
 export default function NotificacionesPage() {
     const { user } = useAuth();
@@ -58,8 +58,9 @@ export default function NotificacionesPage() {
             setShowForm(false);
             setNotifTitulo('');
             setNotifMensaje('');
+            fetchNotifications(); // Refresh history
         } catch (error) {
-            alert("Error al enviar mensaje");
+            alert("Error al enviar mensaje: " + (error as any).message);
         } finally {
             setIsSending(false);
         }
@@ -69,19 +70,20 @@ export default function NotificacionesPage() {
         switch (type) {
             case 'delivery': return <MapPin size={20} className="text-primary" />;
             case 'order': return <Package size={20} className="text-blue-500" />;
+            case 'socio_message': return <Send size={20} className="text-slate-500" />;
             default: return <Bell size={20} className="text-amber-500" />;
         }
     };
 
     return (
         <div style={{ maxWidth: '800px', margin: '0 auto', paddingBottom: '2rem' }}>
-            <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'end' }}>
+            <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'end', flexWrap: 'wrap', gap: '1rem' }}>
                 <div>
                     <h1 style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>
-                        Notificaciones
+                        Mis Mensajes
                     </h1>
                     <p style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        Mantenete al tanto de tus pedidos y novedades de ACIACAM.
+                        Historial de notificaciones y consultas con ACIACAM.
                     </p>
                 </div>
                 <button 
@@ -186,22 +188,25 @@ export default function NotificacionesPage() {
                     }}>
                         <Bell size={32} className="text-muted-foreground opacity-50" />
                     </div>
-                    <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem' }}>No tenés notificaciones</h3>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem' }}>No tenés mensajes</h3>
                     <p style={{ color: 'hsl(var(--muted-foreground))' }}>Todo al día por aquí. Te avisaremos cuando haya novedades.</p>
                 </div>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                     {notifications.map((n) => (
                         <div 
                             key={n.id} 
                             style={{
-                                backgroundColor: n.leido ? 'hsl(var(--card))' : 'hsl(var(--primary) / 0.03)',
-                                border: `1px solid ${n.leido ? 'hsl(var(--border))' : 'hsl(var(--primary) / 0.2)'}`,
+                                alignSelf: n.esParaAdmin ? 'flex-end' : 'flex-start',
+                                width: '100%',
+                                maxWidth: '90%',
+                                backgroundColor: n.esParaAdmin ? 'hsl(var(--muted) / 0.3)' : (n.leido ? 'hsl(var(--card))' : 'hsl(var(--primary) / 0.03)'),
+                                border: `1px solid ${n.esParaAdmin ? 'hsl(var(--border))' : (n.leido ? 'hsl(var(--border))' : 'hsl(var(--primary) / 0.2)')}`,
                                 borderRadius: 'var(--radius)',
                                 padding: '1.25rem',
                                 position: 'relative',
                                 transition: 'all 0.2s ease-in-out',
-                                boxShadow: n.leido ? 'none' : '0 4px 12px -4px hsl(var(--primary) / 0.1)'
+                                boxShadow: n.leido || n.esParaAdmin ? 'none' : '0 4px 12px -4px hsl(var(--primary) / 0.1)'
                             }}
                         >
                             <div style={{ display: 'flex', gap: '1rem' }}>
@@ -209,7 +214,7 @@ export default function NotificacionesPage() {
                                     width: '40px', 
                                     height: '40px', 
                                     borderRadius: '10px', 
-                                    backgroundColor: n.leido ? 'hsl(var(--muted) / 0.3)' : 'hsl(var(--primary) / 0.1)', 
+                                    backgroundColor: n.esParaAdmin ? 'hsl(var(--muted))' : (n.leido ? 'hsl(var(--muted) / 0.3)' : 'hsl(var(--primary) / 0.1)'), 
                                     display: 'flex', 
                                     alignItems: 'center', 
                                     justifyContent: 'center',
@@ -219,20 +224,21 @@ export default function NotificacionesPage() {
                                 </div>
                                 <div style={{ flex: 1 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.25rem' }}>
-                                        <h4 style={{ fontWeight: 700, fontSize: '1.1rem', color: n.leido ? 'inherit' : 'hsl(var(--primary))' }}>
-                                            {n.titulo}
-                                            {!n.leido && <span style={{ marginLeft: '0.5rem', width: '8px', height: '8px', backgroundColor: 'hsl(var(--primary))', borderRadius: '50%', display: 'inline-block' }}></span>}
+                                        <h4 style={{ fontWeight: 700, fontSize: '1.1rem', color: n.esParaAdmin ? 'hsl(var(--muted-foreground))' : (n.leido ? 'inherit' : 'hsl(var(--primary))') }}>
+                                            {n.titulo} 
+                                            {n.esParaAdmin && <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', marginLeft: '0.5rem', opacity: 0.6 }}>(Enviado a soporte)</span>}
+                                            {!n.leido && !n.esParaAdmin && <span style={{ marginLeft: '0.5rem', width: '8px', height: '8px', backgroundColor: 'hsl(var(--primary))', borderRadius: '50%', display: 'inline-block' }}></span>}
                                         </h4>
                                         <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                                             <Clock size={12} />
                                             {new Date(n.fechaCreacion).toLocaleDateString()} {new Date(n.fechaCreacion).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                     </div>
-                                    <p style={{ color: 'hsl(var(--foreground))', fontSize: '0.95rem', lineHeight: '1.5', opacity: n.leido ? 0.8 : 1 }}>
+                                    <p style={{ color: 'hsl(var(--foreground))', fontSize: '0.95rem', lineHeight: '1.5', opacity: (n.leido || n.esParaAdmin) ? 0.8 : 1 }}>
                                         {n.mensaje}
                                     </p>
                                     
-                                    {!n.leido && (
+                                    {!n.leido && !n.esParaAdmin && (
                                         <button 
                                             onClick={() => handleMarkAsRead(n.id)}
                                             style={{

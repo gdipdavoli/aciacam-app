@@ -16,7 +16,7 @@ export const NotificationService = {
         if (params.isAdminInbox) {
             query = query.eq('es_para_admin', true);
         } else if (params.socioId) {
-            query = query.eq('socio_id', params.socioId).eq('es_para_admin', false);
+            query = query.eq('socio_id', params.socioId);
         }
 
         const { data, error } = await query.order('fecha_creacion', { ascending: false });
