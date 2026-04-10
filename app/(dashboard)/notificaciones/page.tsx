@@ -182,7 +182,7 @@ export default function NotificacionesPage() {
                                 onClick={() => isTicket && setSelectedThreadId(item.id)}
                                 style={{
                                     backgroundColor: item.leido ? 'hsl(var(--card))' : 'hsl(var(--primary) / 0.03)',
-                                    border: `1px solid ${item.leido ? 'hsl(var(--border))' : 'hsl(var(--primary) / 0.2)')}`,
+                                    border: `1px solid ${item.leido ? 'hsl(var(--border))' : 'hsl(var(--primary) / 0.2)'}`,
                                     borderRadius: 'var(--radius)',
                                     padding: '1.25rem',
                                     display: 'flex',
