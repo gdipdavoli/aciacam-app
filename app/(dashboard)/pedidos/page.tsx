@@ -151,6 +151,19 @@ export default function MisPedidosPage() {
                                 </div>
                             )}
 
+                            {order.tipoPedido === 'delivery' && order.entrega_estimada && (
+                                <div className="mt-3 pt-3 border-t border-border/50 flex items-start gap-3 text-sm">
+                                    <Clock size={16} className="text-primary shrink-0 mt-0.5" />
+                                    <div className="bg-primary/5 p-3 rounded-md border border-primary/10 w-full">
+                                        <p className="text-primary font-semibold mb-1">Visita Programada</p>
+                                        <p className="text-foreground">{order.entrega_estimada}</p>
+                                        <p className="text-[10px] text-muted-foreground mt-2 uppercase tracking-tight">
+                                            Recibirás una notificación cuando estemos cerca
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
                             {order.estado === 'pendiente' && (
                                 <div className="mt-3 pt-3 border-t border-border/50 flex justify-end">
                                     <button

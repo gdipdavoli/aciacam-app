@@ -154,3 +154,15 @@ export interface Pago {
     monto: number;
     medioDePago: string;
 }
+
+export interface Notificacion {
+    id: string;
+    socioId: string;
+    titulo: string;
+    mensaje: string;
+    leido: boolean;
+    tipo: 'general' | 'delivery' | 'order' | string;
+    metadata?: any;
+    fechaCreacion: string;
+}
+

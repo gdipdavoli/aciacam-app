@@ -8,6 +8,7 @@ import { Pedido, Socio, OrderType } from '@/types';
 import { ArrowLeft, CheckCircle, Clock, Package, ExternalLink, Send, Calendar } from 'lucide-react';
 
 import { getStatusLabel, getNextStatusOptions } from '@/helpers/orderHelpers';
+import { NotificationService } from '@/services/notificationService';
 
 export default function OrderDetailsPage() {
     const { user, loading: authLoading } = useAuth();
@@ -33,6 +34,7 @@ export default function OrderDetailsPage() {
     // Delivery Assignment State
     const [isUpdatingDelivery, setIsUpdatingDelivery] = useState(false);
     const [editedEntregaEstimada, setEditedEntregaEstimada] = useState('');
+    const [isSendingAppNotification, setIsSendingAppNotification] = useState(false);
 
     useEffect(() => {
         if (!authLoading) {
@@ -138,6 +140,26 @@ export default function OrderDetailsPage() {
         const encodedMessage = encodeURIComponent(message);
         const url = `https://wa.me/${socio.telefono.replace(/\D/g, '')}?text=${encodedMessage}`;
         window.open(url, '_blank');
+    };
+
+    const sendAppNotification = async () => {
+        if (!socio || !order) return;
+        setIsSendingAppNotification(true);
+        try {
+            await NotificationService.sendNotification({
+                socioId: socio.id,
+                titulo: "Entrega Programada",
+                mensaje: `Tu pedido #${order.id.slice(-6)} tiene una visita programada para: ${editedEntregaEstimada || order.entrega_estimada}.`,
+                tipo: 'delivery',
+                metadata: { pedidoId: order.id }
+            });
+            alert("Notificación enviada a la App del socio");
+        } catch (error) {
+            console.error("Failed to send app notification", error);
+            alert("Error al enviar notificación a la App");
+        } finally {
+            setIsSendingAppNotification(false);
+        }
     };
 
     if (loading || authLoading) return <div style={{ padding: '2rem' }}>Cargando detalle...</div>;
@@ -290,7 +312,15 @@ export default function OrderDetailsPage() {
                                     className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 transition-all flex items-center gap-2"
                                     title="Notificar por WhatsApp"
                                 >
-                                    <Send size={16} /> Notificar
+                                    <Send size={16} /> WhatsApp
+                                </button>
+                                <button 
+                                    onClick={sendAppNotification}
+                                    disabled={isSendingAppNotification || (!order.entrega_estimada && !editedEntregaEstimada)}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center gap-2"
+                                    title="Notificar por App"
+                                >
+                                    <Bell size={16} /> {isSendingAppNotification ? 'Enviando...' : 'App'}
                                 </button>
                             </div>
                         </div>

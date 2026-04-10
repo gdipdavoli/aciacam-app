@@ -4,10 +4,11 @@ import React, { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
+import { NotificationService } from '@/services/notificationService';
 import { StorageService } from '@/services/storageService';
 import type { TipoDocumento, EstadoVerificacion } from '@/services/documentacionService';
 import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento, Pago } from '@/types';
-import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus, CreditCard } from 'lucide-react';
+import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus, CreditCard, Send, Bell } from 'lucide-react';
 
 const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
     consentimiento: { needsFecha: false, needsMonto: false, hasExpiration: false },
@@ -533,6 +534,35 @@ export default function SocioDetailsPage() {
     // Removed docForm and selectedFile derived state from here; now handled in modal
     const [uploading, setUploading] = useState(false);
 
+    // Notification State
+    const [notifTitulo, setNotifTitulo] = useState('');
+    const [notifMensaje, setNotifMensaje] = useState('');
+    const [notifSending, setNotifSending] = useState(false);
+
+    const handleSendNotification = async () => {
+        if (!socio || !notifTitulo || !notifMensaje) {
+            alert("Por favor completa título y mensaje");
+            return;
+        }
+
+        setNotifSending(true);
+        try {
+            await NotificationService.sendNotification({
+                socioId: socio.id,
+                titulo: notifTitulo,
+                mensaje: notifMensaje,
+                tipo: 'general'
+            });
+            alert("Notificación enviada con éxito");
+            setNotifTitulo('');
+            setNotifMensaje('');
+        } catch (e: any) {
+            alert("Error al enviar notificación: " + e.message);
+        } finally {
+            setNotifSending(false);
+        }
+    };
+
 
     const docDefinitions: { key: keyof DocumentacionSocio, label: string }[] = [
         { key: 'declaracionJurada', label: 'Declaración Jurada' },
@@ -873,9 +903,52 @@ export default function SocioDetailsPage() {
                 {/* Left Column (Main Info) */}
                 <div style={{ gridColumn: 'span 8' }}>
 
-                    {/* SECCION A: Invitación / Cuenta */}
                     <Section title="Cuenta de Usuario">
                         <InviteStatusWidget socioId={socio.id} socioEmail={socio.email} mode="full" />
+                    </Section>
+
+                    {/* SECCION C: Comunicación Directa */}
+                    <Section title="Comunicación Directa" icon={Bell}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            <p style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>
+                                Envía una notificación que el socio recibirá instantáneamente en su Centro de Notificaciones dentro de la App.
+                            </p>
+                            <InputGroup 
+                                label="Título Corto" 
+                                value={notifTitulo} 
+                                onChange={setNotifTitulo} 
+                                placeholder="Ej: Pedido Listo, Novedad importante..."
+                            />
+                            <InputGroup 
+                                label="Mensaje" 
+                                value={notifMensaje} 
+                                onChange={setNotifMensaje} 
+                                multiline 
+                                placeholder="Describe el motivo de la notificación..."
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <button
+                                    onClick={handleSendNotification}
+                                    disabled={notifSending || !notifTitulo || !notifMensaje}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem',
+                                        padding: '0.5rem 1.5rem',
+                                        backgroundColor: 'hsl(var(--primary))',
+                                        color: 'hsl(var(--primary-foreground))',
+                                        borderRadius: 'var(--radius)',
+                                        border: 'none',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        opacity: notifSending ? 0.7 : 1
+                                    }}
+                                >
+                                    <Send size={16} />
+                                    {notifSending ? 'Enviando...' : 'Enviar Notificación App'}
+                                </button>
+                            </div>
+                        </div>
                     </Section>
 
                     {/* SECCION B: Datos Personales */}

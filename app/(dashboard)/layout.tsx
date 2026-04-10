@@ -7,7 +7,8 @@ import Link from 'next/link';
 import { useCart } from '@/context/CartContext';
 import styles from './dashboard.module.css';
 
-import { Home, Flower2, ShoppingBag, User, LogOut, Leaf, CheckCircle, Calendar } from 'lucide-react';
+import { Home, Flower2, ShoppingBag, User, LogOut, Leaf, CheckCircle, Calendar, Bell } from 'lucide-react';
+import { NotificationService } from '@/services/notificationService';
 // import { ChatWidget } from '@/app/components/ChatWidget'; // DISABLED for Production
 
 
@@ -21,6 +22,18 @@ export default function DashboardLayout({
     const router = useRouter();
 
     const pathname = usePathname();
+    const [unreadCount, setUnreadCount] = React.useState(0);
+
+    useEffect(() => {
+        if (user && user.rol !== 'admin' && user.rol !== 'staff') {
+            NotificationService.getUnreadCount(user.id).then(setUnreadCount);
+            // Poll every 2 minutes for new notifications
+            const interval = setInterval(() => {
+                NotificationService.getUnreadCount(user.id).then(setUnreadCount);
+            }, 120000);
+            return () => clearInterval(interval);
+        }
+    }, [user]);
 
     useEffect(() => {
         if (!loading && !user) {
@@ -67,7 +80,7 @@ export default function DashboardLayout({
         ];
     } else {
         navItems = [
-            { href: '/', label: 'Inicio', icon: Home },
+            { href: '/notificaciones', label: 'Notificaciones', icon: Bell, badge: unreadCount },
             { href: '/variedades', label: 'Variedades', icon: Flower2 },
             { href: '/pedidos', label: 'Mis Pedidos', icon: ShoppingBag },
             { href: '/cuenta', label: 'Mi Cuenta', icon: User },
@@ -95,7 +108,28 @@ export default function DashboardLayout({
                                 href={item.href}
                                 className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
                             >
-                                <Icon size={20} />
+                                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                    <Icon size={20} />
+                                    {item.badge !== undefined && item.badge > 0 && (
+                                        <span style={{
+                                            position: 'absolute',
+                                            top: '-8px',
+                                            right: '-8px',
+                                            backgroundColor: 'hsl(var(--destructive))',
+                                            color: 'white',
+                                            borderRadius: '50%',
+                                            width: '16px',
+                                            height: '16px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: '0.65rem',
+                                            fontWeight: 700
+                                        }}>
+                                            {item.badge > 9 ? '9+' : item.badge}
+                                        </span>
+                                    )}
+                                </div>
                                 <span>{item.label}</span>
                             </Link>
                         );
@@ -167,9 +201,30 @@ export default function DashboardLayout({
                             href={item.href}
                             className={`${styles.mobileNavItem} ${isActive ? styles.mobileNavItemActive : ''}`}
                         >
+                        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                             <Icon size={22} />
-                            <span>{item.label}</span>
-                        </Link>
+                            {item.badge !== undefined && item.badge > 0 && (
+                                <span style={{
+                                    position: 'absolute',
+                                    top: '-4px',
+                                    right: '-4px',
+                                    backgroundColor: 'hsl(var(--destructive))',
+                                    color: 'white',
+                                    borderRadius: '50%',
+                                    width: '14px',
+                                    height: '14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '0.6rem',
+                                    fontWeight: 700
+                                }}>
+                                    {item.badge > 9 ? '9+' : item.badge}
+                                </span>
+                            )}
+                        </div>
+                        <span>{item.label}</span>
+                    </Link>
                     );
                 })}
 
