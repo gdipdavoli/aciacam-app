@@ -263,13 +263,14 @@ export const NotificationService = {
         socioId: string;
         titulo: string;
         mensaje: string;
+        parentId?: string;
     }): Promise<void> => {
         if (!supabase) return;
 
         const { error } = await supabase
             .from('notificaciones')
             .insert([{
-                socio_id: params.socioId, // Still associated with the socio
+                socio_id: params.socioId,
                 remitente_id: params.socioId,
                 titulo: params.titulo,
                 mensaje: params.mensaje,
@@ -277,6 +278,7 @@ export const NotificationService = {
                 leido: false,
                 es_para_admin: true,
                 estado: 'abierto',
+                parent_id: params.parentId,
                 es_informativo: false
             }]);
 
