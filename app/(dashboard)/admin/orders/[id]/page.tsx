@@ -5,7 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { Pedido, Socio, OrderType } from '@/types';
-import { ArrowLeft, CheckCircle, Clock, Package, ExternalLink, Send, Calendar } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Clock, Package, ExternalLink, Send, Calendar, Bell } from 'lucide-react';
 
 import { getStatusLabel, getNextStatusOptions } from '@/helpers/orderHelpers';
 import { NotificationService } from '@/services/notificationService';
