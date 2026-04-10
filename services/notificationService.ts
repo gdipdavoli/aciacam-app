@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabase } from './supabaseClient';
 import { Notificacion } from '@/types';
 
 export const NotificationService = {
