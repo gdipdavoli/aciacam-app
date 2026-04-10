@@ -291,21 +291,34 @@ export const NotificationService = {
     getUnreadCount: async (params: { socioId?: string, isAdminInbox?: boolean }): Promise<number> => {
         if (!supabase) return 0;
 
-        let query = supabase
-            .from('notificaciones')
-            .select('*', { count: 'exact', head: true })
-            .eq('leido', false);
-
         if (params.isAdminInbox) {
-            query = query.eq('es_para_admin', true);
-        } else if (params.socioId) {
-            query = query.eq('socio_id', params.socioId).eq('es_para_admin', false);
+            // For Admin, count unique threads (Cases) that have unread messages
+            const { data, error } = await supabase
+                .from('notificaciones')
+                .select('id, parent_id')
+                .eq('es_para_admin', true)
+                .eq('leido', false);
+            
+            if (error) throw error;
+            if (!data) return 0;
+
+            // Group by the "root" message ID. 
+            // If it has a parent_id, that's the root. If not, the message itself is the root.
+            const uniqueThreads = new Set(data.map(n => n.parent_id || n.id));
+            return uniqueThreads.size;
+        } else {
+            // For Socio, keep counting individual unread notifications
+            let query = supabase
+                .from('notificaciones')
+                .select('*', { count: 'exact', head: true })
+                .eq('leido', false)
+                .eq('socio_id', params.socioId)
+                .eq('es_para_admin', false);
+
+            const { count, error } = await query;
+            if (error) throw error;
+            return count || 0;
         }
-
-        const { count, error } = await query;
-
-        if (error) throw error;
-        return count || 0;
     }
 };
 
