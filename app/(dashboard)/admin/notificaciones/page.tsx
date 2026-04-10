@@ -68,7 +68,8 @@ export default function AdminNotificacionesPage() {
                 titulo: notifTitulo,
                 mensaje: notifMensaje,
                 tipo: recipientMode === 'all' ? 'massive' : 'targeted',
-                filters
+                filters,
+                remitenteId: (user as any)?.socioId
             });
             
             alert(`Mensaje enviado correctamente a los destinatarios seleccionados.`);

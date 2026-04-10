@@ -61,6 +61,7 @@ export const NotificationService = {
         mensaje: string;
         tipo?: string;
         metadata?: any;
+        remitenteId?: string;
     }): Promise<Notificacion> => {
         if (!supabase) throw new Error("Supabase client not initialized");
 
@@ -68,6 +69,7 @@ export const NotificationService = {
             .from('notificaciones')
             .insert([{
                 socio_id: params.socioId,
+                remitente_id: params.remitenteId,
                 titulo: params.titulo,
                 mensaje: params.mensaje,
                 tipo: params.tipo || 'general',
@@ -103,7 +105,8 @@ export const NotificationService = {
         filters?: {
             reprocann_estado?: string;
             socioIds?: string[];
-        }
+        };
+        remitenteId?: string;
     }): Promise<void> => {
         if (!supabase) return;
 
@@ -130,6 +133,7 @@ export const NotificationService = {
         // 2. Prepare bulk insert
         const inserts = socioIds.map(id => ({
             socio_id: id,
+            remitente_id: params.remitenteId,
             titulo: params.titulo,
             mensaje: params.mensaje,
             tipo: params.tipo || 'massive',

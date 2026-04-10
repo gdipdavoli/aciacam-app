@@ -564,7 +564,8 @@ export default function SocioDetailsPage() {
                 socioId: socio.id,
                 titulo: notifTitulo,
                 mensaje: notifMensaje,
-                tipo: 'general'
+                tipo: 'general',
+                remitenteId: (user as any)?.socioId
             });
             setNotifTitulo('');
             setNotifMensaje('');

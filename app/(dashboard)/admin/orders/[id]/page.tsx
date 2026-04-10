@@ -151,7 +151,8 @@ export default function OrderDetailsPage() {
                 titulo: "Entrega Programada",
                 mensaje: `Tu pedido #${order.id.slice(-6)} tiene una visita programada para: ${editedEntregaEstimada || order.entrega_estimada}.`,
                 tipo: 'delivery',
-                metadata: { pedidoId: order.id }
+                metadata: { pedidoId: order.id },
+                remitenteId: (user as any)?.socioId
             });
             alert("Notificación enviada a la App del socio");
         } catch (error) {
