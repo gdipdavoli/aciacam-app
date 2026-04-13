@@ -22,22 +22,21 @@ export default function AdminSociosPage() {
                 return;
             }
 
-            // Fetch both socios and their documentation status summary
             Promise.all([
                 StoreService.getAllSocios('socio'),
                 StoreService.getEstadoDocumentacionTodos()
             ]).then(([sociosData, docSummaries]) => {
                 // Merge doc status into socios
-                const merged = sociosData.map(socio => {
+                const merged: Socio[] = sociosData.map(socio => {
                     const summary = docSummaries.find(s => s.socio_id === socio.id);
                     if (summary) {
                         return {
                             ...socio,
                             documentacion: {
                                 ...socio.documentacion,
-                                consentimiento: summary.consentimiento_archivo ? { estado: 'completo', archivoPath: summary.consentimiento_archivo } : undefined,
-                                declaracionJurada: summary.ddjj_archivo ? { estado: 'completo', archivoPath: summary.ddjj_archivo } : undefined,
-                                reprocann: summary.reprocann_archivo ? { estado: 'completo', archivoPath: summary.reprocann_archivo } : undefined,
+                                consentimiento: summary.consentimiento_archivo ? { estado: 'completo' as const, archivoPath: summary.consentimiento_archivo } : undefined,
+                                declaracionJurada: summary.ddjj_archivo ? { estado: 'completo' as const, archivoPath: summary.ddjj_archivo } : undefined,
+                                reprocann: summary.reprocann_archivo ? { estado: 'completo' as const, archivoPath: summary.reprocann_archivo } : undefined,
                             }
                         };
                     }
