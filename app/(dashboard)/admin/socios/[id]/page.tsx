@@ -343,7 +343,7 @@ const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onS
     // 1. Local State
     const [form, setForm] = useState<DocumentoSocio>(initialData || { verificacion_estado: 'pendiente' } as any);
     const [file, setFile] = useState<File | null>(null);
-    const [isEditing, setIsEditing] = useState(false); // DEFAULT READ ONLY
+    const [isEditing, setIsEditing] = useState(true); // START IN EDIT MODE
 
     // 4. Verification Log
     useEffect(() => {
@@ -402,16 +402,6 @@ const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onS
                     {docLabel}
                 </div>
 
-                {/* Edit Controls */}
-                <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
-                    {!isEditing ? (
-                        <button onClick={() => setIsEditing(true)} style={{ color: 'hsl(var(--primary))', fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                            <Edit size={16} /> Habilitar Edición
-                        </button>
-                    ) : (
-                        <span style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))', fontStyle: 'italic' }}>Modo Edición Activo</span>
-                    )}
-                </div>
 
                 {/* Verification Status */}
                 <div style={{ padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '0.5rem', marginBottom: '1.5rem', border: '1px solid #e2e8f0' }}>
