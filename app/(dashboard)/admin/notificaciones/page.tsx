@@ -15,6 +15,7 @@ import {
 type RecipientMode = 'all' | 'reprocann-activo' | 'reprocann-pendiente' | 'manual';
 
 export default function AdminNotificacionesPage() {
+    const { user } = useAuth();
     const searchParams = useSearchParams();
     const router = useRouter();
     const pathname = usePathname();
