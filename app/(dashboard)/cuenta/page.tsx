@@ -5,13 +5,21 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { StorageService } from '@/services/storageService';
 import { Pago, Pedido, Socio } from '@/types';
-import { User, CreditCard, History, FileText, Activity, AlertCircle, FileCheck, CheckCircle, Clock, XCircle, ExternalLink } from 'lucide-react';
+import { User, CreditCard, History, FileText, Activity, AlertCircle, FileCheck, CheckCircle, Clock, XCircle, ExternalLink, Upload, Plus, X } from 'lucide-react';
 
 export default function CuentaPage() {
     const { user: authUser } = useAuth();
     const [socio, setSocio] = useState<Socio | null>(null);
     const [pagos, setPagos] = useState<Pago[]>([]);
     const [loading, setLoading] = useState(true);
+    const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
+    
+    // REPROCANN dates state for upload
+    const [reprocannDates, setReprocannDates] = useState({
+        fechaEmision: '',
+        fechaVencimiento: ''
+    });
 
     useEffect(() => {
         if (authUser) {
@@ -125,8 +133,145 @@ export default function CuentaPage() {
         </div>
     );
 
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, tipo: string) => {
+        const file = e.target.files?.[0];
+        if (!file || !socio) return;
+
+        setIsUploading(true);
+        try {
+            await StoreService.uploadDocumento(socio.id, tipo, file, 'socio_web');
+            
+            // If it's reprocann and dates are set, update metadata
+            if (tipo === 'reprocann' && (reprocannDates.fechaEmision || reprocannDates.fechaVencimiento)) {
+                // In a perfect world, uploadDocumento would take these.
+                // For now, we update the doc record immediately after
+                const docs = await StoreService.getDocumentosBySocio(socio.id);
+                const reproDoc = docs.find(d => d.tipo === 'reprocann');
+                if (reproDoc) {
+                    await StoreService.upsertDocumentoSocio(socio.id, 'reprocann', {
+                        fecha_emision: reprocannDates.fechaEmision || undefined,
+                        fecha_vencimiento: reprocannDates.fechaVencimiento || undefined
+                    });
+                }
+            }
+
+            // Refresh data
+            const freshSocio = await StoreService.getSocioById(socio.id);
+            if (freshSocio) setSocio(freshSocio);
+            setUploadingDoc(null);
+            alert('Documento subido correctamente. Será revisado por administración.');
+        } catch (err) {
+            console.error(err);
+            alert('Error al subir el documento.');
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
     return (
         <div style={{ maxWidth: '1200px', margin: '0 auto', paddingBottom: '3rem' }}>
+            {/* Upload Modal Overlay */}
+            {uploadingDoc && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000,
+                    backdropFilter: 'blur(4px)'
+                }}>
+                    <div style={{
+                        backgroundColor: 'hsl(var(--background))',
+                        padding: '2rem',
+                        borderRadius: 'var(--radius)',
+                        width: '90%',
+                        maxWidth: '450px',
+                        boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Subir {uploadingDoc.replace('_', ' ').toUpperCase()}</h2>
+                            <button onClick={() => setUploadingDoc(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--muted-foreground))' }}>
+                                <X size={24} />
+                            </button>
+                        </div>
+
+                        {uploadingDoc === 'reprocann' && (
+                            <div style={{ marginBottom: '1.5rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.4rem', fontWeight: 500 }}>Fecha de Emisión</label>
+                                    <input 
+                                        type="date" 
+                                        value={reprocannDates.fechaEmision}
+                                        onChange={(e) => setReprocannDates(prev => ({ ...prev, fechaEmision: e.target.value }))}
+                                        style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid hsl(var(--border))' }}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.4rem', fontWeight: 500 }}>Fecha de Vencimiento</label>
+                                    <input 
+                                        type="date" 
+                                        value={reprocannDates.fechaVencimiento}
+                                        onChange={(e) => setReprocannDates(prev => ({ ...prev, fechaVencimiento: e.target.value }))}
+                                        style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid hsl(var(--border))' }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        <div style={{
+                            border: '2px dashed hsl(var(--border))',
+                            borderRadius: 'var(--radius)',
+                            padding: '2rem',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                            position: 'relative',
+                            transition: 'border-color 0.2s',
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.borderColor = 'hsl(var(--primary))'}
+                        onMouseOut={(e) => e.currentTarget.style.borderColor = 'hsl(var(--border))'}
+                        >
+                            <input
+                                type="file"
+                                accept=".pdf,image/*"
+                                onChange={(e) => handleFileUpload(e, uploadingDoc)}
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    width: '100%',
+                                    height: '100%',
+                                    opacity: 0,
+                                    cursor: 'pointer'
+                                }}
+                                disabled={isUploading}
+                            />
+                            {isUploading ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                                    <Clock className="animate-spin" size={32} />
+                                    <p>Subiendo archivo...</p>
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                                    <Upload size={32} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                                    <p style={{ fontWeight: 500 }}>Seleccionar archivo PDF o Imagen</p>
+                                    <p style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Hacé click o arrastrá el archivo aquí</p>
+                                </div>
+                            )}
+                        </div>
+                        
+                        <div style={{ marginTop: '1.5rem', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', backgroundColor: 'hsl(var(--muted))', padding: '0.75rem', borderRadius: 'var(--radius)' }}>
+                            <AlertCircle size={14} style={{ display: 'inline', marginRight: '0.4rem' }} />
+                            Asegurate de que el archivo sea legible. El administrador validará la información pronto.
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div style={{ marginBottom: '2rem' }}>
                 <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem', fontWeight: 700 }}>Mi Cuenta</h1>
                 <p style={{ color: 'hsl(var(--muted-foreground))' }}>Información personal, trámites y estado de cuenta.</p>
@@ -207,10 +352,9 @@ export default function CuentaPage() {
                                 </thead>
                                 <tbody>
                                     {[
-                                        { name: 'Declaración Jurada', data: socio.documentacion?.declaracionJurada },
-                                        { name: 'Consentimiento Informado', data: socio.documentacion?.consentimiento },
-                                        { name: 'Contrato Autocultivo', data: socio.documentacion?.contrato_autocultivo },
-                                        { name: 'Contrato Mamá Cultiva', data: socio.documentacion?.contrato_madre },
+                                        { key: 'declaracionJurada', dbKey: 'declaracion_jurada', name: 'Declaración Jurada', data: socio.documentacion?.declaracionJurada },
+                                        { key: 'consentimiento', dbKey: 'consentimiento', name: 'Consentimiento Informado', data: socio.documentacion?.consentimiento },
+                                        { key: 'reprocann', dbKey: 'reprocann', name: 'Certificado de Reprocann', data: socio.documentacion?.reprocann },
                                     ].map((doc, idx) => (
                                         <tr key={idx} style={{ borderBottom: '1px solid hsl(var(--border))' }}>
                                             <td style={{ padding: '0.75rem', fontWeight: 500 }}>{doc.name}</td>
@@ -224,28 +368,45 @@ export default function CuentaPage() {
                                                 {formatDate(doc.data?.fechaEmision)}
                                             </td>
                                             <td style={{ padding: '0.75rem', textAlign: 'right' }}>
-                                                {doc.data?.archivoPath && (
+                                                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                                    {doc.data?.archivoPath && (
+                                                        <button
+                                                            onClick={async () => {
+                                                                const url = await StorageService.createSignedUrl(doc.data!.archivoPath!);
+                                                                if (url) window.open(url, '_blank');
+                                                                else alert('No se pudo generar el enlace.');
+                                                            }}
+                                                            style={{
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                cursor: 'pointer',
+                                                                color: 'hsl(var(--primary))',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '0.25rem',
+                                                                fontSize: '0.9rem'
+                                                            }}
+                                                        >
+                                                            <ExternalLink size={16} /> Ver
+                                                        </button>
+                                                    )}
                                                     <button
-                                                        onClick={async () => {
-                                                            const url = await StorageService.createSignedUrl(doc.data!.archivoPath!);
-                                                            if (url) window.open(url, '_blank');
-                                                            else alert('No se pudo generar el enlace.');
-                                                        }}
+                                                        onClick={() => setUploadingDoc(doc.dbKey)}
                                                         style={{
-                                                            background: 'none',
-                                                            border: 'none',
+                                                            padding: '0.3rem 0.6rem',
+                                                            borderRadius: 'var(--radius)',
+                                                            backgroundColor: 'hsl(var(--secondary))',
+                                                            border: '1px solid hsl(var(--border))',
+                                                            fontSize: '0.8rem',
                                                             cursor: 'pointer',
-                                                            color: 'hsl(var(--primary))',
                                                             display: 'flex',
                                                             alignItems: 'center',
-                                                            gap: '0.25rem',
-                                                            fontSize: '0.9rem',
-                                                            marginLeft: 'auto'
+                                                            gap: '0.3rem'
                                                         }}
                                                     >
-                                                        <ExternalLink size={16} /> Ver PDF
+                                                        <Upload size={14} /> {doc.data?.archivoPath ? 'Actualizar' : 'Subir'}
                                                     </button>
-                                                )}
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}

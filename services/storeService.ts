@@ -531,7 +531,7 @@ export const StoreService = {
 
             let query = supabase
                 .from('socios')
-                .select('*, documentos:documentos_socio(tipo, estado, verificacion_estado, archivo_path)')
+                .select('*')
                 .order('created_at', { ascending: false });
 
             if (role) {

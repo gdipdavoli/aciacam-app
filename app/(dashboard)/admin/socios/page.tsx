@@ -19,14 +19,31 @@ export default function AdminSociosPage() {
         if (!authLoading) {
             console.log("AdminSocios: Checking Access", user);
             if (!user || (user.rol !== 'admin' && user.rol !== 'staff')) {
-                // Stop loop for debugging
-                // router.push('/');
                 return;
             }
 
-            // FILTER: Fetches only 'socio' role (clients)
-            StoreService.getAllSocios('socio').then(data => {
-                setSocios(data);
+            // Fetch both socios and their documentation status summary
+            Promise.all([
+                StoreService.getAllSocios('socio'),
+                StoreService.getEstadoDocumentacionTodos()
+            ]).then(([sociosData, docSummaries]) => {
+                // Merge doc status into socios
+                const merged = sociosData.map(socio => {
+                    const summary = docSummaries.find(s => s.socio_id === socio.id);
+                    if (summary) {
+                        return {
+                            ...socio,
+                            documentacion: {
+                                ...socio.documentacion,
+                                consentimiento: summary.consentimiento_archivo ? { estado: 'completo', archivoPath: summary.consentimiento_archivo } : undefined,
+                                declaracionJurada: summary.ddjj_archivo ? { estado: 'completo', archivoPath: summary.ddjj_archivo } : undefined,
+                                reprocann: summary.reprocann_archivo ? { estado: 'completo', archivoPath: summary.reprocann_archivo } : undefined,
+                            }
+                        };
+                    }
+                    return socio;
+                });
+                setSocios(merged);
                 setLoading(false);
             });
         }
