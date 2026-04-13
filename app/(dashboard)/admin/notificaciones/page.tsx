@@ -113,9 +113,17 @@ export default function AdminNotificacionesPage() {
     }, [thread]);
 
     // Ticket Actions
-    const handleTicketSelect = (id: string) => {
+    const handleTicketSelect = async (id: string) => {
         setSelectedTicketId(id);
         updateUrl({ ticketId: id });
+        
+        // Mark as read
+        try {
+            await NotificationService.markThreadAsRead(id, true);
+            setTickets(prev => prev.map(t => t.id === id ? { ...t, leido: true } : t));
+        } catch (error) {
+            console.error("Error marking thread as read", error);
+        }
     };
 
     const handleReply = async () => {

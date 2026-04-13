@@ -16,7 +16,7 @@ export const NotificationService = {
         if (params.isAdminInbox) {
             query = query.eq('es_para_admin', true);
         } else if (params.socioId) {
-            query = query.eq('socio_id', params.socioId);
+            query = query.eq('socio_id', params.socioId).eq('oculto_para_socio', false);
         }
 
         const { data, error } = await query.order('fecha_creacion', { ascending: false });
@@ -39,7 +39,8 @@ export const NotificationService = {
             parentId: row.parent_id,
             estado: row.estado,
             esInformativo: row.es_informativo,
-            asignadoA: row.asignado_a
+            asignadoA: row.asignado_a,
+            ocultoParaSocio: row.oculto_para_socio
         }));
     },
 
@@ -80,7 +81,8 @@ export const NotificationService = {
             parentId: row.parent_id,
             estado: row.estado,
             esInformativo: row.es_informativo,
-            asignadoA: row.asignado_a
+            asignadoA: row.asignado_a,
+            ocultoParaSocio: row.oculto_para_socio
         }));
     },
 
@@ -116,7 +118,8 @@ export const NotificationService = {
             parentId: row.parent_id,
             estado: row.estado,
             esInformativo: row.es_informativo,
-            asignadoA: row.asignado_a
+            asignadoA: row.asignado_a,
+            ocultoParaSocio: row.oculto_para_socio
         }));
     },
 
@@ -135,15 +138,37 @@ export const NotificationService = {
     },
 
     /**
-     * Mark a notification as read
+     * Mark all messages in a thread as read for a specific recipient
      */
-    markAsRead: async (notificationId: string): Promise<void> => {
+    markThreadAsRead: async (threadId: string, isAdmin: boolean): Promise<void> => {
+        if (!supabase) return;
+
+        let query = supabase
+            .from('notificaciones')
+            .update({ leido: true })
+            .or(`id.eq.${threadId},parent_id.eq.${threadId}`)
+            .eq('leido', false);
+
+        if (isAdmin) {
+            query = query.eq('es_para_admin', true);
+        } else {
+            query = query.eq('es_para_admin', false);
+        }
+
+        const { error } = await query;
+        if (error) throw error;
+    },
+
+    /**
+     * Hide a thread for the socio (Soft Delete)
+     */
+    hideThreadForSocio: async (threadId: string): Promise<void> => {
         if (!supabase) return;
 
         const { error } = await supabase
             .from('notificaciones')
-            .update({ leido: true })
-            .eq('id', notificationId);
+            .update({ oculto_para_socio: true })
+            .or(`id.eq.${threadId},parent_id.eq.${threadId}`);
 
         if (error) throw error;
     },
@@ -196,7 +221,8 @@ export const NotificationService = {
             fechaCreacion: data.fecha_creacion,
             parentId: data.parent_id,
             estado: data.estado,
-            esInformativo: data.es_informativo
+            esInformativo: data.es_informativo,
+            ocultoParaSocio: data.oculto_para_socio
         };
     },
 
@@ -313,7 +339,8 @@ export const NotificationService = {
                 .select('*', { count: 'exact', head: true })
                 .eq('leido', false)
                 .eq('socio_id', params.socioId)
-                .eq('es_para_admin', false);
+                .eq('es_para_admin', false)
+                .eq('oculto_para_socio', false);
 
             const { count, error } = await query;
             if (error) throw error;
@@ -321,4 +348,3 @@ export const NotificationService = {
         }
     }
 };
-

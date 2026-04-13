@@ -6,7 +6,7 @@ import { NotificationService } from '@/services/notificationService';
 import { Notificacion, EstadoTicket } from '@/types';
 import { 
     Bell, Check, Clock, Package, MapPin, MessageSquare, 
-    Send, ChevronRight, X, Inbox, User, Info
+    Send, ChevronRight, X, Inbox, User, Info, Trash2
 } from 'lucide-react';
 
 export default function NotificacionesPage() {
@@ -60,10 +60,21 @@ export default function NotificacionesPage() {
 
     const handleMarkAsRead = async (id: string) => {
         try {
-            await NotificationService.markAsRead(id);
-            setNotifications(prev => prev.map(n => n.id === id ? { ...n, leido: true } : n));
+            await NotificationService.markThreadAsRead(id, false);
+            setNotifications(prev => prev.map(n => (n.id === id || n.parentId === id) ? { ...n, leido: true } : n));
         } catch (error) {
             console.error("Error marking as read", error);
+        }
+    };
+
+    const handleDeleteThread = async (id: string) => {
+        if (!confirm("¿Estás seguro de que querés eliminar esta conversación? No podrás verla de nuevo, pero administración conservará una copia.")) return;
+        try {
+            await NotificationService.hideThreadForSocio(id);
+            setNotifications(prev => prev.filter(n => n.id !== id && n.parentId !== id));
+        } catch (error) {
+            console.error("Error hiding thread", error);
+            alert("Error al eliminar la conversación");
         }
     };
 
@@ -179,7 +190,12 @@ export default function NotificacionesPage() {
                         return (
                             <div 
                                 key={item.id} 
-                                onClick={() => isTicket && setSelectedThreadId(item.id)}
+                                onClick={() => {
+                                    if (isTicket) {
+                                        setSelectedThreadId(item.id);
+                                        if (!item.leido) handleMarkAsRead(item.id);
+                                    }
+                                }}
                                 style={{
                                     backgroundColor: item.leido ? 'hsl(var(--card))' : 'hsl(var(--primary) / 0.03)',
                                     border: `1px solid ${item.leido ? 'hsl(var(--border))' : 'hsl(var(--primary) / 0.2)'}`,
@@ -216,7 +232,18 @@ export default function NotificacionesPage() {
                                 </div>
 
                                 {isTicket ? (
-                                    <ChevronRight size={18} style={{ color: 'hsl(var(--muted-foreground))', opacity: 0.5 }} />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        {item.estado === 'cerrado' && (
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteThread(item.id); }} 
+                                                style={{ background: 'none', border: 'none', color: 'hsl(var(--destructive))', cursor: 'pointer', padding: '0.5rem', opacity: 0.6 }}
+                                                title="Eliminar conversación"
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        )}
+                                        <ChevronRight size={18} style={{ color: 'hsl(var(--muted-foreground))', opacity: 0.5 }} />
+                                    </div>
                                 ) : (
                                     !item.leido && (
                                         <button onClick={(e) => { e.stopPropagation(); handleMarkAsRead(item.id); }} style={{ backgroundColor: 'transparent', border: 'none', color: 'hsl(var(--primary))', fontWeight: 600, fontSize: '0.75rem', cursor: 'pointer' }}>

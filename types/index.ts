@@ -177,6 +177,7 @@ export interface Notificacion {
     estado?: EstadoTicket;
     esInformativo?: boolean;
     asignadoA?: string;
+    ocultoParaSocio?: boolean;
 }
 
 
