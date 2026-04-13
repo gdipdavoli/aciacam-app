@@ -144,7 +144,7 @@ export default function CuentaPage() {
 
         setIsUploading(true);
         try {
-            await StoreService.uploadDocumento(socio.id, tipo, file, 'socio_web');
+            await StoreService.uploadDocumento(socio.id, tipo, file, 'socio_web', authUser.id);
             
             // If it's reprocann and dates are set, update metadata
             if (tipo === 'reprocann' && (reprocannDates.fechaEmision || reprocannDates.fechaVencimiento)) {

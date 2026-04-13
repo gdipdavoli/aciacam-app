@@ -576,7 +576,7 @@ export const StoreService = {
         // Fallback to Client (RLS restricted)
         const { data, error } = await supabase
             .from('socios')
-            .select('*, documentos:documentos_socio(*)')
+            .select('*')
             .eq('id', id)
             .single();
 
@@ -585,7 +585,11 @@ export const StoreService = {
             return undefined;
         }
 
-        return mapSocioFromDB(data);
+        // Fetch documents separately to be robust against schema cache errors
+        const docs = await StoreService.getDocumentosBySocio(data.id);
+        const mergedData = { ...data, documentos: docs };
+
+        return mapSocioFromDB(mergedData);
     },
 
     getSocioByUserId: async (userId: string): Promise<Socio | undefined> => {
@@ -605,11 +609,21 @@ export const StoreService = {
 
         const clientPromise = supabase
             .from('socios')
-            .select('*, documentos:documentos_socio(*)')
+            .select('*')
             // Fix: Check both auth_user_id and legacy user_id
             .or(`auth_user_id.eq.${userId},user_id.eq.${userId}`)
             .maybeSingle()
-            .then(res => ({ source: 'client', ...res }));
+            .then(async (res: any) => {
+                if (res.data) {
+                    // Fetch documents separately
+                    const { data: docs } = await supabase
+                        .from('documentos_socio')
+                        .select('*')
+                        .eq('socio_id', res.data.id);
+                    return { ...res, data: { ...res.data, documentos: docs || [] }, source: 'client' };
+                }
+                return { source: 'client', ...res };
+            });
 
         const timeoutPromise = new Promise<{ source: 'timeout' }>((resolve) =>
             setTimeout(() => resolve({ source: 'timeout' }), 2000)

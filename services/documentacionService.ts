@@ -159,6 +159,7 @@ export const upsertDocumentoSocio = async (
     monto?: number;
     observaciones?: string;
     uploaded_by?: UploadedBy;
+    user_id?: string;
   }
 ): Promise<DocumentoSocio | null> => {
   const { data, error } = await supabase
@@ -254,7 +255,8 @@ export const uploadDocumento = async (
   socioId: string,
   tipo: TipoDocumento,
   file: File,
-  uploadedBy: UploadedBy = 'socio_web'
+  uploadedBy: UploadedBy = 'socio_web',
+  userId?: string
 ): Promise<DocumentoSocio | null> => {
   // 1. Subir al bucket 'documentos-socios'
   const ext = file.name.split('.').pop();
@@ -274,6 +276,7 @@ export const uploadDocumento = async (
     archivo_path: path,
     verificacion_estado: 'pendiente',
     uploaded_by: uploadedBy,
+    user_id: userId,
   });
 };
 
