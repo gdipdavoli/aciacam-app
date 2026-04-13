@@ -390,22 +390,35 @@ export default function CuentaPage() {
                                                             <ExternalLink size={16} /> Ver
                                                         </button>
                                                     )}
-                                                    <button
-                                                        onClick={() => setUploadingDoc(doc.dbKey)}
-                                                        style={{
-                                                            padding: '0.3rem 0.6rem',
-                                                            borderRadius: 'var(--radius)',
-                                                            backgroundColor: 'hsl(var(--secondary))',
-                                                            border: '1px solid hsl(var(--border))',
-                                                            fontSize: '0.8rem',
-                                                            cursor: 'pointer',
+                                                    
+                                                    {(!doc.data || doc.data.verificacion_estado === 'pendiente' || doc.data.verificacion_estado === 'rechazado') ? (
+                                                        <button
+                                                            onClick={() => setUploadingDoc(doc.dbKey)}
+                                                            style={{
+                                                                padding: '0.3rem 0.6rem',
+                                                                borderRadius: 'var(--radius)',
+                                                                backgroundColor: 'hsl(var(--secondary))',
+                                                                border: '1px solid hsl(var(--border))',
+                                                                fontSize: '0.8rem',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '0.3rem'
+                                                            }}
+                                                        >
+                                                            <Upload size={14} /> {doc.data?.archivoPath ? 'Actualizar' : 'Subir'}
+                                                        </button>
+                                                    ) : (
+                                                        <span style={{ 
+                                                            fontSize: '0.75rem', 
+                                                            color: 'hsl(var(--muted-foreground))',
+                                                            fontStyle: 'italic',
                                                             display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: '0.3rem'
-                                                        }}
-                                                    >
-                                                        <Upload size={14} /> {doc.data?.archivoPath ? 'Actualizar' : 'Subir'}
-                                                    </button>
+                                                            alignItems: 'center'
+                                                        }} title="Los documentos aprobados no pueden ser modificados.">
+                                                            No editable
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
