@@ -588,7 +588,7 @@ export default function SocioDetailsPage() {
     useEffect(() => {
         if (!socio?.documentacion) return;
         
-        const standardKeys = ['declaracionJurada', 'consentimiento', 'reprocann', 'contrato_autocultivo', 'contrato_madre', 'contrato'];
+        const standardKeys = ['declaracionJurada', 'consentimiento', 'reprocann'];
         const existingDocs = Object.keys(socio.documentacion);
         
         const extraDocs = existingDocs
@@ -600,9 +600,6 @@ export default function SocioDetailsPage() {
             { key: 'declaracionJurada', label: 'Declaración Jurada' },
             { key: 'consentimiento', label: 'Consentimiento Informado' },
             { key: 'reprocann', label: 'Certificado de Reprocann' },
-            { key: 'contrato_autocultivo', label: 'Contrato Autocultivo' },
-            { key: 'contrato_madre', label: 'Contrato Madre' },
-            { key: 'contrato', label: 'Contrato General (Legacy)' },
           ];
           // Merge avoiding duplicates
           const seen = new Set(base.map(b => b.key));
