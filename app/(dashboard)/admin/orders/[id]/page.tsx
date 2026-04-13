@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams, usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { Pedido, Socio, OrderType } from '@/types';
@@ -16,25 +16,52 @@ export default function OrderDetailsPage() {
     const params = useParams();
     const id = params?.id as string;
 
+    const searchParams = useSearchParams();
+    const pathname = usePathname();
+
     const [order, setOrder] = useState<Pedido | null>(null);
     const [socio, setSocio] = useState<Socio | null>(null);
     const [loading, setLoading] = useState(true);
-
-    // Edit & Products State
-    const [isEditing, setIsEditing] = useState(false);
+    const [isEditing, setIsEditing] = useState(searchParams?.get('edit') === 'true');
     const [editedItems, setEditedItems] = useState<any[]>([]);
     const [allProducts, setAllProducts] = useState<any[]>([]);
-    const [showAddProduct, setShowAddProduct] = useState(false);
+    const [showAddProduct, setShowAddProduct] = useState(searchParams?.get('addProduct') === 'true');
 
     // Confirmation State
-    const [pendingStatus, setPendingStatus] = useState<string | null>(null);
-    const [showStatusConfirm, setShowStatusConfirm] = useState(false);
-    const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+    const [pendingStatus, setPendingStatus] = useState<string | null>(searchParams?.get('pendingStatus') || null);
+    const [showStatusConfirm, setShowStatusConfirm] = useState(searchParams?.get('statusConfirm') === 'true');
+    const [showSaveConfirm, setShowSaveConfirm] = useState(searchParams?.get('saveConfirm') === 'true');
 
     // Delivery Assignment State
     const [isUpdatingDelivery, setIsUpdatingDelivery] = useState(false);
     const [editedEntregaEstimada, setEditedEntregaEstimada] = useState('');
     const [isSendingAppNotification, setIsSendingAppNotification] = useState(false);
+
+    // Helper to update URL params
+    const updateUrl = (params: Record<string, string | null>) => {
+        const current = new URLSearchParams(Array.from(searchParams?.entries() || []));
+        Object.entries(params).forEach(([key, value]) => {
+            if (value === null) current.delete(key);
+            else current.set(key, value);
+        });
+        const query = current.toString();
+        router.push(`${pathname}${query ? `?${query}` : ''}`, { scroll: false });
+    };
+
+    // Sync URL -> State on refresh/back
+    useEffect(() => {
+        const edit = searchParams?.get('edit') === 'true';
+        const addProduct = searchParams?.get('addProduct') === 'true';
+        const statusConfirm = searchParams?.get('statusConfirm') === 'true';
+        const saveConfirm = searchParams?.get('saveConfirm') === 'true';
+        const status = searchParams?.get('pendingStatus');
+
+        if (edit !== isEditing) setIsEditing(edit);
+        if (addProduct !== showAddProduct) setShowAddProduct(addProduct);
+        if (statusConfirm !== showStatusConfirm) setShowStatusConfirm(statusConfirm);
+        if (saveConfirm !== showSaveConfirm) setShowSaveConfirm(saveConfirm);
+        if (status !== pendingStatus) setPendingStatus(status);
+    }, [searchParams]);
 
     useEffect(() => {
         if (!authLoading) {
@@ -65,6 +92,7 @@ export default function OrderDetailsPage() {
     const handleStatusChangeRequest = (newStatus: string) => {
         setPendingStatus(newStatus);
         setShowStatusConfirm(true);
+        updateUrl({ statusConfirm: 'true', pendingStatus: newStatus });
     };
 
     const confirmStatusChange = async () => {
@@ -74,6 +102,7 @@ export default function OrderDetailsPage() {
             // setOrder({ ...order, estado: pendingStatus as any });
             setShowStatusConfirm(false);
             setPendingStatus(null);
+            updateUrl({ statusConfirm: null, pendingStatus: null });
             router.push('/admin'); // Redirect to list
         }
     };
@@ -103,6 +132,7 @@ export default function OrderDetailsPage() {
                 precioUnitario: product.precio
             }]);
             setShowAddProduct(false);
+            updateUrl({ addProduct: null });
         }
     };
 
@@ -112,6 +142,7 @@ export default function OrderDetailsPage() {
             setOrder({ ...order, items: editedItems });
             setIsEditing(false);
             setShowSaveConfirm(false);
+            updateUrl({ edit: null, saveConfirm: null });
         }
     };
 
@@ -375,7 +406,10 @@ export default function OrderDetailsPage() {
                         </h3>
                         {!isEditing ? (
                             <button
-                                onClick={() => setIsEditing(true)}
+                                onClick={() => {
+                                    setIsEditing(true);
+                                    updateUrl({ edit: 'true' });
+                                }}
                                 style={{
                                     fontSize: '0.85rem',
                                     padding: '0.25rem 0.5rem',
@@ -393,6 +427,7 @@ export default function OrderDetailsPage() {
                                     onClick={() => {
                                         setEditedItems(order.items);
                                         setIsEditing(false);
+                                        updateUrl({ edit: null });
                                     }}
                                     style={{
                                         fontSize: '0.85rem',
@@ -406,7 +441,10 @@ export default function OrderDetailsPage() {
                                     Cancelar
                                 </button>
                                 <button
-                                    onClick={() => setShowSaveConfirm(true)}
+                                    onClick={() => {
+                                        setShowSaveConfirm(true);
+                                        updateUrl({ saveConfirm: 'true' });
+                                    }}
                                     style={{
                                         fontSize: '0.85rem',
                                         padding: '0.25rem 0.5rem',
@@ -464,7 +502,10 @@ export default function OrderDetailsPage() {
                         <div style={{ marginTop: '1rem', borderTop: '1px dashed hsl(var(--border))', paddingTop: '1rem' }}>
                             {!showAddProduct ? (
                                 <button
-                                    onClick={() => setShowAddProduct(true)}
+                                    onClick={() => {
+                                        setShowAddProduct(true);
+                                        updateUrl({ addProduct: 'true' });
+                                    }}
                                     style={{
                                         width: '100%',
                                         padding: '0.5rem',
@@ -489,7 +530,10 @@ export default function OrderDetailsPage() {
                                             <option key={p.id} value={p.id}>{p.nombre} ({p.stockDisponible})</option>
                                         ))}
                                     </select>
-                                    <button onClick={() => setShowAddProduct(false)} style={{ padding: '0.5rem', cursor: 'pointer' }}>Cancelar</button>
+                                    <button onClick={() => {
+                                        setShowAddProduct(false);
+                                        updateUrl({ addProduct: null });
+                                    }} style={{ padding: '0.5rem', cursor: 'pointer' }}>Cancelar</button>
                                 </div>
                             )}
                         </div>
@@ -506,7 +550,10 @@ export default function OrderDetailsPage() {
                             </p>
                             <div className="flex justify-end gap-3">
                                 <button
-                                    onClick={() => setShowStatusConfirm(false)}
+                                    onClick={() => {
+                                        setShowStatusConfirm(false);
+                                        updateUrl({ statusConfirm: null, pendingStatus: null });
+                                    }}
                                     className="px-4 py-2 rounded-lg hover:bg-muted transition-colors font-medium"
                                 >
                                     Cancelar
@@ -530,7 +577,10 @@ export default function OrderDetailsPage() {
                             <p className="text-muted-foreground mb-6">Se actualizarán los items y cantidades.</p>
                             <div className="flex justify-end gap-3">
                                 <button
-                                    onClick={() => setShowSaveConfirm(false)}
+                                    onClick={() => {
+                                        setShowSaveConfirm(false);
+                                        updateUrl({ saveConfirm: null });
+                                    }}
                                     className="px-4 py-2 rounded-lg hover:bg-muted transition-colors font-medium"
                                 >
                                     Cancelar

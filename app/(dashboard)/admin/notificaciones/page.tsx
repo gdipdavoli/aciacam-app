@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { NotificationService } from '@/services/notificationService';
 import { StoreService } from '@/services/storeService';
 import { Notificacion, Socio, EstadoTicket } from '@/types';
@@ -14,20 +15,45 @@ import {
 type RecipientMode = 'all' | 'reprocann-activo' | 'reprocann-pendiente' | 'manual';
 
 export default function AdminNotificacionesPage() {
-    const { user } = useAuth();
-    const [viewMode, setViewMode] = useState<'tickets' | 'massive'>('tickets');
+    const searchParams = useSearchParams();
+    const router = useRouter();
+    const pathname = usePathname();
+
+    const [viewMode, setViewMode] = useState<'tickets' | 'massive'>((searchParams?.get('view') as any) || 'tickets');
     const [tickets, setTickets] = useState<Notificacion[]>([]);
     const [massiveNotifs, setMassiveNotifs] = useState<Notificacion[]>([]);
     const [loading, setLoading] = useState(true);
     
     // Ticket Messaging State
-    const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+    const [selectedTicketId, setSelectedTicketId] = useState<string | null>(searchParams?.get('ticketId') || null);
     const [thread, setThread] = useState<Notificacion[]>([]);
     const [loadingThread, setLoadingThread] = useState(false);
     const [replyText, setReplyText] = useState('');
     const [isReplying, setIsReplying] = useState(false);
-    const [filterStatus, setFilterStatus] = useState<EstadoTicket | 'all'>('abierto');
+    const [filterStatus, setFilterStatus] = useState<EstadoTicket | 'all'>((searchParams?.get('status') as any) || 'abierto');
     const scrollRef = useRef<HTMLDivElement>(null);
+
+    // Helper to update URL params
+    const updateUrl = (params: Record<string, string | null>) => {
+        const current = new URLSearchParams(Array.from(searchParams?.entries() || []));
+        Object.entries(params).forEach(([key, value]) => {
+            if (value === null) current.delete(key);
+            else current.set(key, value);
+        });
+        const query = current.toString();
+        router.push(`${pathname}${query ? `?${query}` : ''}`, { scroll: false });
+    };
+
+    // Effect to sync URL -> Local State on back/forward
+    useEffect(() => {
+        const view = searchParams?.get('view') as any;
+        const ticketId = searchParams?.get('ticketId');
+        const status = searchParams?.get('status') as any;
+
+        if (view && view !== viewMode) setViewMode(view);
+        if (ticketId !== selectedTicketId) setSelectedTicketId(ticketId);
+        if (status && status !== filterStatus) setFilterStatus(status);
+    }, [searchParams]);
 
     // Massive Notification Modal States
     const [showMassiveModal, setShowMassiveModal] = useState(false);
@@ -88,6 +114,7 @@ export default function AdminNotificacionesPage() {
     // Ticket Actions
     const handleTicketSelect = (id: string) => {
         setSelectedTicketId(id);
+        updateUrl({ ticketId: id });
     };
 
     const handleReply = async () => {
@@ -149,7 +176,10 @@ export default function AdminNotificacionesPage() {
             await NotificationService.updateTicketStatus(id, newStatus);
             setTickets(prev => prev.map(t => t.id === id ? { ...t, estado: newStatus } : t));
             if (filterStatus !== 'all' && newStatus !== filterStatus) {
-                if (selectedTicketId === id) setSelectedTicketId(null);
+                if (selectedTicketId === id) {
+                    setSelectedTicketId(null);
+                    updateUrl({ ticketId: null });
+                }
             }
         } catch (error) {
             alert("Error al actualizar estado");
@@ -221,13 +251,19 @@ export default function AdminNotificacionesPage() {
                     {/* View Switcher */}
                     <div style={{ display: 'flex', backgroundColor: 'hsl(var(--muted)/0.5)', padding: '0.25rem', borderRadius: 'var(--radius)', marginBottom: '1rem' }}>
                         <button 
-                            onClick={() => setViewMode('tickets')}
+                            onClick={() => {
+                                setViewMode('tickets');
+                                updateUrl({ view: 'tickets' });
+                            }}
                             style={{ flex: 1, padding: '0.4rem', fontSize: '0.85rem', borderRadius: 'calc(var(--radius) - 2px)', border: 'none', backgroundColor: viewMode === 'tickets' ? 'hsl(var(--background))' : 'transparent', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
                         >
                             <Inbox size={14} /> Casos
                         </button>
                         <button 
-                            onClick={() => setViewMode('massive')}
+                            onClick={() => {
+                                setViewMode('massive');
+                                updateUrl({ view: 'massive' });
+                            }}
                             style={{ flex: 1, padding: '0.4rem', fontSize: '0.85rem', borderRadius: 'calc(var(--radius) - 2px)', border: 'none', backgroundColor: viewMode === 'massive' ? 'hsl(var(--background))' : 'transparent', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
                         >
                             <Users size={14} /> Difusiones
@@ -239,7 +275,10 @@ export default function AdminNotificacionesPage() {
                             {['abierto', 'pendiente', 'cerrado', 'all'].map(s => (
                                 <button 
                                     key={s}
-                                    onClick={() => setFilterStatus(s as any)}
+                                    onClick={() => {
+                                        setFilterStatus(s as any);
+                                        updateUrl({ status: s });
+                                    }}
                                     style={{ 
                                         padding: '0.25rem 0.6rem', 
                                         borderRadius: '20px', 

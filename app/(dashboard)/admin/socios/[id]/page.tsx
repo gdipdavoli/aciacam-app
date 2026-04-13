@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams, usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { NotificationService } from '@/services/notificationService';
@@ -533,9 +533,12 @@ export default function SocioDetailsPage() {
     const params = useParams();
     const id = params?.id as string;
 
+    const searchParams = useSearchParams();
+    const pathname = usePathname();
+
     const [socio, setSocio] = useState<Socio | null>(null);
     const [originalSocio, setOriginalSocio] = useState<Socio | null>(null); // Snapshot for revert
-    const [editingSection, setEditingSection] = useState<string | null>(null); // 'personal' | 'admin' | 'reprocann' | 'domicilio' | 'medico'
+    const [editingSection, setEditingSection] = useState<string | null>(searchParams?.get('section') || null); // 'personal' | 'admin' | 'reprocann' | 'domicilio' | 'medico'
 
     const [orders, setOrders] = useState<Pedido[]>([]);
     const [pagos, setPagos] = useState<Pago[]>([]);
@@ -543,7 +546,7 @@ export default function SocioDetailsPage() {
     const [saving, setSaving] = useState(false);
 
     // New Payment Form State
-    const [showPagoForm, setShowPagoForm] = useState(false);
+    const [showPagoForm, setShowPagoForm] = useState(searchParams?.get('pago') === 'true');
     const [newPago, setNewPago] = useState<Omit<Pago, 'id'>>({
         socioId: id,
         fecha: new Date().toISOString().split('T')[0],
@@ -554,9 +557,31 @@ export default function SocioDetailsPage() {
     const [registeringPago, setRegisteringPago] = useState(false);
 
     const [compliance, setCompliance] = useState<any>(null);
-    const [editingDocKey, setEditingDocKey] = useState<keyof DocumentacionSocio | null>(null);
+    const [editingDocKey, setEditingDocKey] = useState<keyof DocumentacionSocio | null>(searchParams?.get('doc') as any || null);
     // Removed docForm and selectedFile derived state from here; now handled in modal
     const [uploading, setUploading] = useState(false);
+
+    // Helper to update URL params
+    const updateUrl = (params: Record<string, string | null>) => {
+        const current = new URLSearchParams(Array.from(searchParams?.entries() || []));
+        Object.entries(params).forEach(([key, value]) => {
+            if (value === null) current.delete(key);
+            else current.set(key, value);
+        });
+        const query = current.toString();
+        router.push(`${pathname}${query ? `?${query}` : ''}`, { scroll: false });
+    };
+
+    // Effect to sync URL -> Local State on back/forward
+    useEffect(() => {
+        const doc = searchParams?.get('doc');
+        const section = searchParams?.get('section');
+        const pago = searchParams?.get('pago') === 'true';
+
+        if (doc !== editingDocKey) setEditingDocKey(doc as any);
+        if (section !== editingSection) setEditingSection(section);
+        if (pago !== showPagoForm) setShowPagoForm(pago);
+    }, [searchParams]);
 
 
 
@@ -652,6 +677,7 @@ export default function SocioDetailsPage() {
 
         setSocio(JSON.parse(JSON.stringify(originalSocio))); // Revert to original
         setEditingSection(null);
+        updateUrl({ section: null });
     };
 
     const handleSaveSection = async () => {
@@ -661,6 +687,7 @@ export default function SocioDetailsPage() {
             await StoreService.updateSocio(socio.id, socio);
             setOriginalSocio(JSON.parse(JSON.stringify(socio))); // Update snapshot
             setEditingSection(null);
+            updateUrl({ section: null });
             alert('Cambios guardados correctamente');
         } catch (error) {
             console.error(error);
@@ -678,7 +705,10 @@ export default function SocioDetailsPage() {
         if (!isEditingThis) {
             return (
                 <button
-                    onClick={() => setEditingSection(sectionKey)}
+                    onClick={() => {
+                        setEditingSection(sectionKey);
+                        updateUrl({ section: sectionKey });
+                    }}
                     disabled={isEditingOther}
                     style={{
                         display: 'flex',
@@ -732,6 +762,7 @@ export default function SocioDetailsPage() {
 
     const handleEditDoc = (key: keyof DocumentacionSocio, doc: DocumentoSocio | undefined) => {
         setEditingDocKey(key);
+        updateUrl({ doc: key as string });
         // Note: No need to set docForm here anymore, the modal will initialize with `socio.documentacion[key]`
     };
 
@@ -815,6 +846,7 @@ export default function SocioDetailsPage() {
             );
 
             setEditingDocKey(null);
+            updateUrl({ doc: null });
             
             // If it was reprocann, sync back to flat fields if needed
             if (tipo === 'reprocann' && formData.fechaVencimiento) {
@@ -855,6 +887,7 @@ export default function SocioDetailsPage() {
             const result = await StoreService.createPago(newPago, user.id);
             setPagos([result, ...pagos]);
             setShowPagoForm(false);
+            updateUrl({ pago: null });
             alert('Pago registrado con éxito');
             // Reset form
             setNewPago({
@@ -1193,7 +1226,11 @@ export default function SocioDetailsPage() {
                         icon={CreditCard}
                         actions={
                             <button
-                                onClick={() => setShowPagoForm(!showPagoForm)}
+                                onClick={() => {
+                                    const next = !showPagoForm;
+                                    setShowPagoForm(next);
+                                    updateUrl({ pago: next ? 'true' : null });
+                                }}
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1237,7 +1274,10 @@ export default function SocioDetailsPage() {
                                     />
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
-                                    <button onClick={() => setShowPagoForm(false)} style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', background: 'none', border: 'none', cursor: 'pointer' }}>Cancelar</button>
+                                    <button onClick={() => {
+                                        setShowPagoForm(false);
+                                        updateUrl({ pago: null });
+                                    }} style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', background: 'none', border: 'none', cursor: 'pointer' }}>Cancelar</button>
                                     <button
                                         onClick={handleRegisterPago}
                                         disabled={registeringPago}
@@ -1385,7 +1425,10 @@ export default function SocioDetailsPage() {
                         <div style={{ marginLeft: 'auto' }}>
                             {editingSection !== 'reprocann' ? (
                                 <button
-                                    onClick={() => setEditingSection('reprocann')}
+                                    onClick={() => {
+                                        setEditingSection('reprocann');
+                                        updateUrl({ section: 'reprocann' });
+                                    }}
                                     disabled={editingSection !== null}
                                     style={{ fontSize: '0.85rem', color: editingSection ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary))', background: 'none', border: 'none', cursor: editingSection ? 'not-allowed' : 'pointer', fontWeight: 500 }}>
                                     Editar
@@ -1426,7 +1469,10 @@ export default function SocioDetailsPage() {
                         docLabel={docDefinitions.find(d => d.key === editingDocKey)?.label}
                         initialData={socio.documentacion?.[editingDocKey]}
                         config={currentDocConfig}
-                        onClose={() => setEditingDocKey(null)}
+                        onClose={() => {
+                            setEditingDocKey(null);
+                            updateUrl({ doc: null });
+                        }}
                         onSave={handleSaveDoc}
                         uploading={uploading}
                     />

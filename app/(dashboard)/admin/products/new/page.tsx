@@ -17,6 +17,7 @@ export default function NewProductPage() {
     }
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [isLoaded, setIsLoaded] = useState(false);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -40,15 +41,17 @@ export default function NewProductPage() {
                 console.error("Failed to parse product draft", e);
             }
         }
+        setIsLoaded(true);
     }, []);
 
     // Save draft on change
     React.useEffect(() => {
+        if (!isLoaded) return;
         const timeout = setTimeout(() => {
             localStorage.setItem('new_product_draft', JSON.stringify(formData));
-        }, 500);
+        }, 1000);
         return () => clearTimeout(timeout);
-    }, [formData]);
+    }, [formData, isLoaded]);
 
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {

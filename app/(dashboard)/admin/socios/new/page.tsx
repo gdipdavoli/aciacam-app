@@ -10,6 +10,7 @@ export default function NewSocioPage() {
     const { user } = useAuth();
     const router = useRouter();
     const [loading, setLoading] = useState(false);
+    const [isLoaded, setIsLoaded] = useState(false);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -23,6 +24,28 @@ export default function NewSocioPage() {
         provincia: '',
         notas: ''
     });
+
+    React.useEffect(() => {
+        const saved = localStorage.getItem('new_socio_draft');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                setFormData(prev => ({ ...prev, ...parsed }));
+            } catch (e) {
+                console.error("Failed to parse socio draft", e);
+            }
+        }
+        setIsLoaded(true);
+    }, []);
+
+    // Save draft on change (debounced)
+    React.useEffect(() => {
+        if (!isLoaded) return;
+        const timeout = setTimeout(() => {
+            localStorage.setItem('new_socio_draft', JSON.stringify(formData));
+        }, 800);
+        return () => clearTimeout(timeout);
+    }, [formData, isLoaded]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -58,6 +81,7 @@ export default function NewSocioPage() {
                 }
             }
 
+            localStorage.removeItem('new_socio_draft');
             router.push('/admin/socios');
         } catch (error) {
             console.error(error);
