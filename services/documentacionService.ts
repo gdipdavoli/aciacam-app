@@ -14,7 +14,10 @@ export interface DocumentoSocio {
   verificacion_obs: string | null;
   verificado_at: string | null;
   verificado_por: string | null;
+  fecha_emision: string | null;
   fecha_vencimiento: string | null;
+  monto: number | null;
+  observaciones: string | null;
   uploaded_by: UploadedBy | null;
   recordatorios_enviados: number;
   ultimo_recordatorio_at: string | null;
