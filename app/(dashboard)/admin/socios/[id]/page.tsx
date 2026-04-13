@@ -449,13 +449,46 @@ const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onS
                     <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Archivo (PDF/Imagen)</label>
 
                     {isEditing && (
-                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                            <input
-                                type="file"
-                                accept="application/pdf,image/*"
-                                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                                style={{ fontSize: '0.9rem' }}
-                            />
+                        <div 
+                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const droppedFile = e.dataTransfer.files?.[0];
+                                if (droppedFile) setFile(droppedFile);
+                            }}
+                            style={{
+                                border: '2px dashed hsl(var(--border))',
+                                borderRadius: 'var(--radius)',
+                                padding: '1.5rem',
+                                textAlign: 'center',
+                                backgroundColor: 'hsl(var(--muted) / 0.1)',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: '0.5rem'
+                            }}
+                            onClick={() => {
+                                const input = document.createElement('input');
+                                input.type = 'file';
+                                input.accept = 'application/pdf,image/*';
+                                input.onchange = (e: any) => setFile(e.target.files?.[0] || null);
+                                input.click();
+                            }}
+                        >
+                            <Upload size={24} style={{ color: 'hsl(var(--muted-foreground))' }} />
+                            <div style={{ fontSize: '0.85rem' }}>
+                                {file ? (
+                                    <span style={{ fontWeight: 600, color: 'hsl(var(--primary))' }}>{file.name}</span>
+                                ) : (
+                                    <>
+                                        <span style={{ fontWeight: 600 }}>Click para subir</span> o arrastrá un archivo
+                                        <div style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: '0.2rem' }}>PDF o Imágenes</div>
+                                    </>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -752,6 +785,16 @@ export default function SocioDetailsPage() {
                     [editingDocKey]: newDocData
                 }
             };
+
+            // Sync Reprocann section if applicable
+            if (tipo === 'reprocann') {
+                 updatedSocio.reprocann = {
+                    ...socio.reprocann,
+                    fechaAlta: formData.fechaEmision,
+                    estado: (formData.verificacion_estado === 'aprobado' ? 'vigente' : 'pendiente') as any
+                 };
+            }
+
             setSocio(updatedSocio);
 
             // 1. Save Verification/Metadata to Real DB (Internal API)
