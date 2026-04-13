@@ -162,16 +162,23 @@ export const upsertDocumentoSocio = async (
     user_id?: string;
   }
 ): Promise<DocumentoSocio | null> => {
+  // Pre-flight: Ensure user_id is set if we have a session but it's missing from updates
+  const upsertPayload: any = {
+      socio_id: socioId,
+      tipo,
+      ...updates,
+  };
+
+  if (!upsertPayload.user_id) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+          upsertPayload.user_id = session.user.id;
+      }
+  }
+
   const { data, error } = await supabase
     .from('documentos_socio')
-    .upsert(
-      {
-        socio_id: socioId,
-        tipo,
-        ...updates,
-      },
-      { onConflict: 'socio_id,tipo' }
-    )
+    .upsert(upsertPayload, { onConflict: 'socio_id,tipo' })
     .select()
     .single();
 
