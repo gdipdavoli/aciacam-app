@@ -62,7 +62,13 @@ const mapSocioFromDB = (row: any): Socio => {
             
             if (row.documentos && Array.isArray(row.documentos)) {
                 row.documentos.forEach((d: any) => {
-                    const key = d.tipo === 'declaracion_jurada' ? 'declaracionJurada' : d.tipo;
+                    // Normalize tipo string (lower case, replace spaces/dashes with underscore)
+                    const normalizedTipo = String(d.tipo || '').toLowerCase()
+                        .trim()
+                        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+                        .replace(/[\s-]/g, '_');
+                    
+                    const key = normalizedTipo === 'declaracion_jurada' ? 'declaracionJurada' : normalizedTipo;
                     
                     // Map verification state to legacy 'estado' for the DocumentStatusBadge
                     let estado = d.estado || (d.archivo_path ? 'completo' : 'pendiente');
