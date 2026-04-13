@@ -39,21 +39,21 @@ DROP POLICY IF EXISTS "Socio can update own pending documents" ON public.documen
 -- 2.1 SELECT
 CREATE POLICY "documentos_socio_select" ON public.documentos_socio
 FOR SELECT USING (
-    socio_id = public.get_my_socio_id()
+    socio_id::text = public.get_my_socio_id()::text
     OR public.get_auth_role() IN ('admin', 'staff')
 );
 
 -- 2.2 INSERT
 CREATE POLICY "documentos_socio_insert" ON public.documentos_socio
 FOR INSERT WITH CHECK (
-    socio_id = public.get_my_socio_id()
+    socio_id::text = public.get_my_socio_id()::text
     OR public.get_auth_role() IN ('admin', 'staff')
 );
 
 -- 2.3 UPDATE (Restricted to 'pendiente' for socios)
 CREATE POLICY "documentos_socio_update" ON public.documentos_socio
 FOR UPDATE USING (
-    (socio_id = public.get_my_socio_id() AND verificacion_estado = 'pendiente')
+    (socio_id::text = public.get_my_socio_id()::text AND verificacion_estado = 'pendiente')
     OR public.get_auth_role() IN ('admin', 'staff')
 );
 
@@ -63,6 +63,9 @@ FOR UPDATE USING (
 DROP POLICY IF EXISTS "Socio can upload own documents" ON storage.objects;
 DROP POLICY IF EXISTS "Socio can view own documents" ON storage.objects;
 DROP POLICY IF EXISTS "Socio can update own documents" ON storage.objects;
+DROP POLICY IF EXISTS "storage_select_docs" ON storage.objects;
+DROP POLICY IF EXISTS "storage_insert_docs" ON storage.objects;
+DROP POLICY IF EXISTS "storage_update_docs" ON storage.objects;
 
 -- 3.1 SELECT
 CREATE POLICY "storage_select_docs" ON storage.objects
