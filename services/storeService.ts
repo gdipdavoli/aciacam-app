@@ -62,7 +62,8 @@ const mapSocioFromDB = (row: any): Socio => {
             
             if (row.documentos && Array.isArray(row.documentos)) {
                 row.documentos.forEach((d: any) => {
-                    docs[d.tipo] = {
+                    const key = d.tipo === 'declaracion_jurada' ? 'declaracionJurada' : d.tipo;
+                    docs[key] = {
                         estado: (d.estado || (d.verificacion_estado === 'aprobado' ? 'completo' : 'pendiente')),
                         archivoPath: d.archivo_path,
                         verificacion_estado: d.verificacion_estado
