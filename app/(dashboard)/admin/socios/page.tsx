@@ -177,26 +177,27 @@ export default function AdminSociosPage() {
                             const status = getSocioStatus(socio);
 
                             // Calculate Doc Status
-                            const docs = [
+                            const coreDocs = [
                                 socio.documentacion?.consentimiento,
                                 socio.documentacion?.declaracionJurada,
-                                socio.documentacion?.contrato_autocultivo,
-                                socio.documentacion?.contrato_madre,
-                                socio.documentacion?.contrato
+                                socio.documentacion?.reprocann
                             ];
-                            const completedCount = docs.filter(d => d?.estado === 'completo').length;
-                            const hasExpired = docs.some(d => d?.estado === 'vencido');
-                            const hasPending = docs.some(d => d?.estado === 'pendiente');
+                            const allDocs = Object.values(socio.documentacion || {});
+                            
+                            const coreCompletedCount = coreDocs.filter(d => d?.estado === 'completo').length;
+                            const hasExpired = allDocs.some(d => d?.estado === 'vencido');
 
-                            let docStatusLabel = 'Completo';
-                            // Tailwind classes string
-                            let docBadgeClass = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800';
+                            let docStatusLabel = 'PENDIENTE';
+                            let docBadgeClass = 'bg-gray-100 text-gray-600 dark:bg-gray-800/30 dark:text-gray-400 border border-gray-200 dark:border-gray-700';
 
                             if (hasExpired) {
-                                docStatusLabel = 'Vencido';
-                                docBadgeClass = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800';
-                            } else if (hasPending) {
-                                docStatusLabel = `${completedCount}/5`;
+                                docStatusLabel = 'VENCIDO';
+                                docBadgeClass = 'bg-red-100 text-red-700 dark:bg-red-800/30 dark:text-red-400 border border-red-200 dark:border-red-900';
+                            } else if (coreCompletedCount === 3) {
+                                docStatusLabel = 'COMPLETO';
+                                docBadgeClass = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800';
+                            } else if (coreCompletedCount > 0) {
+                                docStatusLabel = 'FALTA';
                                 docBadgeClass = 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800';
                             }
 
