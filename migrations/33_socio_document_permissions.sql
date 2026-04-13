@@ -11,8 +11,8 @@ ON public.documentos_socio FOR SELECT
 USING (
     EXISTS (
         SELECT 1 FROM public.socios s
-        WHERE s.id = documentos_socio.socio_id
-        AND s.user_id = auth.uid()
+        WHERE s.id::text = documentos_socio.socio_id::text
+        AND s.user_id::text = auth.uid()::text
     )
     OR public.get_auth_role() IN ('admin', 'staff')
 );
@@ -24,8 +24,8 @@ ON public.documentos_socio FOR INSERT
 WITH CHECK (
     EXISTS (
         SELECT 1 FROM public.socios s
-        WHERE s.id = socio_id
-        AND s.user_id = auth.uid()
+        WHERE s.id::text = socio_id::text
+        AND s.user_id::text = auth.uid()::text
     )
     OR public.get_auth_role() IN ('admin', 'staff')
 );
@@ -38,8 +38,8 @@ USING (
     (
         EXISTS (
             SELECT 1 FROM public.socios s
-            WHERE s.id = documentos_socio.socio_id
-            AND s.user_id = auth.uid()
+            WHERE s.id::text = documentos_socio.socio_id::text
+            AND s.user_id::text = auth.uid()::text
         )
         AND verificacion_estado = 'pendiente'
     )
@@ -57,7 +57,7 @@ WITH CHECK (
     bucket_id = 'documentos-socios'
     AND (
         (storage.foldername(name))[1] IN (
-            SELECT id::text FROM public.socios WHERE user_id = auth.uid()
+            SELECT id::text FROM public.socios WHERE user_id::text = auth.uid()::text
         )
         OR public.get_auth_role() IN ('admin', 'staff')
     )
@@ -71,7 +71,7 @@ USING (
     bucket_id = 'documentos-socios'
     AND (
         (storage.foldername(name))[1] IN (
-            SELECT id::text FROM public.socios WHERE user_id = auth.uid()
+            SELECT id::text FROM public.socios WHERE user_id::text = auth.uid()::text
         )
         OR public.get_auth_role() IN ('admin', 'staff')
     )
@@ -85,7 +85,7 @@ USING (
     bucket_id = 'documentos-socios'
     AND (
         (storage.foldername(name))[1] IN (
-            SELECT id::text FROM public.socios WHERE user_id = auth.uid()
+            SELECT id::text FROM public.socios WHERE user_id::text = auth.uid()::text
         )
         OR public.get_auth_role() IN ('admin', 'staff')
     )
