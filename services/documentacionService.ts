@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient';
 
-export type TipoDocumento = 'dni' | 'reprocann' | 'consentimiento' | 'declaracion_jurada' | 'contrato' | 'contrato_autocultivo' | 'contrato_madre';
+export type TipoDocumento = 'dni' | 'reprocann' | 'consentimiento' | 'declaracion_jurada' | 'contrato' | 'contrato_autocultivo' | 'contrato_madre' | string;
 export type EstadoVerificacion = 'pendiente' | 'en_revision' | 'aprobado' | 'rechazado';
 export type UploadedBy = 'socio_web' | 'socio_whatsapp' | 'admin' | 'staff';
 
@@ -151,7 +151,10 @@ export const upsertDocumentoSocio = async (
     estado?: string;
     verificacion_estado?: EstadoVerificacion;
     verificacion_obs?: string;
+    fecha_emision?: string;
     fecha_vencimiento?: string;
+    monto?: number;
+    observaciones?: string;
     uploaded_by?: UploadedBy;
   }
 ): Promise<DocumentoSocio | null> => {

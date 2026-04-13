@@ -694,21 +694,42 @@ export const StoreService = {
         if (!supabase) return;
 
         const dbUpdates: any = {};
-        if (updates.nombre) dbUpdates.nombre = updates.nombre;
-        if (updates.apellido) dbUpdates.apellido = updates.apellido;
-        if (updates.dni) dbUpdates.dni = updates.dni;
-        if (updates.telefono) dbUpdates.telefono = updates.telefono;
-        if (updates.localidad) dbUpdates.localidad = updates.localidad;
-        if (updates.direccion) dbUpdates.domicilio = updates.direccion;
+        if (updates.nombre !== undefined) dbUpdates.nombre = updates.nombre;
+        if (updates.apellido !== undefined) dbUpdates.apellido = updates.apellido;
+        if (updates.dni !== undefined) dbUpdates.dni = updates.dni;
+        if (updates.telefono !== undefined) dbUpdates.telefono = updates.telefono;
+        if (updates.localidad !== undefined) dbUpdates.localidad = updates.localidad;
+        if (updates.direccion !== undefined) dbUpdates.domicilio = updates.direccion;
+        if (updates.provincia !== undefined) dbUpdates.provincia = updates.provincia;
+        if (updates.fechaNacimiento !== undefined) dbUpdates.fecha_nacimiento = updates.fechaNacimiento;
 
         // Admin
         if (updates.ordenLibro !== undefined) dbUpdates.orden_libro = updates.ordenLibro;
         if (updates.actaNumero !== undefined) dbUpdates.acta_numero = updates.actaNumero;
         if (updates.fechaIngresoOng !== undefined) dbUpdates.fecha_ingreso_ong = updates.fechaIngresoOng;
         if (updates.envios_habilitados !== undefined) dbUpdates.envios_habilitados = updates.envios_habilitados;
+        if (updates.status !== undefined) dbUpdates.status = updates.status;
+        if (updates.rol !== undefined) dbUpdates.rol = updates.rol;
+        if (updates.notas !== undefined) dbUpdates.notas = updates.notas;
+
+        // Reprocann
+        if (updates.reprocann) {
+            if (updates.reprocann.numeroTramite !== undefined) dbUpdates.reprocann_num_tramite = updates.reprocann.numeroTramite;
+            if (updates.reprocann.fechaAlta !== undefined) dbUpdates.reprocann_fecha_alta = updates.reprocann.fechaAlta;
+            if (updates.reprocann.estado !== undefined) dbUpdates.reprocann_estado = updates.reprocann.estado;
+        }
+
+        // Medical
+        if (updates.medicoNombre !== undefined) dbUpdates.medico_nombre = updates.medicoNombre;
+        if (updates.medicoMatricula !== undefined) dbUpdates.medico_matricula = updates.medicoMatricula;
+        if (updates.diagnosticoPrincipal !== undefined) dbUpdates.diagnostico = updates.diagnosticoPrincipal;
 
         if (Object.keys(dbUpdates).length > 0) {
-            await supabase.from('socios').update(dbUpdates).eq('id', id);
+            const { error } = await supabase.from('socios').update(dbUpdates).eq('id', id);
+            if (error) {
+              console.error("StoreService.updateSocio error:", error);
+              throw error;
+            }
         }
     },
 

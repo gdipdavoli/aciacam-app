@@ -59,20 +59,16 @@ export async function GET(
         ));
 
         // 4. Calculate required documents
-        const documentosRequeridos: string[] = ['declaracionJurada', 'consentimiento'];
+        const documentosRequeridos: string[] = ['declaracionJurada', 'consentimiento', 'reprocann'];
         const estado = socio.reprocann_estado?.toLowerCase();
         const tipoReprocann = socio.reprocann_tipo?.toLowerCase();
 
-        if (estado === 'activo') {
+        if (estado === 'activo' || estado === 'vigente') {
             if (tipoReprocann === 'autocultivo') {
                 documentosRequeridos.push('contrato_autocultivo');
             } else if (tipoReprocann === 'vinculado_ong') {
                 documentosRequeridos.push('contrato_madre');
             }
-            // if reprocann_tipo is missing/unknown, we can't require specific contract but technically 'activo' implies one.
-            // Sticking to explicit rules.
-        } else if (estado === 'pendiente') {
-            // No contract required yet
         }
 
         // 5. Calculate missing and status

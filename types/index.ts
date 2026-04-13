@@ -4,7 +4,7 @@ export type EstadoDocumento = 'pendiente' | 'completo' | 'vencido';
 
 export type DocumentoSocio = {
     /** @deprecated DO NOT USE. Use verificacion_estado and presence check instead. */
-    estado: EstadoDocumento;
+    estado?: EstadoDocumento;
     archivoPath?: string;      // Path in Supabase Storage (bucket: documentos-socios)
     fechaEmision?: string;    // ISO Date (fecha de firma/emisión)
     fechaVencimiento?: string; // ISO Date (para REPROCANN / receta)
@@ -29,9 +29,11 @@ export type ReprocannInfo = {
 export type DocumentacionSocio = {
     consentimiento?: DocumentoSocio;
     declaracionJurada?: DocumentoSocio;
+    reprocann?: DocumentoSocio;
     contrato_autocultivo?: DocumentoSocio;
     contrato_madre?: DocumentoSocio;
     contrato?: DocumentoSocio; // Legacy support
+    [key: string]: DocumentoSocio | undefined;
 };
 
 export interface Socio {

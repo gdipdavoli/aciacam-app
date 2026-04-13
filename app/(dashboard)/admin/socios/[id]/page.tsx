@@ -578,13 +578,38 @@ export default function SocioDetailsPage() {
     };
 
 
-    const docDefinitions: { key: keyof DocumentacionSocio, label: string }[] = [
+    const [docDefinitions, setDocDefinitions] = useState<{ key: string, label: string }[]>([
         { key: 'declaracionJurada', label: 'Declaración Jurada' },
         { key: 'consentimiento', label: 'Consentimiento Informado' },
-        { key: 'contrato_autocultivo', label: 'Contrato Autocultivo' },
-        { key: 'contrato_madre', label: 'Contrato Madre' },
-        { key: 'contrato', label: 'Contrato General (Legacy)' },
-    ];
+        { key: 'reprocann', label: 'Certificado de Reprocann' },
+    ]);
+
+    // Update docDefinitions when socio changes to include non-standard documents
+    useEffect(() => {
+        if (!socio?.documentacion) return;
+        
+        const standardKeys = ['declaracionJurada', 'consentimiento', 'reprocann', 'contrato_autocultivo', 'contrato_madre', 'contrato'];
+        const existingDocs = Object.keys(socio.documentacion);
+        
+        const extraDocs = existingDocs
+          .filter(k => !standardKeys.includes(k) && socio.documentacion?.[k])
+          .map(k => ({ key: k, label: k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, ' ') }));
+
+        setDocDefinitions(prev => {
+          const base = [
+            { key: 'declaracionJurada', label: 'Declaración Jurada' },
+            { key: 'consentimiento', label: 'Consentimiento Informado' },
+            { key: 'reprocann', label: 'Certificado de Reprocann' },
+            { key: 'contrato_autocultivo', label: 'Contrato Autocultivo' },
+            { key: 'contrato_madre', label: 'Contrato Madre' },
+            { key: 'contrato', label: 'Contrato General (Legacy)' },
+          ];
+          // Merge avoiding duplicates
+          const seen = new Set(base.map(b => b.key));
+          const filteredExtra = extraDocs.filter(e => !seen.has(e.key));
+          return [...base, ...filteredExtra];
+        });
+    }, [socio?.documentacion]);
 
     const currentDocConfig = editingDocKey ? DOC_CONFIG[editingDocKey] : null;
 
@@ -599,19 +624,34 @@ export default function SocioDetailsPage() {
                 StoreService.getSocioById(id),
                 StoreService.getPedidosBySocio(id),
                 StoreService.getPagosBySocio(id),
+                StoreService.getDocumentosBySocio(id),
                 fetch(`/api/socios/${id}/compliance`).then(res => res.ok ? res.json() : null)
-            ]).then(([socioData, ordersData, pagosData, complianceData]) => {
+            ]).then(([socioData, ordersData, pagosData, docsData, complianceData]) => {
                 if (socioData) {
+                    // Map docs from array to Record
+                    const mappedDocs: Record<string, DocumentoSocio> = {};
+                    docsData.forEach(d => {
+                      mappedDocs[d.tipo] = {
+                        estado: d.estado as EstadoDocumento,
+                        archivoPath: d.archivo_path || undefined,
+                        fechaEmision: d.fecha_emision || undefined,
+                        fechaVencimiento: d.fecha_vencimiento || undefined,
+                        monto: d.monto || undefined,
+                        observaciones: d.observaciones || undefined,
+                        verificacion_estado: d.verificacion_estado,
+                        verificacion_obs: d.verificacion_obs || undefined,
+                        verificado_at: d.verificado_at || undefined,
+                        verificado_por: d.verificado_por || undefined
+                      };
+                    });
+
                     // Initialize nested objects
                     const initializedSocio = {
                         ...socioData,
                         reprocann: socioData.reprocann || { estado: 'pendiente' },
                         documentacion: {
-                            consentimiento: socioData.documentacion?.consentimiento || { verificacion_estado: 'pendiente' } as any,
-                            declaracionJurada: socioData.documentacion?.declaracionJurada || { verificacion_estado: 'pendiente' } as any,
-                            contrato_autocultivo: socioData.documentacion?.contrato_autocultivo || { verificacion_estado: 'pendiente' } as any,
-                            contrato_madre: socioData.documentacion?.contrato_madre || { verificacion_estado: 'pendiente' } as any,
-                            contrato: socioData.documentacion?.contrato || { verificacion_estado: 'pendiente' } as any
+                            ...socioData.documentacion,
+                            ...mappedDocs
                         }
                     };
                     setSocio(initializedSocio);
@@ -720,13 +760,16 @@ export default function SocioDetailsPage() {
     const handleSaveDoc = async (formData: DocumentoSocio, file: File | null) => {
         if (!socio || !editingDocKey) return;
 
-        const docKeyToTipo: Record<string, any> = {
-            'declaracionJurada': 'declaracion_jurada',
+        const docKeyToTipo: Record<string, string> = {
+            'declaracionJurada': 'declaracionJurada', // Fixed to match compliance and keys
             'consentimiento': 'consentimiento',
+            'reprocann': 'reprocann',
             'contrato_autocultivo': 'contrato_autocultivo',
             'contrato_madre': 'contrato_madre',
             'contrato': 'contrato'
         };
+
+        const tipo = docKeyToTipo[editingDocKey] || editingDocKey;
 
         setUploading(true);
         try {
@@ -756,8 +799,9 @@ export default function SocioDetailsPage() {
             };
             setSocio(updatedSocio);
 
-            // 1. Save Verification/Metadata to Real DB (for Compliance)
-            await fetch(`/api/socios/${socio.id}/documents/${editingDocKey}/verificacion`, {
+            // 1. Save Verification/Metadata to Real DB (Internal API)
+            // This is actually redundant if we use upsertDocumentoSocio correctly, but keeping for compatibility
+            await fetch(`/api/socios/${socio.id}/documents/${tipo}/verificacion`, {
                 method: 'PATCH',
                 body: JSON.stringify({
                     verificacion_estado: formData.verificacion_estado,
@@ -766,21 +810,34 @@ export default function SocioDetailsPage() {
                 })
             });
 
-            // 2. Save to Store (DB Persistence via Service)
+            // 2. Save to Store (DB Persistence via Service) - NOW PASSING ALL FIELDS
             await StoreService.upsertDocumentoSocio(
              socio.id,
-             editingDocKey as TipoDocumento,
+             tipo as TipoDocumento,
              {
-               verificacion_estado: (
-                ['pendiente', 'en_revision', 'aprobado', 'rechazado'].includes(newDocData.estado)
-                  ? newDocData.estado
-                  : 'pendiente'
-               ) as EstadoVerificacion,
-               archivo_path: newDocData.archivoPath,
+               verificacion_estado: formData.verificacion_estado as EstadoVerificacion,
+               verificacion_obs: formData.verificacion_obs,
+               archivo_path: newPath,
+               fecha_emision: formData.fechaEmision,
+               fecha_vencimiento: formData.fechaVencimiento,
+               monto: formData.monto,
+               observaciones: formData.observaciones,
+               uploaded_by: 'admin'
              }
             );
 
             setEditingDocKey(null);
+            
+            // If it was reprocann, sync back to flat fields if needed
+            if (tipo === 'reprocann' && formData.fechaVencimiento) {
+                await StoreService.updateSocio(socio.id, {
+                    reprocann: {
+                        ...socio.reprocann,
+                        fechaAlta: formData.fechaEmision,
+                        estado: (formData.verificacion_estado === 'aprobado' ? 'vigente' : 'pendiente') as any
+                    }
+                });
+            }
 
             // Refresh compliance data
             fetch(`/api/socios/${id}/compliance`).then(res => res.ok ? res.json() : null).then(setCompliance);
@@ -1062,7 +1119,35 @@ export default function SocioDetailsPage() {
                         </div>
                     )}
 
-                    <Section title="Documentación Presentada" icon={FileText}>
+                    <Section 
+                        title="Documentación Presentada" 
+                        icon={FileText}
+                        actions={
+                            <button
+                                onClick={() => {
+                                    const name = window.prompt("Nombre del nuevo tipo de documento:");
+                                    if (name) {
+                                        const key = name.toLowerCase().replace(/\s+/g, '_');
+                                        handleEditDoc(key, { verificacion_estado: 'pendiente' } as any);
+                                    }
+                                }}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.4rem',
+                                    fontSize: '0.85rem',
+                                    color: 'hsl(var(--foreground))',
+                                    backgroundColor: 'hsl(var(--secondary))',
+                                    border: '1px solid hsl(var(--border))',
+                                    padding: '0.35rem 0.8rem',
+                                    borderRadius: 'var(--radius)',
+                                    cursor: 'pointer',
+                                    fontWeight: 500
+                                }}>
+                                <Plus size={14} /> Agregar Documento
+                            </button>
+                        }
+                    >
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                             <thead>
                                 <tr style={{ borderBottom: '1px solid hsl(var(--border))', textAlign: 'left', color: 'hsl(var(--muted-foreground))' }}>
