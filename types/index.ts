@@ -12,7 +12,7 @@ export type DocumentoSocio = {
     observaciones?: string;
 
     // New Verification Model
-    verificacion_estado?: 'pendiente' | 'aprobado' | 'rechazado';
+    verificacion_estado?: 'pendiente' | 'en_revision' | 'aprobado' | 'rechazado';
     verificacion_obs?: string;
     verificado_at?: string; // ISO Date
     verificado_por?: string;
