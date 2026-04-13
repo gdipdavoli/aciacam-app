@@ -13,6 +13,7 @@ import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, 
 const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
     consentimiento: { needsFecha: false, needsMonto: false, hasExpiration: false },
     declaracionJurada: { needsFecha: true, needsMonto: false, hasExpiration: false },
+    reprocann: { needsFecha: true, needsMonto: false, hasExpiration: true },
     contrato_autocultivo: { needsFecha: true, needsMonto: true, hasExpiration: true },
     contrato_madre: { needsFecha: true, needsMonto: true, hasExpiration: true },
     contrato: { needsFecha: true, needsMonto: false, hasExpiration: true }
@@ -566,7 +567,7 @@ export default function SocioDetailsPage() {
         });
     }, [socio?.documentacion]);
 
-    const currentDocConfig = editingDocKey ? DOC_CONFIG[editingDocKey] : null;
+    const currentDocConfig = editingDocKey ? (DOC_CONFIG[editingDocKey] || { needsFecha: true, needsMonto: false, hasExpiration: true }) : null;
 
     useEffect(() => {
         if (!authLoading) {
