@@ -64,7 +64,7 @@ const mapSocioFromDB = (row: any): Socio => {
                 row.documentos.forEach((d: any) => {
                     const key = d.tipo === 'declaracion_jurada' ? 'declaracionJurada' : d.tipo;
                     docs[key] = {
-                        estado: (d.estado || (d.verificacion_estado === 'aprobado' ? 'completo' : 'pendiente')),
+                        estado: (d.estado || (d.archivo_path ? 'completo' : 'pendiente')),
                         archivoPath: d.archivo_path,
                         verificacion_estado: d.verificacion_estado
                     };
@@ -531,7 +531,7 @@ export const StoreService = {
 
             let query = supabase
                 .from('socios')
-                .select('*')
+                .select('*, documentos:documentos_socio(tipo, estado, verificacion_estado, archivo_path)')
                 .order('created_at', { ascending: false });
 
             if (role) {
