@@ -51,14 +51,26 @@ const mapSocioFromDB = (row: any): Socio => {
         medicoMatricula: row.medico_matricula,
         diagnosticoPrincipal: row.diagnostico,
 
-        // Documentacion (Construct from flat fields if they exist)
-        documentacion: {
-            contrato: {
-                estado: row.contrato_estado || 'pendiente',
-                monto: row.contrato_valor,
+        // Documentacion (Construct from joined fields if they exist)
+        documentacion: (() => {
+            const docs: any = {
+                contrato: {
+                    estado: row.contrato_estado || 'pendiente',
+                    monto: row.contrato_valor,
+                }
+            };
+            
+            if (row.documentos && Array.isArray(row.documentos)) {
+                row.documentos.forEach((d: any) => {
+                    docs[d.tipo] = {
+                        estado: (d.estado || (d.verificacion_estado === 'aprobado' ? 'completo' : 'pendiente')),
+                        archivoPath: d.archivo_path,
+                        verificacion_estado: d.verificacion_estado
+                    };
+                });
             }
-            // Other docs will be undefined/pending by default
-        },
+            return docs;
+        })(),
 
         estadoCuenta: {
             saldo: 0,

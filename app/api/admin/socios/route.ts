@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 
         let query = supabaseAdmin
             .from('socios')
-            .select('*')
+            .select('*, documentos:documentos_socio(tipo, estado, verificacion_estado, archivo_path)')
             .order('created_at', { ascending: false });
 
         if (role) {
