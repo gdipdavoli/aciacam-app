@@ -347,13 +347,11 @@ export default function CuentaPage() {
                         <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
                                 <thead>
-                                    <tr style={{ borderBottom: '1px solid hsl(var(--border))' }}>
-                                        <th style={{ textAlign: 'left', padding: '0.75rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Documento</th>
-                                        <th style={{ textAlign: 'left', padding: '0.75rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Estado</th>
-                                        <th style={{ textAlign: 'left', padding: '0.75rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Vencimiento</th>
-                                        <th style={{ textAlign: 'left', padding: '0.75rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Última Act.</th>
-                                        <th style={{ textAlign: 'right', padding: '0.75rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Acción</th>
-                                    </tr>
+                                        <tr style={{ borderBottom: '1px solid hsl(var(--border))' }}>
+                                            <th style={{ textAlign: 'left', padding: '0.75rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Documento</th>
+                                            <th style={{ textAlign: 'left', padding: '0.75rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Estado</th>
+                                            <th style={{ textAlign: 'right', padding: '0.75rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Acción</th>
+                                        </tr>
                                 </thead>
                                 <tbody>
                                     {[
@@ -365,12 +363,6 @@ export default function CuentaPage() {
                                             <td style={{ padding: '0.75rem', fontWeight: 500 }}>{doc.name}</td>
                                             <td style={{ padding: '0.75rem' }}>
                                                 <DocumentStatusBadge status={doc.data?.estado || 'pendiente'} />
-                                            </td>
-                                            <td style={{ padding: '0.75rem', fontSize: '0.9rem' }}>
-                                                {formatDate(doc.data?.fechaVencimiento)}
-                                            </td>
-                                            <td style={{ padding: '0.75rem', fontSize: '0.9rem', color: 'hsl(var(--muted-foreground))' }}>
-                                                {formatDate(doc.data?.fechaEmision)}
                                             </td>
                                             <td style={{ padding: '0.75rem', textAlign: 'right' }}>
                                                 <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
