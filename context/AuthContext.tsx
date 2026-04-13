@@ -32,6 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Guards to prevent double-fire in StrictMode
     const initRef = React.useRef(false);
     const fetchLock = React.useRef<string | null>(null);
+    const currentUserIdRef = React.useRef<string | null>(null);
 
     useEffect(() => {
         if (!supabase) {
@@ -93,6 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         socio.rol = 'admin';
                     }
 
+                    currentUserIdRef.current = session.user.id;
                     setUser(socio);
 
                     // 2. EXPLICIT REDIRECT LOGIC
@@ -102,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 } else {
                     console.warn("AuthContext: User authenticated but NO socio linked.");
                     setIsUnlinked(true);
+                    currentUserIdRef.current = null;
                     setUser(null);
 
                     // Allow Auth Setup Pages to proceed without redirect loop
@@ -128,13 +131,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (event === 'SIGNED_IN' && session?.user) {
                 console.log("[AuthDebug] SIGNED_IN. Starting handleUserSession.");
                 // Only set loading true if we are not already initialized or if switching users
-                setLoading(true);
+                if (currentUserIdRef.current !== session.user.id) {
+                    setLoading(true);
+                }
                 setSession(session);
                 await handleUserSession(session.user.id, session);
             } else if (event === 'TOKEN_REFRESHED') {
                 console.log("[AuthDebug] Token Refreshed.");
             } else if (event === 'SIGNED_OUT') {
                 console.log("[AuthDebug] SIGNED_OUT. Cleaning up.");
+                currentUserIdRef.current = null;
                 setUser(null);
                 setIsUnlinked(false);
                 setLoading(false);
@@ -256,6 +262,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (supabase) {
             await supabase.auth.signOut();
         } else {
+            currentUserIdRef.current = null;
             setUser(null);
             setSession(null); // Clear session state on manual logout
             router.push('/login');

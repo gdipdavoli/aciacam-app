@@ -635,15 +635,40 @@ export default function SocioDetailsPage() {
                 if (socioData) {
                     // Map docs from array to Record
                     const mappedDocs: Record<string, DocumentoSocio> = {};
+                    
+                    const normalizeTipo = (tipo: string) => {
+                        if (!tipo) return 'otro';
+                        const t = tipo.toLowerCase().replace(/[\\s_]+/g, '');
+                        if (t.includes('declaracion') || t.includes('jurada')) return 'declaracionJurada';
+                        if (t.includes('consentimiento')) return 'consentimiento';
+                        if (t.includes('reprocann')) return 'reprocann';
+                        if (t === 'contratoautocultivo') return 'contrato_autocultivo';
+                        if (t === 'contratomadre') return 'contrato_madre';
+                        if (t === 'contrato') return 'contrato';
+                        return tipo;
+                    };
+
                     docsData.forEach(d => {
-                      mappedDocs[d.tipo] = {
+                      const normalized = normalizeTipo(d.tipo);
+                      const existing = mappedDocs[normalized];
+                      
+                      if (existing) {
+                          if (existing.verificacion_estado === 'aprobado' && d.verificacion_estado !== 'aprobado') {
+                              return; // keep existing
+                          }
+                          if (existing.archivoPath && !d.archivo_path) {
+                              return; // keep existing
+                          }
+                      }
+
+                      mappedDocs[normalized] = {
                         estado: d.estado as EstadoDocumento,
                         archivoPath: d.archivo_path || undefined,
                         fechaEmision: d.fecha_emision || undefined,
                         fechaVencimiento: d.fecha_vencimiento || undefined,
                         monto: d.monto || undefined,
                         observaciones: d.observaciones || undefined,
-                        verificacion_estado: d.verificacion_estado,
+                        verificacion_estado: d.verificacion_estado || 'pendiente',
                         verificacion_obs: d.verificacion_obs || undefined,
                         verificado_at: d.verificado_at || undefined,
                         verificado_por: d.verificado_por || undefined
