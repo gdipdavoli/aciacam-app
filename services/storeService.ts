@@ -565,7 +565,8 @@ export const StoreService = {
             const res = await fetch(`/api/admin/socios/${id}`);
             if (res.ok) {
                 const data = await res.json();
-                return mapSocioFromDB(data);
+                const docs = await StoreService.getDocumentosBySocio(data.id);
+                return mapSocioFromDB({ ...data, documentos: docs });
             }
         } catch (e) {
             console.log("StoreService: API Fetch failed for detail", e);
@@ -665,7 +666,8 @@ export const StoreService = {
                 if (res.ok) {
                     const data = await res.json();
                     console.log(`StoreService: Socio found via API Fallback [${data.id}]`);
-                    return mapSocioFromDB(data);
+                    const docs = await StoreService.getDocumentosBySocio(data.id);
+                    return mapSocioFromDB({ ...data, documentos: docs });
                 } else {
                     console.log("StoreService: API returned", res.status);
                 }
