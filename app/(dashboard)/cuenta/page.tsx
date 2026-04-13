@@ -84,6 +84,11 @@ export default function CuentaPage() {
                 bg = '#fef2f2'; // red-50
                 label = 'Vencido';
                 break;
+            case 'en_revision':
+                color = '#7c3aed'; // violet-600
+                bg = '#f5f3ff'; // violet-50
+                label = 'En Revisión';
+                break;
             case 'rechazado':
                 color = '#ef4444'; // red-500
                 bg = '#fef2f2'; // red-50

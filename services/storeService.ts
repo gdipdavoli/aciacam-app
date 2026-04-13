@@ -63,8 +63,16 @@ const mapSocioFromDB = (row: any): Socio => {
             if (row.documentos && Array.isArray(row.documentos)) {
                 row.documentos.forEach((d: any) => {
                     const key = d.tipo === 'declaracion_jurada' ? 'declaracionJurada' : d.tipo;
+                    
+                    // Map verification state to legacy 'estado' for the DocumentStatusBadge
+                    let estado = d.estado || (d.archivo_path ? 'completo' : 'pendiente');
+                    if (d.verificacion_estado === 'aprobado') estado = 'completo';
+                    else if (d.verificacion_estado === 'rechazado') estado = 'rechazado';
+                    else if (d.verificacion_estado === 'en_revision') estado = 'en_revision';
+                    else if (d.archivo_path && d.verificacion_estado === 'pendiente') estado = 'en_revision';
+
                     docs[key] = {
-                        estado: (d.estado || (d.archivo_path ? 'completo' : 'pendiente')),
+                        estado,
                         archivoPath: d.archivo_path,
                         verificacion_estado: d.verificacion_estado
                     };
@@ -562,7 +570,7 @@ export const StoreService = {
         // Fallback to Client (RLS restricted)
         const { data, error } = await supabase
             .from('socios')
-            .select('*')
+            .select('*, documentos:documentos_socio(*)')
             .eq('id', id)
             .single();
 
@@ -591,7 +599,7 @@ export const StoreService = {
 
         const clientPromise = supabase
             .from('socios')
-            .select('*')
+            .select('*, documentos:documentos_socio(*)')
             // Fix: Check both auth_user_id and legacy user_id
             .or(`auth_user_id.eq.${userId},user_id.eq.${userId}`)
             .maybeSingle()
