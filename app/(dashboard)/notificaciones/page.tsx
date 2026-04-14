@@ -193,7 +193,7 @@ export default function NotificacionesPage() {
                                 onClick={() => {
                                     if (isTicket) {
                                         setSelectedThreadId(item.id);
-                                        if (!item.leido) handleMarkAsRead(item.id);
+                                        handleMarkAsRead(item.id);
                                     }
                                 }}
                                 style={{

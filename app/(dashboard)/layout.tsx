@@ -17,7 +17,7 @@ export default function DashboardLayout({
 }: {
     children: React.ReactNode;
 }) {
-    const { user, session, loading, logout } = useAuth();
+    const { user, session, loading, authError, logout } = useAuth();
     const { itemCount } = useCart();
     const router = useRouter();
 
@@ -42,10 +42,10 @@ export default function DashboardLayout({
     }, [user]);
 
     useEffect(() => {
-        if (!loading && !user) {
+        if (!loading && !user && !authError) {
             router.push('/login');
         }
-    }, [user, loading, router]);
+    }, [user, loading, authError, router]);
 
     if (loading) {
         return (
@@ -56,6 +56,29 @@ export default function DashboardLayout({
     }
 
     if (!user) {
+        if (authError) {
+            return (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: '1.5rem', padding: '2rem', textAlign: 'center' }}>
+                    <div style={{ backgroundColor: 'hsl(var(--destructive)/0.1)', color: 'hsl(var(--destructive))', padding: '1rem', borderRadius: '8px', border: '1px solid hsl(var(--destructive)/0.2)', maxWidth: '400px' }}>
+                        <p style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Error de Conexión</p>
+                        <p style={{ fontSize: '0.9rem', opacity: 0.8 }}>{authError}</p>
+                    </div>
+                    <button 
+                        onClick={() => window.location.reload()}
+                        style={{ padding: '0.6rem 1.2rem', backgroundColor: 'hsl(var(--primary))', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                        Reintentar ahora
+                    </button>
+                    <button 
+                        onClick={logout}
+                        style={{ background: 'none', border: 'none', color: 'hsl(var(--muted-foreground))', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.85rem' }}
+                    >
+                        Volver al inicio
+                    </button>
+                </div>
+            );
+        }
+
         return (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: '1rem' }}>
                 <p>Redirigiendo al login...</p>
