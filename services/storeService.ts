@@ -666,8 +666,8 @@ export const StoreService = {
                 if (res.ok) {
                     const data = await res.json();
                     console.log(`StoreService: Socio found via API Fallback [${data.id}]`);
-                    const docs = await StoreService.getDocumentosBySocio(data.id);
-                    return mapSocioFromDB({ ...data, documentos: docs });
+                    // Documents are included in the API response — no second slow client call needed
+                    return mapSocioFromDB(data);
                 } else {
                     console.log("StoreService: API returned", res.status);
                 }

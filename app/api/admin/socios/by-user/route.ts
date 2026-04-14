@@ -33,7 +33,14 @@ export async function GET(request: NextRequest) {
             return NextResponse.json(null, { status: 404 });
         }
 
-        return NextResponse.json(data);
+        // Fetch documents via service role to avoid slow client RLS on page resume
+        const { data: docs } = await supabaseAdmin
+            .from('documentos_socio')
+            .select('*')
+            .eq('socio_id', data.id)
+            .order('created_at', { ascending: false });
+
+        return NextResponse.json({ ...data, documentos: docs || [] });
 
     } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });
