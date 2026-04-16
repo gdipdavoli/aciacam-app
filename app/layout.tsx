@@ -2,10 +2,15 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+};
+
 export const metadata: Metadata = {
   title: "ACIACAM",
   description: "Asociación Cannábica",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1",
   manifest: "/manifest.json",
 };
 
