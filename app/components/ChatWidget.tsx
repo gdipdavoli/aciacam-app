@@ -22,7 +22,7 @@ export function ChatWidget() {
                 content: '¡Hola! Soy Cogollito, tu asistente de ACIACAM. ¿En qué puedo ayudarte hoy?',
             },
         ],
-    }) as any;
+    } as any) as any;
 
     const { messages, input, handleInputChange, handleSubmit, isLoading } = chat;
 
