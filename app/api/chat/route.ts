@@ -73,7 +73,6 @@ export async function POST(req: Request) {
         // @ts-ignore
         maxSteps: 5, // Allow server-side tool execution (Roundtrips)
         tools: {
-            // @ts-ignore
             checkOrderStatus: {
                 description: 'Consultar el estado de los pedidos recientes del socio.',
                 parameters: z.object({}), // EMPTY SCHEMA to test serialization
@@ -99,7 +98,7 @@ export async function POST(req: Request) {
                     })));
                 },
             },
-        },
+        } as any,
     });
 
     console.log("[API/Chat] StreamText Result Keys:", Object.keys(result));
