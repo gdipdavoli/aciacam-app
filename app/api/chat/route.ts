@@ -70,47 +70,37 @@ export async function POST(req: Request) {
         model: openai('gpt-4o-mini'),
         system: systemPrompt,
         messages,
-        // @ts-ignore
         maxSteps: 5, // Allow server-side tool execution (Roundtrips)
-        // tools: {
-        //     checkOrderStatus: tool({
-        //         description: 'Consultar el estado de los pedidos recientes del socio.',
-        //         parameters: z.object({}), // EMPTY SCHEMA to test serialization
-        //         execute: async (_args) => {
-        //             console.log("[API/Chat] Tool 'checkOrderStatus' TRIGGERED (No Args)");
-        //             const { data: orders } = await supabase
-        //                 .from('pedidos')
-        //                 .select('id, estado, tipo_pedido, items, created_at, slot_id, pickup_slots(start_time)')
-        //                 .eq('socio_id', socio.id)
-        //                 .order('created_at', { ascending: false })
-        //                 .limit(3);
+        tools: {
+            checkOrderStatus: tool({
+                description: 'Consultar el estado de los pedidos recientes del socio.',
+                parameters: z.object({}), // EMPTY SCHEMA to test serialization
+                execute: async (_args) => {
+                    console.log("[API/Chat] Tool 'checkOrderStatus' TRIGGERED (No Args)");
+                    const { data: orders } = await supabase
+                        .from('pedidos')
+                        .select('id, estado, tipo_pedido, items, created_at, slot_id, pickup_slots(start_time)')
+                        .eq('socio_id', socio.id)
+                        .order('created_at', { ascending: false })
+                        .limit(3);
 
-        //             if (!orders || orders.length === 0) {
-        //                 return "No encontré pedidos recientes.";
-        //             }
+                    if (!orders || orders.length === 0) {
+                        return "No encontré pedidos recientes.";
+                    }
 
-        //             return JSON.stringify(orders.map((o: any) => ({
-        //                 id: o.id.slice(0, 8),
-        //                 estado: o.estado,
-        //                 items: o.items,
-        //                 fecha: o.created_at,
-        //                 turno: o.pickup_slots?.start_time
-        //             })));
-        //         },
-        //     }),
-        // },
+                    return JSON.stringify(orders.map((o: any) => ({
+                        id: o.id.slice(0, 8),
+                        estado: o.estado,
+                        items: o.items,
+                        fecha: o.created_at,
+                        turno: o.pickup_slots?.start_time
+                    })));
+                },
+            }),
+        },
     });
 
     console.log("[API/Chat] StreamText Result Keys:", Object.keys(result));
 
-    // Check if result has toDataStreamResponse
-    // @ts-ignore
-    if (result.toDataStreamResponse) {
-        // @ts-ignore
-        return result.toDataStreamResponse();
-    }
-
-    // Fallback
-    // @ts-ignore
-    return result.toTextStreamResponse();
+    return result.toDataStreamResponse();
 }

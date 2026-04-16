@@ -43,6 +43,7 @@ async function diagnose() {
         sociosByEmail.forEach(s => {
             console.log(`   Found Socio [${s.id}] with email: ${s.email}`);
             console.log(`     -> user_id column: ${s.user_id}`);
+            console.log(`     -> Role in DB: ${s.rol}`);
         });
     } else {
         console.log("   No socios found by email.");

@@ -741,6 +741,7 @@ export const StoreService = {
         if (updates.apellido !== undefined) dbUpdates.apellido = updates.apellido;
         if (updates.dni !== undefined) dbUpdates.dni = updates.dni;
         if (updates.telefono !== undefined) dbUpdates.telefono = updates.telefono;
+        if (updates.email !== undefined) dbUpdates.email = updates.email;
         if (updates.localidad !== undefined) dbUpdates.localidad = updates.localidad;
         if (updates.direccion !== undefined) dbUpdates.domicilio = updates.direccion;
         if (updates.provincia !== undefined) dbUpdates.provincia = updates.provincia;

@@ -7,9 +7,9 @@ import Link from 'next/link';
 import { useCart } from '@/context/CartContext';
 import styles from './dashboard.module.css';
 
-import { Home, Flower2, ShoppingBag, User, LogOut, Leaf, CheckCircle, Calendar, Bell } from 'lucide-react';
+import { Home, Flower2, ShoppingBag, User, LogOut, Leaf, CheckCircle, Calendar, Bell, Users } from 'lucide-react';
 import { NotificationService } from '@/services/notificationService';
-// import { ChatWidget } from '@/app/components/ChatWidget'; // DISABLED for Production
+import { ChatWidget } from '@/app/components/ChatWidget';
 
 
 export default function DashboardLayout({
@@ -99,6 +99,10 @@ export default function DashboardLayout({
             { href: '/admin/socios', label: 'Socios', icon: User },
             { href: '/admin/agenda', label: 'Agenda', icon: Calendar },
         ];
+
+        if (user.rol === 'admin') {
+            navItems.push({ href: '/admin/equipo', label: 'Equipo', icon: Users });
+        }
     } else {
         navItems = [
             { href: '/notificaciones', label: 'Notificaciones', icon: Bell, badge: unreadCount },
@@ -293,9 +297,7 @@ export default function DashboardLayout({
             </nav>
 
             {/* Chat Widget - DISABLED for Production Stability */}
-            {/*
             {user && session?.access_token && <ChatWidget key={session.access_token} />}
-            */}
 
         </div>
     );

@@ -22,9 +22,16 @@ export default function AdminEquipoPage() {
                 return;
             }
 
-            // Fetch 'staff' role
-            StoreService.getAllSocios('staff').then(data => {
-                setStaffList(data);
+            // Fetch 'staff' and 'admin' roles
+            Promise.all([
+                StoreService.getAllSocios('staff'),
+                StoreService.getAllSocios('admin')
+            ]).then(([staff, admins]) => {
+                // Combine and sort by name
+                const fullTeam = [...staff, ...admins].sort((a, b) => 
+                    a.nombre.localeCompare(b.nombre)
+                );
+                setStaffList(fullTeam);
                 setLoading(false);
             });
         }
