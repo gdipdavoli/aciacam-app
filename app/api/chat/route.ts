@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { streamText, tool } from 'ai';
+import { streamText } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 
@@ -73,10 +73,11 @@ export async function POST(req: Request) {
         // @ts-ignore
         maxSteps: 5, // Allow server-side tool execution (Roundtrips)
         tools: {
-            checkOrderStatus: tool({
+            // @ts-ignore
+            checkOrderStatus: {
                 description: 'Consultar el estado de los pedidos recientes del socio.',
                 parameters: z.object({}), // EMPTY SCHEMA to test serialization
-                execute: async (_args) => {
+                execute: async (_args: any) => {
                     console.log("[API/Chat] Tool 'checkOrderStatus' TRIGGERED (No Args)");
                     const { data: orders } = await supabase
                         .from('pedidos')
@@ -97,7 +98,7 @@ export async function POST(req: Request) {
                         turno: o.pickup_slots?.start_time
                     })));
                 },
-            }),
+            },
         },
     });
 
