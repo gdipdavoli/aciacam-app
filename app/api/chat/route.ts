@@ -103,5 +103,9 @@ export async function POST(req: Request) {
 
     console.log("[API/Chat] StreamText Result Keys:", Object.keys(result));
 
-    return result.toDataStreamResponse();
+    const r = result as any;
+    if (r.toDataStreamResponse) {
+        return r.toDataStreamResponse();
+    }
+    return r.toTextStreamResponse();
 }
