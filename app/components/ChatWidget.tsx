@@ -10,7 +10,7 @@ export function ChatWidget() {
     const { session } = useAuth();
     const scrollRef = useRef<HTMLDivElement>(null);
 
-    const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+    const chat = useChat({
         api: '/api/chat',
         headers: {
             Authorization: `Bearer ${session?.access_token}`,
@@ -22,7 +22,9 @@ export function ChatWidget() {
                 content: '¡Hola! Soy Cogollito, tu asistente de ACIACAM. ¿En qué puedo ayudarte hoy?',
             },
         ],
-    });
+    }) as any;
+
+    const { messages, input, handleInputChange, handleSubmit, isLoading } = chat;
 
     // Auto-scroll to bottom when messages change
     useEffect(() => {
