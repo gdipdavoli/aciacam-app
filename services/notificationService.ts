@@ -10,7 +10,8 @@ export const NotificationService = {
 
         let query = supabase.from('notificaciones').select(`
             *,
-            remitente:socios!remitente_id (nombre, apellido)
+            remitente:socios!remitente_id (nombre, apellido),
+            socio:socios!socio_id (nombre, apellido)
         `);
 
         if (params.isAdminInbox) {
@@ -28,6 +29,7 @@ export const NotificationService = {
             socioId: row.socio_id,
             remitenteId: row.remitente_id,
             remitenteNombre: row.remitente ? `${row.remitente.nombre} ${row.remitente.apellido}` : undefined,
+            socioNombre: row.socio ? `${row.socio.nombre} ${row.socio.apellido}` : undefined,
             titulo: row.titulo,
             mensaje: row.mensaje,
             leido: row.leido,
@@ -54,7 +56,8 @@ export const NotificationService = {
             .from('notificaciones')
             .select(`
                 *,
-                remitente:socios!remitente_id (nombre, apellido)
+                remitente:socios!remitente_id (nombre, apellido),
+                socio:socios!socio_id (nombre, apellido)
             `)
             .is('parent_id', null)
             .eq('es_informativo', false);
@@ -71,6 +74,7 @@ export const NotificationService = {
             socioId: row.socio_id,
             remitenteId: row.remitente_id,
             remitenteNombre: row.remitente ? `${row.remitente.nombre} ${row.remitente.apellido}` : undefined,
+            socioNombre: row.socio ? `${row.socio.nombre} ${row.socio.apellido}` : undefined,
             titulo: row.titulo,
             mensaje: row.mensaje,
             leido: row.leido,
@@ -96,7 +100,8 @@ export const NotificationService = {
             .from('notificaciones')
             .select(`
                 *,
-                remitente:socios!remitente_id (nombre, apellido)
+                remitente:socios!remitente_id (nombre, apellido),
+                socio:socios!socio_id (nombre, apellido)
             `)
             .or(`id.eq.${parentId},parent_id.eq.${parentId}`)
             .order('fecha_creacion', { ascending: true });
@@ -108,6 +113,7 @@ export const NotificationService = {
             socioId: row.socio_id,
             remitenteId: row.remitente_id,
             remitenteNombre: row.remitente ? `${row.remitente.nombre} ${row.remitente.apellido}` : undefined,
+            socioNombre: row.socio ? `${row.socio.nombre} ${row.socio.apellido}` : undefined,
             titulo: row.titulo,
             mensaje: row.mensaje,
             leido: row.leido,

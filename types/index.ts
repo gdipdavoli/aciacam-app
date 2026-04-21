@@ -164,6 +164,7 @@ export interface Notificacion {
     socioId: string;
     remitenteId?: string;
     remitenteNombre?: string;
+    socioNombre?: string;
     titulo: string;
     mensaje: string;
     leido: boolean;

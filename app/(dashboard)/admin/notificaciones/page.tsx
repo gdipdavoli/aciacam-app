@@ -236,10 +236,35 @@ export default function AdminNotificacionesPage() {
     };
 
     return (
-        <div style={{ display: 'flex', height: 'calc(100vh - 120px)', backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+        <div 
+            className={`notifications-container ${selectedTicketId ? 'has-selection' : ''}`}
+            style={{ display: 'flex', height: 'calc(100vh - 120px)', backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', overflow: 'hidden', position: 'relative' }}
+        >
+            <style>{`
+                @media (max-width: 1024px) {
+                    .notifications-sidebar {
+                        width: 100% !important;
+                    }
+                    .notifications-container.has-selection .notifications-sidebar {
+                        display: none !important;
+                    }
+                    .notifications-main {
+                        width: 100% !important;
+                    }
+                    .notifications-container:not(.has-selection) .notifications-main {
+                        display: none !important;
+                    }
+                    .chat-input-container {
+                        padding: 1rem !important;
+                    }
+                    .messages-container {
+                        padding: 1rem !important;
+                    }
+                }
+            `}</style>
             
             {/* Sidebar: Navigation & Case List */}
-            <div style={{ width: '350px', borderRight: '1px solid hsl(var(--border))', display: 'flex', flexDirection: 'column', backgroundColor: 'hsl(var(--card))' }}>
+            <div className="notifications-sidebar" style={{ width: '350px', borderRight: '1px solid hsl(var(--border))', display: 'flex', flexDirection: 'column', backgroundColor: 'hsl(var(--card))', transition: 'all 0.3s' }}>
                 
                 {/* Search & Header */}
                 <div style={{ padding: '1.25rem', borderBottom: '1px solid hsl(var(--border))' }}>
@@ -334,7 +359,7 @@ export default function AdminNotificacionesPage() {
                                 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '0.25rem' }}>
                                     <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'hsl(var(--foreground))' }}>
-                                        {viewMode === 'tickets' ? (item.remitenteNombre || 'Socio') : item.titulo}
+                                        {viewMode === 'tickets' ? (item.socioNombre || item.remitenteNombre || 'Socio') : item.titulo}
                                     </span>
                                     <span style={{ fontSize: '0.7rem', color: 'hsl(var(--muted-foreground))' }}>
                                         {new Date(item.fechaCreacion).toLocaleDateString()}
@@ -371,7 +396,7 @@ export default function AdminNotificacionesPage() {
             </div>
 
             {/* Main Pane: Reading Area */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'hsl(var(--background))' }}>
+            <div className="notifications-main" style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'hsl(var(--background))' }}>
                 {!selectedTicketId ? (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'hsl(var(--muted-foreground))' }}>
                         <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
@@ -384,11 +409,34 @@ export default function AdminNotificacionesPage() {
                 ) : (
                     <>
                         {/* Thread Header */}
-                        <div style={{ padding: '1rem 2rem', borderBottom: '1px solid hsl(var(--border))', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'hsl(var(--card))' }}>
+                        <div style={{ padding: '1rem 2rem', borderBottom: '1px solid hsl(var(--border))', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'hsl(var(--card))', position: 'relative' }}>
+                            <button 
+                                onClick={() => {
+                                    setSelectedTicketId(null);
+                                    updateUrl({ ticketId: null });
+                                }}
+                                style={{
+                                    display: 'none',
+                                    marginRight: '1rem',
+                                    padding: '0.5rem',
+                                    borderRadius: '50%',
+                                    backgroundColor: 'hsl(var(--muted)/0.5)',
+                                    border: 'none',
+                                    cursor: 'pointer'
+                                }}
+                                className="back-button"
+                            >
+                                <ChevronRight size={20} style={{ transform: 'rotate(180deg)' }} />
+                            </button>
+                            <style>{`
+                                @media (max-width: 1024px) {
+                                    .back-button { display: block !important; }
+                                }
+                            `}</style>
                             <div>
                                 <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>{tickets.find(t => t.id === selectedTicketId)?.titulo}</h3>
                                 <div style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                    <span style={{ fontWeight: 600 }}>{tickets.find(t => t.id === selectedTicketId)?.remitenteNombre}</span>
+                                    <span style={{ fontWeight: 600 }}>{tickets.find(t => t.id === selectedTicketId)?.socioNombre || tickets.find(t => t.id === selectedTicketId)?.remitenteNombre}</span>
                                     <span style={{ color: 'hsl(var(--muted-foreground))' }}>ID: {selectedTicketId.slice(0, 8)}</span>
                                 </div>
                             </div>
@@ -418,7 +466,7 @@ export default function AdminNotificacionesPage() {
                         </div>
 
                         {/* Thread Messages */}
-                        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                        <div ref={scrollRef} className="messages-container" style={{ flex: 1, overflowY: 'auto', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                             {loadingThread ? (
                                 <p style={{ textAlign: 'center', color: 'hsl(var(--muted-foreground))' }}>Cargando conversación...</p>
                             ) : (
@@ -447,7 +495,7 @@ export default function AdminNotificacionesPage() {
                                             {msg.mensaje}
                                         </div>
                                         <span style={{ fontSize: '0.7rem', color: 'hsl(var(--muted-foreground))', marginTop: '0.4rem', padding: '0 0.5rem' }}>
-                                            {msg.remitenteNombre} • {new Date(msg.fechaCreacion).toLocaleString()}
+                                            {msg.remitenteNombre || (msg.esParaAdmin ? 'Sistema' : (msg.socioNombre || 'Socio'))} • {new Date(msg.fechaCreacion).toLocaleString()}
                                         </span>
                                     </div>
                                 ))
@@ -455,7 +503,7 @@ export default function AdminNotificacionesPage() {
                         </div>
 
                         {/* Reply Input */}
-                        <div style={{ padding: '1.5rem 2rem', borderTop: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--card))' }}>
+                        <div className="chat-input-container" style={{ padding: '1.5rem 2rem', borderTop: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--card))' }}>
                             <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', padding: '0.5rem' }}>
                                 <textarea 
                                     value={replyText}
