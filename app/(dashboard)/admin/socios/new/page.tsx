@@ -20,9 +20,7 @@ export default function NewSocioPage() {
         email: '',
         telefono: '',
         direccion: '',
-        localidad: '',
-        provincia: '',
-        notas: ''
+        localidad: ''
     });
 
     React.useEffect(() => {
@@ -152,28 +150,13 @@ export default function NewSocioPage() {
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Dirección</label>
                             <input name="direccion" value={formData.direccion} onChange={handleChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }} />
                         </div>
-                        <div>
+                        <div style={{ gridColumn: 'span 2' }}>
                             <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Localidad</label>
                             <input name="localidad" value={formData.localidad} onChange={handleChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }} />
-                        </div>
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Provincia</label>
-                            <input name="provincia" value={formData.provincia} onChange={handleChange} style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }} />
                         </div>
                     </div>
                 </div>
 
-                {/* Notes */}
-                <div style={{ gridColumn: 'span 2', backgroundColor: 'hsl(var(--card))', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
-                    <h3 style={{ marginBottom: '1rem', borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.5rem' }}>Notas / Observaciones</h3>
-                    <textarea
-                        name="notas"
-                        value={formData.notas}
-                        onChange={handleChange}
-                        style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid hsl(var(--border))', minHeight: '100px', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
-                        placeholder="Información clínica o administrativa relevante..."
-                    />
-                </div>
 
                 <div style={{ gridColumn: 'span 2', display: 'flex', justifyContent: 'end', gap: '1rem' }}>
                     <button type="button" onClick={() => router.back()} style={{ padding: '0.75rem 1.5rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', background: 'transparent', cursor: 'pointer' }}>

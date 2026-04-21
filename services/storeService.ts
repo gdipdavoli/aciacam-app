@@ -744,7 +744,6 @@ export const StoreService = {
         if (updates.email !== undefined) dbUpdates.email = updates.email;
         if (updates.localidad !== undefined) dbUpdates.localidad = updates.localidad;
         if (updates.direccion !== undefined) dbUpdates.domicilio = updates.direccion;
-        if (updates.provincia !== undefined) dbUpdates.provincia = updates.provincia;
         if (updates.fechaNacimiento !== undefined) dbUpdates.fecha_nacimiento = updates.fechaNacimiento;
 
         // Admin
@@ -754,7 +753,6 @@ export const StoreService = {
         if (updates.envios_habilitados !== undefined) dbUpdates.envios_habilitados = updates.envios_habilitados;
         if (updates.status !== undefined) dbUpdates.status = updates.status;
         if (updates.rol !== undefined) dbUpdates.rol = updates.rol;
-        if (updates.notas !== undefined) dbUpdates.notas = updates.notas;
 
         // Reprocann
         if (updates.reprocann) {

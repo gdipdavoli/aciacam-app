@@ -1201,7 +1201,7 @@ export default function SocioDetailsPage() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                             <InputGroup label="Calle y Número" value={socio.direccion} onChange={(v: string) => setSocio({ ...socio, direccion: v })} readOnly={editingSection !== 'domicilio'} />
                             <InputGroup label="Localidad" value={socio.localidad} onChange={(v: string) => setSocio({ ...socio, localidad: v })} readOnly={editingSection !== 'domicilio'} />
-                            <InputGroup label="Provincia" value={socio.provincia} onChange={(v: string) => setSocio({ ...socio, provincia: v })} readOnly={editingSection !== 'domicilio'} />
+                            {/* <InputGroup label="Provincia" value={socio.provincia} onChange={(v: string) => setSocio({ ...socio, provincia: v })} readOnly={editingSection !== 'domicilio'} /> */}
                         </div>
                     </Section>
 
