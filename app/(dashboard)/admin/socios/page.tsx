@@ -27,8 +27,10 @@ export default function AdminSociosPage() {
                 StoreService.getEstadoDocumentacionTodos()
             ]).then(([sociosData, docSummaries]) => {
                 // Merge doc status into socios
+                const docMap = new Map(docSummaries.map(s => [s.socio_id, s]));
+                
                 const merged: Socio[] = sociosData.map(socio => {
-                    const summary = docSummaries.find(s => s.socio_id === socio.id);
+                    const summary = docMap.get(socio.id);
                     if (summary) {
                         return {
                             ...socio,
@@ -64,13 +66,15 @@ export default function AdminSociosPage() {
     const getContractStatus = (socio: Socio) => socio.documentacion?.contrato?.estado || 'pendiente';
 
     const getSocioStatus = (socio: Socio) => {
-        if (socio.auth_user_id) return 'vinculado';
+        // Vinculado only if they have accepted terms (meaning they logged in)
+        if (socio.auth_user_id && socio.terms_accepted_at) return 'vinculado';
         
         if (socio.invited_at) {
             const inviteDate = new Date(socio.invited_at);
             const now = new Date();
             const diffHours = (now.getTime() - inviteDate.getTime()) / (1000 * 60 * 60);
             
+            // If they have auth_user_id but haven't accepted terms yet, they are still in "enviado" or "vencido"
             if (diffHours > 48) return 'vencido';
             return 'enviado';
         }

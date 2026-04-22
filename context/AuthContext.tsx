@@ -78,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 // Create a timeout promise for the fetch
                 const fetchPromise = StoreService.getSocioByUserId(userId);
                 const fetchTimeout = new Promise<null>((_, reject) =>
-                    setTimeout(() => reject(new Error('Fetch Socio Timeout')), 20000) // Increased to 20s
+                    setTimeout(() => reject(new Error('Fetch Socio Timeout')), 40000) // Increased to 40s
                 );
 
                 const socio = await Promise.race([fetchPromise, fetchTimeout]) as Socio | null;
@@ -161,7 +161,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 // 12 Seconds Timeout (Increased)
                 const sessionPromise = supabase.auth.getSession();
                 const timeoutPromise = new Promise<{ data: { session: null }, error: any }>((resolve) =>
-                    setTimeout(() => resolve({ data: { session: null }, error: new Error('Session Init Timeout') }), 20000) // Increased to 20s
+                    setTimeout(() => resolve({ data: { session: null }, error: new Error('Session Init Timeout') }), 40000) // Increased to 40s
                 );
 
                 const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]) as any;

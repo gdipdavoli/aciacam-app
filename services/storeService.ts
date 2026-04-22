@@ -627,7 +627,7 @@ export const StoreService = {
             });
 
         const timeoutPromise = new Promise<{ source: 'timeout' }>((resolve) =>
-            setTimeout(() => resolve({ source: 'timeout' }), 2000)
+            setTimeout(() => resolve({ source: 'timeout' }), 8000) // Increased to 8s
         );
 
         console.time("getSocioRace");
