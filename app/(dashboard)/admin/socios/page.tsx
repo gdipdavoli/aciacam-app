@@ -64,13 +64,23 @@ export default function AdminSociosPage() {
     const getContractStatus = (socio: Socio) => socio.documentacion?.contrato?.estado || 'pendiente';
 
     const getSocioStatus = (socio: Socio) => {
-        if (socio.auth_user_id) return 'activo';
-        if (socio.invited_at) return 'invitado';
-        return 'pendiente';
+        if (socio.auth_user_id) return 'vinculado';
+        
+        if (socio.invited_at) {
+            const inviteDate = new Date(socio.invited_at);
+            const now = new Date();
+            const diffHours = (now.getTime() - inviteDate.getTime()) / (1000 * 60 * 60);
+            
+            if (diffHours > 48) return 'vencido';
+            return 'enviado';
+        }
+        
+        return 'borrador';
     };
 
     const handleBulkInvite = async () => {
-        const pendingSocios = socios.filter(s => getSocioStatus(s) === 'pendiente');
+        const canInvite = (s: Socio) => ['borrador', 'vencido'].includes(getSocioStatus(s));
+        const pendingSocios = socios.filter(canInvite);
         if (pendingSocios.length === 0) return;
 
         if (!confirm(`¿Estás seguro de enviar invitación a ${pendingSocios.length} socios pendientes?`)) return;
@@ -93,7 +103,7 @@ export default function AdminSociosPage() {
         }
     };
 
-    const pendingCount = socios.filter(s => getSocioStatus(s) === 'pendiente').length;
+    const pendingCount = socios.filter(s => ['borrador', 'vencido'].includes(getSocioStatus(s))).length;
 
     const filteredSocios = socios.filter(s => {
         const matchesSearch =
@@ -179,7 +189,7 @@ export default function AdminSociosPage() {
                     <thead>
                         <tr className="border-b border-border text-left bg-muted/50">
                             <th className="p-4 text-muted-foreground font-medium">Socio</th>
-                            <th className="p-4 text-muted-foreground font-medium">Estado</th>
+                            <th className="p-4 text-muted-foreground font-medium text-center">Estado</th>
                             <th className="p-4 text-muted-foreground font-medium">DNI</th>
                             <th className="p-4 text-muted-foreground font-medium">Ubicación</th>
                             <th className="p-4 text-muted-foreground font-medium">REPROCANN</th>
@@ -223,10 +233,11 @@ export default function AdminSociosPage() {
                                         <div className="font-medium">{socio.nombre} {socio.apellido}</div>
                                         <div className="text-sm text-muted-foreground">{socio.email}</div>
                                     </td>
-                                    <td className="p-4">
-                                        {status === 'activo' && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">Activo</span>}
-                                        {status === 'invitado' && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 border border-yellow-200">Invitado</span>}
-                                        {status === 'pendiente' && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">Borrador</span>}
+                                    <td className="p-4 text-center">
+                                        {status === 'vinculado' && <span className="px-2 py-0.5 rounded-full text-[10px] uppercase font-bold bg-green-100 text-green-700 border border-green-200">Vinculado</span>}
+                                        {status === 'enviado' && <span className="px-2 py-0.5 rounded-full text-[10px] uppercase font-bold bg-blue-100 text-blue-700 border border-blue-200">Enviado</span>}
+                                        {status === 'vencido' && <span className="px-2 py-0.5 rounded-full text-[10px] uppercase font-bold bg-red-100 text-red-700 border border-red-200">Link Vencido</span>}
+                                        {status === 'borrador' && <span className="px-2 py-0.5 rounded-full text-[10px] uppercase font-bold bg-gray-100 text-gray-500 border border-gray-200">Borrador</span>}
                                     </td>
                                     <td className="p-4">{socio.dni}</td>
                                     <td className="p-4">{socio.localidad || '-'}</td>
