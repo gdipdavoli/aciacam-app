@@ -56,6 +56,14 @@ export default function NewProductPage() {
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
+            
+            // Limit to 4.5MB (Vercel standard serverless body limit)
+            if (file.size > 4.5 * 1024 * 1024) {
+                alert("La imagen es muy pesada. Por favor usá una de menos de 4MB para asegurar la subida.");
+                e.target.value = ''; // Reset input
+                return;
+            }
+
             setImageFile(file);
             setPreviewUrl(URL.createObjectURL(file));
         }
@@ -84,8 +92,18 @@ export default function NewProductPage() {
                 });
 
                 if (!res.ok) {
-                    const err = await res.json();
-                    alert(`Error subiendo imagen: ${err.error}`);
+                    let errorMsg = `Error ${res.status}`;
+                    try {
+                        const contentType = res.headers.get("content-type");
+                        if (contentType && contentType.includes("application/json")) {
+                            const err = await res.json();
+                            errorMsg = err.error || errorMsg;
+                        } else {
+                            // Likely a 413 from provider (Cloudflare/Vercel)
+                            if (res.status === 413) errorMsg = "La imagen es demasiado grande para el servidor. Intentá con una más pequeña.";
+                        }
+                    } catch (e) { /* ignore parse error */ }
+                    alert(`Error subiendo imagen: ${errorMsg}`);
                 } else {
                     const { path } = await res.json();
                     // Update product with image path

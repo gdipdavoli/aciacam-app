@@ -517,7 +517,7 @@ export const StoreService = {
     createAuditLog: async (actorId: string, action: string, entityType: string, entityId: string, details: any) => {
         try {
             await supabase.from('audit_logs').insert({
-                actor_id: actorId,
+                user_id: actorId,
                 action,
                 entity_type: entityType,
                 entity_id: entityId,

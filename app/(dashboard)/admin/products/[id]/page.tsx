@@ -54,6 +54,14 @@ export default function EditProductPage() {
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
+            
+            // Limit to 4.5MB (Vercel standard serverless body limit)
+            if (file.size > 4.5 * 1024 * 1024) {
+                alert("La imagen es muy pesada. Por favor usá una de menos de 4.5MB.");
+                e.target.value = ''; // Reset input
+                return;
+            }
+
             setImageFile(file);
             setPreviewUrl(URL.createObjectURL(file));
         }
@@ -78,9 +86,18 @@ export default function EditProductPage() {
                 });
 
                 if (!res.ok) {
-                    const err = await res.json();
-                    alert(`Error subiendo imagen: ${err.error}`);
-                    // Optionally continue or stop? Stop.
+                    let errorMsg = `Error ${res.status}`;
+                    try {
+                        const contentType = res.headers.get("content-type");
+                        if (contentType && contentType.includes("application/json")) {
+                            const err = await res.json();
+                            errorMsg = err.error || errorMsg;
+                        } else {
+                            if (res.status === 413) errorMsg = "La imagen es demasiado grande. Intentá con una más pequeña.";
+                        }
+                    } catch (e) { /* ignore */ }
+                    
+                    alert(`Error subiendo imagen: ${errorMsg}`);
                     setSaving(false);
                     return;
                 } else {
