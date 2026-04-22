@@ -375,7 +375,7 @@ export default function AdminNotificacionesPage() {
                                 </p>
 
                                 {viewMode === 'tickets' && (
-                                    <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.4rem' }}>
+                                    <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                                         <span style={{ 
                                             fontSize: '0.65rem', 
                                             fontWeight: 700, 
@@ -387,6 +387,18 @@ export default function AdminNotificacionesPage() {
                                         }}>
                                             {item.estado}
                                         </span>
+                                        {(item.metadata?.pedidoId || item.metadata?.orderId) && (
+                                            <span style={{ 
+                                                fontSize: '0.65rem', 
+                                                fontWeight: 700, 
+                                                padding: '0.1rem 0.4rem', 
+                                                borderRadius: '4px', 
+                                                backgroundColor: 'hsl(var(--primary)/0.1)', 
+                                                color: 'hsl(var(--primary))'
+                                            }}>
+                                                PEDIDO #{(item.metadata.pedidoId || item.metadata.orderId).slice(-6).toUpperCase()}
+                                            </span>
+                                        )}
                                     </div>
                                 )}
                             </div>

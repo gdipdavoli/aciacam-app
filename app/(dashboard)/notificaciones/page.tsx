@@ -3,7 +3,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { NotificationService } from '@/services/notificationService';
-import { Notificacion, EstadoTicket } from '@/types';
+import { StoreService } from '@/services/storeService';
+import { Notificacion, EstadoTicket, Pedido } from '@/types';
 import { 
     Bell, Check, Clock, Package, MapPin, MessageSquare, 
     Send, ChevronRight, X, Inbox, User, Info, Trash2
@@ -18,6 +19,8 @@ export default function NotificacionesPage() {
     const [showForm, setShowForm] = useState(false);
     const [notifTitulo, setNotifTitulo] = useState('');
     const [notifMensaje, setNotifMensaje] = useState('');
+    const [selectedPedidoId, setSelectedPedidoId] = useState<string>('');
+    const [userPedidos, setUserPedidos] = useState<Pedido[]>([]);
     const [isSending, setIsSending] = useState(false);
 
     // Thread/Case State
@@ -41,6 +44,11 @@ export default function NotificacionesPage() {
 
     useEffect(() => {
         fetchNotifications();
+        if (user) {
+            StoreService.getPedidosBySocio(user.id).then(data => {
+                setUserPedidos(data.filter(p => !p.archivado).slice(0, 5));
+            });
+        }
     }, [user]);
 
     useEffect(() => {
@@ -86,11 +94,13 @@ export default function NotificacionesPage() {
             await NotificationService.sendToAdmin({
                 socioId: user.id,
                 titulo: notifTitulo,
-                mensaje: notifMensaje
+                mensaje: notifMensaje,
+                metadata: selectedPedidoId ? { pedidoId: selectedPedidoId } : undefined
             });
             setShowForm(false);
             setNotifTitulo('');
             setNotifMensaje('');
+            setSelectedPedidoId('');
             fetchNotifications();
         } catch (error) {
             alert("Error: " + (error as any).message);
@@ -162,7 +172,23 @@ export default function NotificacionesPage() {
                 <div style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--primary) / 0.2)', borderRadius: 'var(--radius)', padding: '1.5rem', marginBottom: '2rem' }}>
                     <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>Nueva Consulta</h3>
                     <form onSubmit={handleSendInitial} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        <input type="text" required value={notifTitulo} onChange={(e) => setNotifTitulo(e.target.value)} placeholder="Asunto (ej: Duda sobre mi envío)" style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', background: 'transparent' }} />
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <input type="text" required value={notifTitulo} onChange={(e) => setNotifTitulo(e.target.value)} placeholder="Asunto (ej: Duda sobre mi envío)" style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', background: 'transparent' }} />
+                            
+                            <select 
+                                value={selectedPedidoId} 
+                                onChange={(e) => {
+                                    setSelectedPedidoId(e.target.value);
+                                    if (e.target.value) setNotifTitulo(`Consulta sobre Pedido #${e.target.value.slice(-6).toUpperCase()}`);
+                                }}
+                                style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', background: 'transparent' }}
+                            >
+                                <option value="">Consulta General (No pedido)</option>
+                                {userPedidos.map(p => (
+                                    <option key={p.id} value={p.id}>Relacionado al Pedido #{p.id.slice(-6).toUpperCase()}</option>
+                                ))}
+                            </select>
+                        </div>
                         <textarea rows={3} required value={notifMensaje} onChange={(e) => setNotifMensaje(e.target.value)} placeholder="Contanos en qué podemos ayudarte..." style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', background: 'transparent' }} />
                         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                             <button type="submit" disabled={isSending} style={{ padding: '0.6rem 2rem', backgroundColor: 'hsl(var(--primary))', color: 'white', borderRadius: 'var(--radius)', border: 'none', fontWeight: 700, cursor: 'pointer', opacity: isSending ? 0.7 : 1 }}>

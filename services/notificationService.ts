@@ -181,6 +181,7 @@ export const NotificationService = {
 
     /**
      * Send a notification to a socio (Admin only)
+     * Now automatically threads messages if they are related to the same order.
      */
     sendNotification: async (params: {
         socioId: string;
@@ -195,6 +196,26 @@ export const NotificationService = {
     }): Promise<Notificacion> => {
         if (!supabase) throw new Error("Supabase client not initialized");
 
+        let parentId = params.parentId;
+
+        // Auto-threading logic for orders
+        const pedidoId = params.metadata?.pedidoId || params.metadata?.orderId;
+        if (!parentId && pedidoId) {
+            // Find if there's already a root ticket for this order
+            const { data: existing } = await supabase
+                .from('notificaciones')
+                .select('id')
+                .eq('socio_id', params.socioId)
+                .is('parent_id', null)
+                .or(`metadata->>pedidoId.eq.${pedidoId},metadata->>orderId.eq.${pedidoId}`)
+                .limit(1)
+                .single();
+            
+            if (existing) {
+                parentId = existing.id;
+            }
+        }
+
         const { data, error } = await supabase
             .from('notificaciones')
             .insert([{
@@ -206,7 +227,7 @@ export const NotificationService = {
                 metadata: params.metadata || {},
                 leido: false,
                 es_para_admin: false,
-                parent_id: params.parentId,
+                parent_id: parentId,
                 estado: params.estado || 'abierto',
                 es_informativo: params.esInformativo || false
             }])
@@ -296,8 +317,28 @@ export const NotificationService = {
         titulo: string;
         mensaje: string;
         parentId?: string;
+        metadata?: any;
     }): Promise<void> => {
         if (!supabase) return;
+
+        let parentId = params.parentId;
+        const pedidoId = params.metadata?.pedidoId || params.metadata?.orderId;
+
+        // Auto-threading logic for socio messages
+        if (!parentId && pedidoId) {
+            const { data: existing } = await supabase
+                .from('notificaciones')
+                .select('id')
+                .eq('socio_id', params.socioId)
+                .is('parent_id', null)
+                .or(`metadata->>pedidoId.eq.${pedidoId},metadata->>orderId.eq.${pedidoId}`)
+                .limit(1)
+                .single();
+            
+            if (existing) {
+                parentId = existing.id;
+            }
+        }
 
         const { error } = await supabase
             .from('notificaciones')
@@ -310,7 +351,8 @@ export const NotificationService = {
                 leido: false,
                 es_para_admin: true,
                 estado: 'abierto',
-                parent_id: params.parentId,
+                parent_id: parentId,
+                metadata: params.metadata || {},
                 es_informativo: false
             }]);
 
