@@ -38,47 +38,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!supabase) {
             console.error("AuthContext: Supabase client not initialized");
             setLoading(false);
-            setInitialized(true); // Treat as initialized even if failed
+            setInitialized(true);
             return;
         }
 
         if (initRef.current) return;
         initRef.current = true;
 
-        // Safety Timeout: Force loading false after 15 seconds (increased from 8s)
+        const CACHE_KEY = 'aciacam_user_profile';
+
+        // Safety Timeout: Force loading false after 20s if still stuck
         const safetyTimer = setTimeout(() => {
             setLoading(prev => {
                 if (prev) {
-                    console.warn("AuthContext: Safety Timeout triggered. Forcing loading false.");
-                    setAuthError("La conexión con el servidor está tardando más de lo esperado. Por favor, intente recargar la página.");
+                    console.warn("AuthContext: Safety Timeout triggered.");
+                    setAuthError("La conexión está tardando más de lo habitual. Verificando sesión...");
                     setInitialized(true);
                     return false;
                 }
                 return prev;
             });
-        }, 30000); // Increased to 30s
+        }, 20000);
 
         const handleUserSession = async (userId: string, session: any) => {
-            // DEDUPLICATION: Prevent parallel fetches for the same user
+            // DEDUPLICATION: Prevent parallel fetches
             if (fetchLock.current === userId) {
                 console.log(`[AuthDebug] handleUserSession ignored for ${userId} (Already in progress)`);
                 return;
             }
             fetchLock.current = userId;
 
-            // ... (keep handleUserSession logic as is, it's fine)
             console.log("AuthContext: Handling User Session for", userId);
             setAuthError(null);
             setIsUnlinked(false);
 
             try {
-                // 1. Fetch Socio (With Timeout Fix)
+                // 1. Fetch Socio (With optimized Race in StoreService)
                 console.time("fetchSocio");
-
-                // Create a timeout promise for the fetch
+                
                 const fetchPromise = StoreService.getSocioByUserId(userId);
                 const fetchTimeout = new Promise<null>((_, reject) =>
-                    setTimeout(() => reject(new Error('Fetch Socio Timeout')), 40000) // Increased to 40s
+                    setTimeout(() => reject(new Error('Fetch Socio Timeout')), 30000)
                 );
 
                 const socio = await Promise.race([fetchPromise, fetchTimeout]) as Socio | null;
@@ -88,56 +88,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     console.log("AuthContext: Socio found linked:", socio.id);
 
                     // Override role if Admin in Metadata (Source of Truth)
-                    // Use passed session instead of awaiting getSession() again
                     const authRole = session?.user?.app_metadata?.role;
                     if (authRole === 'admin') {
                         socio.rol = 'admin';
                     }
 
-                    currentUserIdRef.current = session.user.id;
+                    currentUserIdRef.current = userId;
                     setUser(socio);
 
-                    // 2. EXPLICIT REDIRECT LOGIC
-                    console.log("AuthContext: Checking Path for Redirect:", pathname);
-                    // (Redirects handled in reactive effect)
+                    // UPDATE CACHE
+                    try {
+                        localStorage.setItem(CACHE_KEY, JSON.stringify(socio));
+                    } catch (e) {}
 
                 } else {
                     console.warn("AuthContext: User authenticated but NO socio linked.");
                     setIsUnlinked(true);
                     currentUserIdRef.current = null;
                     setUser(null);
+                    localStorage.removeItem(CACHE_KEY);
 
-                    // Allow Auth Setup Pages to proceed without redirect loop
-                    if (!pathname?.startsWith('/auth/')) {
+                    // Redirect to pending approval if not on an auth/exempt page
+                    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth/')) {
                         router.replace('/pendiente-aprobacion');
                     }
                 }
             } catch (fetchErr: any) {
-                console.error("AuthContext: Fetch Socio Failed. Details:", fetchErr);
-                setAuthError(`Error cargando perfil: ${fetchErr.message}`);
+                console.error("AuthContext: Fetch Socio Failed:", fetchErr);
+                // If we have a user (from cache), don't show full error yet, just log it.
+                if (!user) {
+                    setAuthError(`Error cargando perfil: ${fetchErr.message}`);
+                }
             } finally {
-                console.log("AuthContext: handleUserSession finally block reached.");
-                fetchLock.current = null; // Release Lock
+                fetchLock.current = null;
                 setLoading(false);
                 setInitialized(true);
-                clearTimeout(safetyTimer); // Clear timeout if successful
+                clearTimeout(safetyTimer);
             }
         };
 
-        // 1. SETUP LISTENER FIRST (To catch events even if getSession hangs)
+        // 1. SETUP LISTENER
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             console.log(`[AuthDebug] ${new Date().toISOString()} Auth Event: ${event}`);
 
-            if (event === 'SIGNED_IN' && session?.user) {
-                console.log("[AuthDebug] SIGNED_IN. Starting handleUserSession.");
-                // Only set loading true if we are not already initialized or if switching users
+            if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
                 if (currentUserIdRef.current !== session.user.id) {
-                    setLoading(true);
+                    // Only show loader if we don't have this user in cache already
+                    const cached = localStorage.getItem(CACHE_KEY);
+                    if (!cached || JSON.parse(cached).auth_user_id !== session.user.id) {
+                        setLoading(true);
+                    }
                 }
                 setSession(session);
                 await handleUserSession(session.user.id, session);
-            } else if (event === 'TOKEN_REFRESHED') {
-                console.log("[AuthDebug] Token Refreshed.");
             } else if (event === 'SIGNED_OUT') {
                 console.log("[AuthDebug] SIGNED_OUT. Cleaning up.");
                 currentUserIdRef.current = null;
@@ -145,6 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setIsUnlinked(false);
                 setLoading(false);
                 setInitialized(true);
+                localStorage.removeItem(CACHE_KEY);
                 router.replace('/login');
             }
         });
@@ -154,67 +158,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (!supabase) return;
 
             console.log(`[AuthDebug] ${new Date().toISOString()} Starting initSession`);
-            setLoading(true);
-
+            
             try {
-                // RACE CONDITION FIX: Wrap getSession in a timeout
-                // 12 Seconds Timeout (Increased)
-                const sessionPromise = supabase.auth.getSession();
-                const timeoutPromise = new Promise<{ data: { session: null }, error: any }>((resolve) =>
-                    setTimeout(() => resolve({ data: { session: null }, error: new Error('Session Init Timeout') }), 40000) // Increased to 40s
-                );
+                const { data: { session }, error } = await supabase.auth.getSession();
 
-                const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]) as any;
-
-                console.log(`[AuthDebug] ${new Date().toISOString()} getSession result:`, session ? "Session Found" : "No Session", error ? error.message : "No Error");
-
-                if (error && error.message !== 'Session Init Timeout') throw error;
-                if (error && error.message === 'Session Init Timeout') {
-                    console.warn("[AuthDebug] Session Timed Out - Treating as no session.");
-                }
+                if (error) throw error;
 
                 if (session?.user) {
+                    console.log("[AuthDebug] Session found in initSession");
                     setSession(session);
+
+                    // OPTIMIZATION: Try to load from Cache for instant feel
+                    try {
+                        const cached = localStorage.getItem(CACHE_KEY);
+                        if (cached) {
+                            const socio = JSON.parse(cached);
+                            // Verify this cache belongs to the logged in user
+                            if (socio.auth_user_id === session.user.id || socio.user_id === session.user.id) {
+                                console.log("[AuthDebug] Using cached socio profile");
+                                setUser(socio);
+                                setLoading(false);
+                                setInitialized(true); // Allow UI to proceed with cached data
+                                // We still run handleUserSession in background to verify/refresh
+                            }
+                        }
+                    } catch (cacheErr) {
+                        console.warn("AuthContext: Cache read failed", cacheErr);
+                    }
+
                     await handleUserSession(session.user.id, session);
                 } else {
-                    console.log(`[AuthDebug] ${new Date().toISOString()} No session user (getSession). Finishing init.`);
+                    console.log("[AuthDebug] No active session found.");
                     setLoading(false);
                     setInitialized(true);
                     clearTimeout(safetyTimer);
                 }
 
             } catch (e: any) {
-                console.error(`[AuthDebug] ${new Date().toISOString()} initSession Error:`, e);
-
-                // TIMEOUT FALLBACK: Don't assume logged out yet. 
-                // Let the onAuthStateChange listener (setup above) handle it if an event fires.
-                if (e.message === 'Session Init Timeout') {
-                    console.warn("[AuthDebug] Aborting strict init due to timeout.");
-                    // We DO NOT set loading(false) immediately if we think an event might come.
-                    // But to avoid infinite spinner, we check getUser() as last resort.
-
-                    try {
-                        const { data: { user } } = await supabase.auth.getUser();
-                        if (user) {
-                            console.log("[AuthDebug] Recovered session via getUser()");
-                            await handleUserSession(user.id, null); // Session might be missing but user is there
-                            return;
-                        }
-                    } catch (innerErr) {
-                        console.error("[AuthDebug] Fallback getUser failed", innerErr);
-                    }
-
-                    // If all failed, finish.
-                    setLoading(false);
-                    setInitialized(true);
-                    clearTimeout(safetyTimer);
-                    return;
-                }
-
+                console.error("[AuthDebug] initSession Error:", e);
+                
                 if (e?.message?.includes('Refresh Token Not Found') || e?.message?.includes('Invalid Refresh Token')) {
-                    console.warn("AuthContext: Refresh Token invalid. Clearing session.");
                     if (supabase) await supabase.auth.signOut();
                     setUser(null);
+                    localStorage.removeItem(CACHE_KEY);
                     router.replace('/login');
                 }
 
@@ -280,6 +266,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     socio.rol = 'admin';
                 }
                 setUser(socio);
+                try {
+                    localStorage.setItem('aciacam_user_profile', JSON.stringify(socio));
+                } catch (e) {}
             }
         } catch (error) {
             console.error("AuthContext: refreshUser failed", error);

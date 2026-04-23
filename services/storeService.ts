@@ -596,13 +596,8 @@ export const StoreService = {
     getSocioByUserId: async (userId: string): Promise<Socio | undefined> => {
         if (!supabase) return undefined;
 
-        // 1. Session Validation REMOVED 
-        // (RLS handles security. Calling getSession here causes deadlocks in Chrome if local storage is locked)
-        // const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-
-        // 2. Race Client Logic vs Quick Timeout
-        // Logic: If Client RLS (Supabase) takes > 2s, it's likely the Chrome Deadlock.
+        // 1. Race Client Logic vs Quick Timeout
+        // Logic: If Client RLS (Supabase) takes > 2.5s, it's likely a network or deadlock issue.
         // We immediately fall back to the API (Service Role) which uses standard fetch and won't hang.
 
         let clientResult: any = null;
@@ -616,7 +611,7 @@ export const StoreService = {
             .maybeSingle()
             .then(async (res: any) => {
                 if (res.data) {
-                    // Fetch documents separately
+                    // Fetch documents separately (Quickly)
                     const { data: docs } = await supabase
                         .from('documentos_socio')
                         .select('*')
@@ -624,10 +619,11 @@ export const StoreService = {
                     return { ...res, data: { ...res.data, documentos: docs || [] }, source: 'client' };
                 }
                 return { source: 'client', ...res };
-            });
+            })
+            .catch(err => ({ source: 'client_error', error: err }));
 
         const timeoutPromise = new Promise<{ source: 'timeout' }>((resolve) =>
-            setTimeout(() => resolve({ source: 'timeout' }), 8000) // Increased to 8s
+            setTimeout(() => resolve({ source: 'timeout' }), 2500) // Reduced from 8s to 2.5s
         );
 
         console.time("getSocioRace");
@@ -635,23 +631,24 @@ export const StoreService = {
         console.timeEnd("getSocioRace");
 
         if (winner.source === 'client') {
-            const { data, error, status } = winner;
+            const { data, error } = winner;
             if (data) {
                 console.log(`StoreService: Socio found via Client RLS [${data.id}]`);
                 return mapSocioFromDB(data);
             } else if (error) {
                 console.warn(`StoreService: Client query error: ${error.message}.`);
-                // If error, let's try fallback to be safe, unless it's a specific auth error
                 usedFallback = true;
             } else {
-                // Null data (not found), verify with API
-                console.log("StoreService: Client returned null. Checking API.");
+                // Null data (not found)
+                console.log("StoreService: Client returned null. Verifying with API.");
                 usedFallback = true;
             }
-        } else {
-            console.warn("StoreService: Client Query too slow (>2s). Force switching to API Fallback.");
+        } else if (winner.source === 'client_error') {
+            console.error("StoreService: Client query failed immediately.", winner.error);
             usedFallback = true;
-            // We don't cancel the client promise (JS limitation), but we ignore it.
+        } else {
+            console.warn("StoreService: Client Query too slow (>2.5s). Switching to API Fallback.");
+            usedFallback = true;
         }
 
         if (usedFallback) {
@@ -665,11 +662,17 @@ export const StoreService = {
 
                 if (res.ok) {
                     const data = await res.json();
-                    console.log(`StoreService: Socio found via API Fallback [${data.id}]`);
-                    const docs = await StoreService.getDocumentosBySocio(data.id);
-                    return mapSocioFromDB({ ...data, documentos: docs });
+                    if (data) {
+                        console.log(`StoreService: Socio found via API Fallback [${data.id}]`);
+                        // Documents are joined in API or fetched here
+                        const docs = await StoreService.getDocumentosBySocio(data.id);
+                        return mapSocioFromDB({ ...data, documentos: docs });
+                    }
+                } else if (res.status === 404) {
+                    console.log("StoreService: API confirmed no socio linked.");
+                    return undefined;
                 } else {
-                    console.log("StoreService: API returned", res.status);
+                    console.log("StoreService: API returned error status", res.status);
                 }
             } catch (e) {
                 console.error("StoreService: API Fetch Fallback failed", e);

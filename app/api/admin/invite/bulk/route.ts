@@ -74,9 +74,21 @@ export async function POST(req: Request) {
             }
 
             if (socio.auth_user_id) {
-                results.skipped++;
-                results.details.push({ id: socio.id, status: 'skipped', reason: 'Already active' });
-                continue;
+                // Check if they are actually confirmed/active
+                const { data: { user: existingAuthUser } } = await supabaseAdmin.auth.admin.getUserById(socio.auth_user_id);
+                
+                if (existingAuthUser && existingAuthUser.confirmed_at) {
+                    results.skipped++;
+                    results.details.push({ id: socio.id, status: 'skipped', reason: 'Already active' });
+                    continue;
+                } else {
+                    // Not confirmed or user not found in auth anymore (stale ref)
+                    // Delete from auth so we can re-invite fresh
+                    if (existingAuthUser) {
+                        await supabaseAdmin.auth.admin.deleteUser(socio.auth_user_id);
+                    }
+                    // Continue to invitation logic below
+                }
             }
 
             // Rate Limit

@@ -86,26 +86,37 @@ export async function POST(req: Request) {
             }
         }
 
-        // 4. Invite User (Supabase Auth)
-        // If auth_user_id exists, we might normally use `generateLink` for password reset, 
-        // but `inviteUserByEmail` is safer for "Welcome" flow. 
-        // If user exists, Supabase typically sends a "Magic Link" or "Password Reset" if configured, 
-        // or we catch the error if it says "User already registered".
-        // Let's try invite first.
+        // 4. Invite User (Supabase Auth) - WITH CLEAN START FOR RE-INVITES
+        let targetAuthId = socio.auth_user_id;
+
+        if (targetAuthId) {
+            // Check current auth status
+            const { data: { user: existingAuthUser } } = await supabaseAdmin.auth.admin.getUserById(targetAuthId);
+            
+            // If user exists but is NOT confirmed, delete them to allow a fresh invite
+            if (existingAuthUser && !existingAuthUser.confirmed_at) {
+                console.log(`API Invite: User ${targetAuthId} exists but not confirmed. Deleting for fresh start.`);
+                await supabaseAdmin.auth.admin.deleteUser(targetAuthId);
+                // We clear targetAuthId so we don't accidentally try to use it later
+                targetAuthId = null;
+            }
+        }
 
         // Determine Origin for Redirect
         const origin = providedOrigin || process.env.SITE_URL || req.headers.get('origin') || 'http://localhost:3000';
-
-        // Use Dedicated Invite Callback to force flow to /auth/set-password
-        // This avoids query param stripping issues.
         const finalRedirectTo = `${origin}/auth/invite-callback`;
 
+        console.log(`API Invite: Sending invite to ${socio.email}`);
         const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(socio.email, {
             redirectTo: finalRedirectTo
         });
 
         if (inviteError) {
-            console.error("Invite Error:", inviteError);
+            console.error("Invite Error:", inviteError.message);
+            
+            // Fallback: If it still says "already registered", maybe they DID confirm but never set terms?
+            // In that case, we should NOT delete them, but maybe send a password reset.
+            // But for now, we follow the user's lead: "delete and recreate".
             return NextResponse.json({ error: inviteError.message }, { status: 500 });
         }
 
