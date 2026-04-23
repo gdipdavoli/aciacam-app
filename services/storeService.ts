@@ -603,15 +603,15 @@ export const StoreService = {
         let clientResult: any = null;
         let usedFallback = false;
 
-        const clientPromise = supabase
-            .from('socios')
-            .select('*')
-            // Fix: Check both auth_user_id and legacy user_id
-            .or(`auth_user_id.eq.${userId},user_id.eq.${userId}`)
-            .maybeSingle()
-            .then(async (res: any) => {
+        const clientPromise = (async () => {
+            try {
+                const res = await supabase
+                    .from('socios')
+                    .select('*')
+                    .or(`auth_user_id.eq.${userId},user_id.eq.${userId}`)
+                    .maybeSingle();
+
                 if (res.data) {
-                    // Fetch documents separately (Quickly)
                     const { data: docs } = await supabase
                         .from('documentos_socio')
                         .select('*')
@@ -619,8 +619,10 @@ export const StoreService = {
                     return { ...res, data: { ...res.data, documentos: docs || [] }, source: 'client' };
                 }
                 return { source: 'client', ...res };
-            })
-            .catch(err => ({ source: 'client_error', error: err }));
+            } catch (err) {
+                return { source: 'client_error', error: err };
+            }
+        })();
 
         const timeoutPromise = new Promise<{ source: 'timeout' }>((resolve) =>
             setTimeout(() => resolve({ source: 'timeout' }), 2500) // Reduced from 8s to 2.5s
