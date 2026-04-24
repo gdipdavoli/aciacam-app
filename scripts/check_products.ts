@@ -5,24 +5,25 @@ import { resolve } from 'path';
 
 dotenv.config({ path: resolve(process.cwd(), '.env.local') });
 
-// USE ANON KEY TO SIMULATE CLIENT
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-async function checkRLS() {
-    console.log("Checking products with ANON key...");
+async function checkProducts() {
     const { data: products, error } = await supabase
         .from('products')
-        .select('*')
-        .eq('activo', true);
+        .select('*');
 
     if (error) {
-        console.error("RLS Error:", error);
-    } else {
-        console.log(`Visible products for ANON: ${products?.length || 0}`);
+        console.error("Error:", error);
+        return;
     }
+
+    console.log(`Total products: ${products.length}`);
+    products.forEach(p => {
+        console.log(`- [${p.id}] ${p.nombre} (Activo: ${p.activo}, Stock: ${p.stock_disponible})`);
+    });
 }
 
-checkRLS();
+checkProducts();

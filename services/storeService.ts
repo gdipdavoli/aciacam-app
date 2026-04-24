@@ -160,16 +160,7 @@ const mapPedidoFromDB = (row: any): Pedido => ({
 
 export const StoreService = {
     getProductos: async (includeInactive = false): Promise<Producto[]> => {
-        // 1. Verify Session to prevent "Error fetching products" on stale/missing session
         if (!supabase) return [];
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-        if (sessionError || !session) {
-            console.warn("StoreService: No active session found when fetching products.");
-            // Return empty or throw specific error depending on desired UX.
-            // For now, empty array avoids crashing the UI overlay.
-            return [];
-        }
 
         let query = supabase.from('products').select('*').order('created_at', { ascending: false });
 
