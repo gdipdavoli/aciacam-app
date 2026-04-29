@@ -176,17 +176,18 @@ export default function EstadisticasPage() {
             .sort((a, b) => b.value - a.value);
 
         // Socios con más retiros
-        const socioStatsMap: Record<string, { name: string, grams: number, orders: number }> = {};
+        const socioStatsMap: Record<string, { id: string, name: string, dni: string, grams: number, orders: number }> = {};
         currentMonthPedidos.forEach(p => {
             const socio = data.socios.find(s => s.id === p.socioId);
             const name = socio ? `${socio.nombre} ${socio.apellido}` : 'Desconocido';
+            const dni = socio?.dni || '';
             const g = p.items.reduce((sum: number, item: any) => {
                 const prod = data.productos.find(pr => pr.id === item.productoId);
                 return sum + (item.cantidad * (prod?.peso_gramos || 10));
             }, 0);
 
             if (!socioStatsMap[p.socioId]) {
-                socioStatsMap[p.socioId] = { name, grams: 0, orders: 0 };
+                socioStatsMap[p.socioId] = { id: p.socioId, name, dni, grams: 0, orders: 0 };
             }
             socioStatsMap[p.socioId].grams += g;
             socioStatsMap[p.socioId].orders += 1;
@@ -552,7 +553,7 @@ export default function EstadisticasPage() {
                                 </thead>
                                 <tbody className="divide-y">
                                     {(showSocioModal === 'active' ? stats.allActiveSocios : stats.inactiveSocios)
-                                        .filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()) || (s.dni && s.dni.includes(searchTerm)))
+                                        .filter((s: any) => s.name.toLowerCase().includes(searchTerm.toLowerCase()) || (s.dni && s.dni.toString().includes(searchTerm)))
                                         .map((s, idx) => (
                                             <tr key={idx} className="hover:bg-muted/30 transition-colors">
                                                 <td className="p-4">
