@@ -103,7 +103,7 @@ function ActivateContent() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 token,
-                access_token: session.access_token,
+                password,
                 password_set: true
             })
         })
