@@ -41,6 +41,21 @@ export default function CheckoutPage() {
 
     const [showSuccessModal, setShowSuccessModal] = useState(false);
 
+    // Global Configs
+    const [globalConfigs, setGlobalConfigs] = useState({
+        aporte_por_gramo: 2500,
+        limite_gramos_max: 40,
+        limite_gramos_min: 10
+    });
+
+    useEffect(() => {
+        StoreService.getGlobalConfigs().then(data => {
+            if (Object.keys(data).length > 0) {
+                setGlobalConfigs(prev => ({ ...prev, ...data }));
+            }
+        });
+    }, []);
+
     // Sync address fields with profile when it loads (one-time sync on load)
     React.useEffect(() => {
         if (user && !direccion && !localidad) {
@@ -91,12 +106,12 @@ export default function CheckoutPage() {
         if (!user) return;
 
         // VALIDATION
-        if (itemCount < 10) {
-            alert("El mínimo para solicitar provisión es de 10g.");
+        if (itemCount < globalConfigs.limite_gramos_min) {
+            alert(`El mínimo para solicitar provisión es de ${globalConfigs.limite_gramos_min}g.`);
             return;
         }
-        if (itemCount > 40) {
-            alert("El máximo mensual permitido es de 40g.");
+        if (itemCount > globalConfigs.limite_gramos_max) {
+            alert(`El máximo mensual permitido es de ${globalConfigs.limite_gramos_max}g.`);
             return;
         }
 
@@ -449,22 +464,22 @@ export default function CheckoutPage() {
                             {/* Validation limits */}
                             <div style={{ fontSize: '0.85rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                                    <span className={itemCount > 40 || itemCount < 10 ? "text-destructive" : "text-muted-foreground"}>
-                                        {itemCount > 40 ? "Excede límite mensual" : itemCount < 10 ? "Mínimo 10g requerido" : "Dentro del máximo mensual permitido"}
+                                    <span className={itemCount > globalConfigs.limite_gramos_max || itemCount < globalConfigs.limite_gramos_min ? "text-destructive" : "text-muted-foreground"}>
+                                        {itemCount > globalConfigs.limite_gramos_max ? "Excede límite mensual" : itemCount < globalConfigs.limite_gramos_min ? `Mínimo ${globalConfigs.limite_gramos_min}g requerido` : "Dentro del máximo mensual permitido"}
                                     </span>
-                                    <span className="text-muted-foreground">40g max</span>
+                                    <span className="text-muted-foreground">{globalConfigs.limite_gramos_max}g max</span>
                                 </div>
                                 <div className="w-full bg-muted rounded-full h-2">
                                     <div 
-                                        className={`h-2 rounded-full ${itemCount > 40 ? 'bg-destructive' : 'bg-primary'}`} 
-                                        style={{ width: `${Math.min(100, (itemCount / 40) * 100)}%` }}
+                                        className={`h-2 rounded-full ${itemCount > globalConfigs.limite_gramos_max ? 'bg-destructive' : 'bg-primary'}`} 
+                                        style={{ width: `${Math.min(100, (itemCount / globalConfigs.limite_gramos_max) * 100)}%` }}
                                     ></div>
                                 </div>
                             </div>
 
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '1.1rem', marginTop: '1rem', borderTop: '1px dashed hsl(var(--border))', paddingTop: '1rem' }}>
                                 <span>Aporte estimado</span>
-                                <span>${(itemCount * 2500).toLocaleString('es-AR')}</span>
+                                <span>${(itemCount * globalConfigs.aporte_por_gramo).toLocaleString('es-AR')}</span>
                             </div>
                         </div>
                     </div>

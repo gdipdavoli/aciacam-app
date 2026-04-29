@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useCart } from '@/context/CartContext';
 import styles from './dashboard.module.css';
 
-import { Home, Flower2, ShoppingBag, User, LogOut, Leaf, CheckCircle, Calendar, Bell, Users } from 'lucide-react';
+import { Home, Flower2, ShoppingBag, User, LogOut, Leaf, CheckCircle, Calendar, Bell, Users, Settings } from 'lucide-react';
 import { NotificationService } from '@/services/notificationService';
 // import { ChatWidget } from '@/app/components/ChatWidget';
 
@@ -98,6 +98,7 @@ export default function DashboardLayout({
             { href: '/admin/products', label: 'Productos', icon: CheckCircle },
             { href: '/admin/socios', label: 'Socios', icon: User },
             { href: '/admin/agenda', label: 'Agenda', icon: Calendar },
+            { href: '/admin/configuracion', label: 'Configuración', icon: Settings },
         ];
 
         if (user.rol === 'admin') {

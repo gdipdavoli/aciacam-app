@@ -827,5 +827,27 @@ export const StoreService = {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to bulk invite');
         return data;
+    },
+
+    getGlobalConfigs: async (): Promise<Record<string, any>> => {
+        if (!supabase) return { aporte_por_gramo: 2500, limite_gramos_max: 40, limite_gramos_min: 10 };
+        const { data, error } = await supabase.from('global_configs').select('*');
+        if (error) {
+            console.error("Error fetching configs:", error);
+            return { aporte_por_gramo: 2500, limite_gramos_max: 40, limite_gramos_min: 10 };
+        }
+        const configs: Record<string, any> = {};
+        data.forEach(row => {
+            configs[row.key] = row.value;
+        });
+        return configs;
+    },
+
+    updateGlobalConfig: async (key: string, value: any): Promise<void> => {
+        if (!supabase) return;
+        const { error } = await supabase
+            .from('global_configs')
+            .upsert({ key, value, updated_at: new Date().toISOString() });
+        if (error) throw error;
     }
 };
