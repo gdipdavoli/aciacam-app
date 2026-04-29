@@ -10,7 +10,7 @@ export default function ConfiguracionPage() {
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
     const [configs, setConfigs] = useState<Record<string, any>>({
-        aporte_por_gramo: 2500,
+        aporte_por_gramo: 10000,
         limite_gramos_max: 40,
         limite_gramos_min: 10
     });

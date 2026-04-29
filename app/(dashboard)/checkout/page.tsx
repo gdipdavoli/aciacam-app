@@ -43,7 +43,7 @@ export default function CheckoutPage() {
 
     // Global Configs
     const [globalConfigs, setGlobalConfigs] = useState({
-        aporte_por_gramo: 2500,
+        aporte_por_gramo: 10000,
         limite_gramos_max: 40,
         limite_gramos_min: 10
     });

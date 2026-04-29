@@ -830,11 +830,11 @@ export const StoreService = {
     },
 
     getGlobalConfigs: async (): Promise<Record<string, any>> => {
-        if (!supabase) return { aporte_por_gramo: 2500, limite_gramos_max: 40, limite_gramos_min: 10 };
+        if (!supabase) return { aporte_por_gramo: 10000, limite_gramos_max: 40, limite_gramos_min: 10 };
         const { data, error } = await supabase.from('global_configs').select('*');
         if (error) {
             console.error("Error fetching configs:", error);
-            return { aporte_por_gramo: 2500, limite_gramos_max: 40, limite_gramos_min: 10 };
+            return { aporte_por_gramo: 10000, limite_gramos_max: 40, limite_gramos_min: 10 };
         }
         const configs: Record<string, any> = {};
         data.forEach(row => {
