@@ -554,7 +554,7 @@ export default function EstadisticasPage() {
                                 <tbody className="divide-y">
                                     {(showSocioModal === 'active' ? stats.allActiveSocios : stats.inactiveSocios)
                                         .filter((s: any) => s.name.toLowerCase().includes(searchTerm.toLowerCase()) || (s.dni && s.dni.toString().includes(searchTerm)))
-                                        .map((s, idx) => (
+                                        .map((s: any, idx) => (
                                             <tr key={idx} className="hover:bg-muted/30 transition-colors">
                                                 <td className="p-4">
                                                     <div className="font-bold">{s.name}</div>
