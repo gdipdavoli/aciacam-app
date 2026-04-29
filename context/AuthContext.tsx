@@ -128,28 +128,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
 
         // 1. SETUP LISTENER
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
             console.log(`[AuthDebug] ${new Date().toISOString()} Auth Event: ${event}`);
 
-            if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
-                if (currentUserIdRef.current !== session.user.id) {
+            if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && currentSession?.user) {
+                if (currentUserIdRef.current !== currentSession.user.id) {
                     // Only show loader if we don't have this user in cache already
                     const cached = localStorage.getItem(CACHE_KEY);
-                    if (!cached || JSON.parse(cached).auth_user_id !== session.user.id) {
+                    if (!cached || JSON.parse(cached).auth_user_id !== currentSession.user.id) {
                         setLoading(true);
                     }
                 }
-                setSession(session);
-                await handleUserSession(session.user.id, session);
+                setSession(currentSession);
+                await handleUserSession(currentSession.user.id, currentSession);
             } else if (event === 'SIGNED_OUT') {
-                console.log("[AuthDebug] SIGNED_OUT. Cleaning up.");
-                currentUserIdRef.current = null;
-                setUser(null);
-                setIsUnlinked(false);
-                setLoading(false);
-                setInitialized(true);
-                localStorage.removeItem(CACHE_KEY);
-                router.replace('/login');
+                // IMPORTANT: Sometimes Supabase fires SIGNED_OUT on network glitches
+                // Double check if there's REALLY no session before nuking state
+                const { data: { session: verifiedSession } } = await supabase.auth.getSession();
+                
+                if (!verifiedSession) {
+                    console.log("[AuthDebug] SIGNED_OUT confirmed. Cleaning up.");
+                    currentUserIdRef.current = null;
+                    setUser(null);
+                    setSession(null);
+                    setIsUnlinked(false);
+                    setLoading(false);
+                    setInitialized(true);
+                    localStorage.removeItem(CACHE_KEY);
+                    
+                    // Only redirect if we are NOT already on login or auth pages
+                    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth/') && window.location.pathname !== '/login') {
+                        router.replace('/login');
+                    }
+                } else {
+                    console.warn("[AuthDebug] SIGNED_OUT event ignored: Session still exists.");
+                }
             }
         });
 
