@@ -92,6 +92,7 @@ export const MOCK_PRODUCTOS: Producto[] = [
         descripcion: 'Gotero de 10ml con alta concentración de CBD.',
         stockDisponible: 50,
         activo: true,
+        peso_gramos: 1,
     },
     {
         id: 'p2',
@@ -101,6 +102,7 @@ export const MOCK_PRODUCTOS: Producto[] = [
         descripcion: 'Gotero de 10ml, variedad híbrida.',
         stockDisponible: 20,
         activo: true,
+        peso_gramos: 1,
     },
     {
         id: 'p3',
@@ -110,6 +112,7 @@ export const MOCK_PRODUCTOS: Producto[] = [
         descripcion: 'Cogollos premium, efecto relajante.',
         stockDisponible: 100, // gramos
         activo: true,
+        peso_gramos: 1,
     },
     {
         id: 'p4',
@@ -119,6 +122,7 @@ export const MOCK_PRODUCTOS: Producto[] = [
         descripcion: 'Aroma cítrico, efecto energizante.',
         stockDisponible: 5, // bajo stock
         activo: true,
+        peso_gramos: 1,
     },
     {
         id: 'p5',
@@ -128,5 +132,6 @@ export const MOCK_PRODUCTOS: Producto[] = [
         descripcion: 'Para dolores musculares y articulares.',
         stockDisponible: 0,
         activo: true,
+        peso_gramos: 1,
     },
 ];
