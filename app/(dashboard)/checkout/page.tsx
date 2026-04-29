@@ -151,13 +151,8 @@ export default function CheckoutPage() {
                 }
             }
 
+            setShowSuccessModal(true);
             clearCart();
-
-            if (orderType === 'retiro_sede') {
-                setShowSuccessModal(true);
-            } else {
-                router.push('/pedidos'); // Go to orders list
-            }
         } catch (error) {
             console.error("Failed to create order", error);
             alert("Hubo un error al crear el pedido");
@@ -169,43 +164,65 @@ export default function CheckoutPage() {
     return (
         <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
             {showSuccessModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-card w-full max-w-md rounded-xl shadow-2xl border border-border p-6 animate-in zoom-in-95 duration-200">
-                        <div className="flex flex-col items-center text-center mb-6">
-                            <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-4">
-                                <CheckCircle size={32} />
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-card w-full max-w-md rounded-2xl shadow-2xl border border-border p-8 animate-in zoom-in-95 duration-200">
+                        <div className="flex flex-col items-center text-center mb-8">
+                            <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6">
+                                <CheckCircle size={40} />
                             </div>
-                            <h2 className="text-2xl font-bold text-foreground">¡Solicitud Confirmada!</h2>
-                            <p className="text-muted-foreground mt-2">
-                                Tu solicitud ha sido registrada correctamente. Te esperamos en nuestra sede.
+                            <h2 className="text-3xl font-bold text-foreground tracking-tight">¡Solicitud Exitosa!</h2>
+                            <p className="text-muted-foreground mt-3 leading-relaxed">
+                                Tu solicitud ha sido registrada. Por favor, realiza el aporte para confirmar el pedido.
                             </p>
                         </div>
 
-                        <div className="bg-muted/50 rounded-lg p-4 mb-6 border border-border">
-                            <div className="flex items-start gap-3">
-                                <MapPin className="text-primary mt-1 shrink-0" size={20} />
-                                <div className="text-left">
-                                    <h3 className="font-semibold text-foreground">Dirección de Retiro</h3>
-                                    <p className="text-muted-foreground text-sm mt-1">
-                                        Alberdi 760, Ciudad de San Luis
-                                    </p>
-                                    <a
-                                        href="https://maps.app.goo.gl/HtCe4QQrq5GptKZt8"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1.5 text-primary hover:underline text-sm mt-2 font-medium"
-                                    >
-                                        Ver ubicación en mapa <ExternalLink size={12} />
-                                    </a>
+                        <div className="space-y-4 mb-8">
+                            <div className="bg-primary/5 rounded-xl p-5 border border-primary/20">
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="text-sm font-medium text-muted-foreground">Total a transferir</span>
+                                    <span className="text-xs font-bold bg-primary/10 text-primary px-2 py-0.5 rounded uppercase">Pendiente</span>
+                                </div>
+                                <div className="text-3xl font-black text-primary">
+                                    ${(pesoTotal * globalConfigs.aporte_por_gramo).toLocaleString('es-AR')}
                                 </div>
                             </div>
+
+                            <div className="bg-muted/50 rounded-xl p-5 border border-border">
+                                <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
+                                    🏦 Datos de Transferencia
+                                </h3>
+                                <div className="space-y-3">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-xs text-muted-foreground">Alias</span>
+                                        <span className="text-sm font-black bg-background px-3 py-1 rounded border border-border select-all">
+                                            ACIACAM
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-xs text-muted-foreground">Banco</span>
+                                        <span className="text-sm font-medium">Galicia</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {orderType === 'retiro_sede' && (
+                                <div className="bg-muted/30 rounded-xl p-4 border border-border flex items-start gap-3">
+                                    <MapPin className="text-primary mt-1 shrink-0" size={18} />
+                                    <div>
+                                        <h3 className="text-xs font-bold text-foreground">Retiro en Sede</h3>
+                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                            Alberdi 760, San Luis
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <button
                             onClick={() => router.push('/pedidos')}
-                            className="w-full py-3 px-4 bg-primary text-primary-foreground rounded-lg font-semibold hover:opacity-90 transition-opacity"
+                            className="w-full py-4 px-4 bg-primary text-primary-foreground rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-primary/20"
                         >
-                            Ir a Mis Solicitudes
+                            Ver mis pedidos
                         </button>
                     </div>
                 </div>
@@ -409,8 +426,8 @@ export default function CheckoutPage() {
                     )}
                 </div>
 
-                {/* Right Column: Order Summary */}
-                <div style={{
+                {/* Right Column: Order Summary (Shows first on Mobile) */}
+                <div className="order-first lg:order-last" style={{
                     backgroundColor: 'hsl(var(--card))',
                     borderRadius: 'var(--radius)',
                     border: '1px solid hsl(var(--border))',
