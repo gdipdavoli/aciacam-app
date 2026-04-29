@@ -247,7 +247,6 @@ export default function EstadisticasPage() {
             avgGramsPerSocio: currentSociosCount > 0 ? totalGrams / currentSociosCount : 0,
             chartData,
             varietyData,
-            varietyData,
             topSocios,
             allActiveSocios,
             inactiveSocios,
