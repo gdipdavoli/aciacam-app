@@ -50,9 +50,9 @@ export default function VariedadesPage() {
     return (
         <div className="space-y-6">
             <div>
-                <h1 className="text-3xl font-bold tracking-tight mb-2">Variedades Disponibles</h1>
+                <h1 className="text-3xl font-bold tracking-tight mb-2">Opciones de Tratamiento</h1>
                 <p className="text-muted-foreground">
-                    Explora nuestro catálogo y agregá productos a tu pedido.
+                    Explora nuestras variedades disponibles y seleccioná las opciones para tu solicitud de provisión mensual.
                 </p>
             </div>
 

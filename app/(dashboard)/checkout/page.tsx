@@ -79,9 +79,9 @@ export default function CheckoutPage() {
     if (itemCount === 0 && !showSuccessModal) {
         return (
             <div style={{ textAlign: 'center', padding: '4rem' }}>
-                <h2>Tu carrito está vacío</h2>
+                <h2>Tu solicitud está vacía</h2>
                 <a href="/variedades" style={{ display: 'inline-block', marginTop: '1rem', color: 'hsl(var(--primary))' }}>
-                    Volver al catálogo
+                    Ver opciones de tratamiento
                 </a>
             </div>
         );
@@ -91,6 +91,15 @@ export default function CheckoutPage() {
         if (!user) return;
 
         // VALIDATION
+        if (itemCount < 10) {
+            alert("El mínimo para solicitar provisión es de 10g.");
+            return;
+        }
+        if (itemCount > 40) {
+            alert("El máximo mensual permitido es de 40g.");
+            return;
+        }
+
         if (orderType === 'retiro_sede' && !selectedSlotId) {
             alert("Por favor selecciona un turno para retirar.");
             return;
@@ -151,9 +160,9 @@ export default function CheckoutPage() {
                             <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-4">
                                 <CheckCircle size={32} />
                             </div>
-                            <h2 className="text-2xl font-bold text-foreground">¡Pedido Confirmado!</h2>
+                            <h2 className="text-2xl font-bold text-foreground">¡Solicitud Confirmada!</h2>
                             <p className="text-muted-foreground mt-2">
-                                Tu pedido ha sido registrado correctamente. Te esperamos en nuestra sede.
+                                Tu solicitud ha sido registrada correctamente. Te esperamos en nuestra sede.
                             </p>
                         </div>
 
@@ -181,13 +190,13 @@ export default function CheckoutPage() {
                             onClick={() => router.push('/pedidos')}
                             className="w-full py-3 px-4 bg-primary text-primary-foreground rounded-lg font-semibold hover:opacity-90 transition-opacity"
                         >
-                            Ir a Mis Pedidos
+                            Ir a Mis Solicitudes
                         </button>
                     </div>
                 </div>
             )}
 
-            <h1 style={{ marginBottom: '2rem', fontSize: '2rem' }}>Finalizar Pedido</h1>
+            <h1 style={{ marginBottom: '2rem', fontSize: '2rem' }}>Solicitud Mensual</h1>
 
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_350px] gap-8 items-start">
 
@@ -196,7 +205,7 @@ export default function CheckoutPage() {
                     {step === 1 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                             <section style={{ backgroundColor: 'hsl(var(--card))', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
-                                <h3 style={{ marginBottom: '1rem' }}>Tipo de Pedido</h3>
+                                <h3 style={{ marginBottom: '1rem' }}>Modalidad de Entrega</h3>
                                 <div className="flex flex-col sm:flex-row gap-4">
                                     <label style={{
                                         flex: 1,
@@ -370,8 +379,17 @@ export default function CheckoutPage() {
                                     opacity: isSubmitting ? 0.7 : 1
                                 }}
                             >
-                                {isSubmitting ? 'Procesando...' : 'Confirmar Pedido'}
+                                {isSubmitting ? 'Procesando...' : 'Confirmar Solicitud'}
                             </button>
+
+                            <div className="mt-6 text-xs text-muted-foreground p-4 bg-muted/50 rounded-lg border border-border">
+                                <p className="mb-2 text-justify">
+                                    "Las opciones aquí presentadas corresponden a variedades disponibles dentro del servicio de cultivo solidario brindado por la asociación. La selección realizada constituye una solicitud de provisión para tratamiento médico y no implica en ningún caso una operación de compra o comercialización de productos.
+                                </p>
+                                <p className="text-justify">
+                                    El aporte indicado corresponde exclusivamente a los costos operativos del servicio de cultivo, incluyendo insumos, mantenimiento y procesos asociados, en el marco de una actividad sin fines de lucro."
+                                </p>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -385,7 +403,7 @@ export default function CheckoutPage() {
                     position: 'sticky',
                     top: '2rem'
                 }}>
-                    <h3 style={{ marginBottom: '1rem' }}>Resumen</h3>
+                    <h3 style={{ marginBottom: '1rem' }}>Resumen de Solicitud</h3>
                     <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1.5rem' }}>
                         {items.map(item => (
                             <li key={item.productoId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', fontSize: '0.95rem', borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.5rem' }}>
@@ -422,9 +440,32 @@ export default function CheckoutPage() {
                         ))}
                     </ul>
                     <div style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: '1rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '1.1rem' }}>
-                            <span>Total unidades</span>
-                            <span>{itemCount}</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 500, fontSize: '1rem' }}>
+                                <span>Total solicitado (gramos)</span>
+                                <span>{itemCount}g</span>
+                            </div>
+                            
+                            {/* Validation limits */}
+                            <div style={{ fontSize: '0.85rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                                    <span className={itemCount > 40 || itemCount < 10 ? "text-destructive" : "text-muted-foreground"}>
+                                        {itemCount > 40 ? "Excede límite mensual" : itemCount < 10 ? "Mínimo 10g requerido" : "Dentro del máximo mensual permitido"}
+                                    </span>
+                                    <span className="text-muted-foreground">40g max</span>
+                                </div>
+                                <div className="w-full bg-muted rounded-full h-2">
+                                    <div 
+                                        className={`h-2 rounded-full ${itemCount > 40 ? 'bg-destructive' : 'bg-primary'}`} 
+                                        style={{ width: `${Math.min(100, (itemCount / 40) * 100)}%` }}
+                                    ></div>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '1.1rem', marginTop: '1rem', borderTop: '1px dashed hsl(var(--border))', paddingTop: '1rem' }}>
+                                <span>Aporte estimado</span>
+                                <span>${(itemCount * 2500).toLocaleString('es-AR')}</span>
+                            </div>
                         </div>
                     </div>
 

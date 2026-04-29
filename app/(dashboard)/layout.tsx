@@ -94,7 +94,7 @@ export default function DashboardLayout({
         navItems = [
             { href: '/admin/notificaciones', label: 'Mensajes', icon: Bell, badge: unreadCount },
             { href: '/admin', label: 'Pedidos', icon: ShoppingBag },
-            { href: '/variedades', label: 'Catálogo', icon: Flower2 },
+            { href: '/variedades', label: 'Opciones', icon: Flower2 },
             { href: '/admin/products', label: 'Productos', icon: CheckCircle },
             { href: '/admin/socios', label: 'Socios', icon: User },
             { href: '/admin/agenda', label: 'Agenda', icon: Calendar },
@@ -106,7 +106,7 @@ export default function DashboardLayout({
     } else {
         navItems = [
             { href: '/notificaciones', label: 'Notificaciones', icon: Bell, badge: unreadCount },
-            { href: '/variedades', label: 'Variedades', icon: Flower2 },
+            { href: '/variedades', label: 'Opciones de tratamiento', icon: Flower2 },
             { href: '/pedidos', label: 'Mis Pedidos', icon: ShoppingBag },
             { href: '/cuenta', label: 'Mi Cuenta', icon: User },
         ];
@@ -189,7 +189,7 @@ export default function DashboardLayout({
                                     </span>
                                 )}
                             </div>
-                            <span>Tu Carrito</span>
+                            <span>Solicitud mensual</span>
                         </Link>
                     )}
                 </nav>
@@ -281,7 +281,7 @@ export default function DashboardLayout({
                                 </span>
                             )}
                         </div>
-                        <span>Carrito</span>
+                        <span>Solicitud</span>
                     </Link>
                 )}
 

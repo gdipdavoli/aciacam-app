@@ -96,7 +96,7 @@ export default function ProductCard({ product }: ProductCardProps) {
                             ) : (
                                 <>
                                     <Plus size={16} />
-                                    <span>Agregar</span>
+                                    <span>Solicitar</span>
                                 </>
                             )}
                         </button>
