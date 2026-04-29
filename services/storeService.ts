@@ -851,5 +851,34 @@ export const StoreService = {
             .from('global_configs')
             .upsert({ key, value, updated_at: new Date().toISOString() });
         if (error) throw error;
+    },
+
+    getStatsData: async () => {
+        if (!supabase) throw new Error("Supabase client not initialized");
+        
+        // Fetch everything needed for stats
+        const [
+            { data: pedidos, error: errP },
+            { data: socios, error: errS },
+            { data: productos, error: errProd },
+            { data: pagos, error: errPag }
+        ] = await Promise.all([
+            supabase.from('pedidos').select('*'),
+            supabase.from('socios').select('*'),
+            supabase.from('products').select('*'),
+            supabase.from('pagos').select('*')
+        ]);
+
+        if (errP || errS || errProd || errPag) {
+            console.error("Error fetching stats data:", { errP, errS, errProd, errPag });
+            throw new Error("Error al obtener datos para estadísticas");
+        }
+
+        return {
+            pedidos: pedidos.map(mapPedidoFromDB),
+            socios,
+            productos: productos.map(mapProductFromDB),
+            pagos
+        };
     }
 };
