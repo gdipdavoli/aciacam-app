@@ -4,99 +4,97 @@ import { createClient } from '@supabase/supabase-js';
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { token, access_token } = body;
+        const { token, access_token, password } = body;
 
-        // 1. Check Auth Session using passed Access Token
-        if (!access_token) {
-            return NextResponse.json({ error: 'Unauthorized (Missing Token)' }, { status: 401 });
-        }
-
-        const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-        );
-
-        const { data: { user }, error: authError } = await supabase.auth.getUser(access_token);
-
-        if (authError || !user) {
-            return NextResponse.json({ error: 'Unauthorized (Invalid Token)' }, { status: 401 });
-        }
-
-        // 2. Validate Invite Token
         const supabaseAdmin = createClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            { auth: { autoRefreshToken: false, persistSession: false } }
         );
 
+        // 1. Validate Invite Token
         const { data: invite, error: inviteError } = await supabaseAdmin
             .from('socio_invites')
-            .select('*, socios!inner(id, user_id)') // Join to check socio status
+            .select('*, socios!inner(id, user_id, email, nombre, apellido)')
             .eq('token', token)
             .single();
 
         if (inviteError || !invite) {
-            console.error('Invite lookup error', inviteError);
-            return NextResponse.json({ error: 'Invalid invite token' }, { status: 400 });
+            return NextResponse.json({ error: 'Token de invitación inválido o expirado' }, { status: 400 });
         }
 
-        // 2.a Validations
-        if (invite.email.toLowerCase() !== user.email?.toLowerCase()) {
-            return NextResponse.json({ error: 'Email mismatch. Please login with the invited email.' }, { status: 403 });
-        }
-
-        if (invite.consumet_at || invite.status === 'consumed') {
-            return NextResponse.json({ error: 'Invite already used' }, { status: 400 });
+        if (invite.consumed_at || invite.status === 'consumed') {
+            return NextResponse.json({ error: 'La invitación ya ha sido utilizada' }, { status: 400 });
         }
 
         if (new Date(invite.expires_at) < new Date()) {
-            return NextResponse.json({ error: 'Invite expired' }, { status: 400 });
+            return NextResponse.json({ error: 'La invitación ha expirado' }, { status: 400 });
         }
 
-        if (invite.socios.user_id) {
-            // Socio already has a user. Check if it's the SAME user.
-            if (invite.socios.user_id !== user.id) {
-                return NextResponse.json({ error: 'Partner record already linked to another user.' }, { status: 409 });
+        let targetUserId = access_token ? null : null;
+
+        // 2. Handle User Creation/Update
+        if (!access_token && password) {
+            // Flow A: No session, create user with password
+            // Check if user already exists in Auth
+            const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+            const existingAuthUser = users.find(u => u.email?.toLowerCase() === invite.email.toLowerCase());
+
+            if (existingAuthUser) {
+                // Update existing user password
+                const { data: updatedUser, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+                    existingAuthUser.id,
+                    { password: password, email_confirm: true }
+                );
+                if (updateError) throw updateError;
+                targetUserId = existingAuthUser.id;
+            } else {
+                // Create new user
+                const { data: { user: newUser }, error: createError } = await supabaseAdmin.auth.admin.createUser({
+                    email: invite.email,
+                    password: password,
+                    email_confirm: true,
+                    user_metadata: { 
+                        role: 'socio',
+                        full_name: `${invite.socios.nombre} ${invite.socios.apellido}`
+                    }
+                });
+                if (createError) throw createError;
+                targetUserId = newUser?.id || null;
             }
-            // If same user, we can technically proceed to mark invite consumed if not already.
+        } else if (access_token) {
+            // Flow B: User already logged in (Magic Link or similar)
+            const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(access_token);
+            if (authError || !user) return NextResponse.json({ error: 'Sesión inválida' }, { status: 401 });
+            targetUserId = user.id;
         }
 
-        // 3. Link Socio & Mark Used
-
-        // A. Link User ID to Socio (Only if null, or update password_set)
-        const updateData: any = {};
-        if (!invite.socios.user_id) {
-            updateData.user_id = user.id;
+        if (!targetUserId) {
+            return NextResponse.json({ error: 'No se pudo determinar el usuario de destino' }, { status: 500 });
         }
+
+        // 3. Link Socio & Mark Invite as Consumed
+        const socioUpdate: any = {
+            auth_user_id: targetUserId,
+            status: 'active',
+            terms_accepted_at: new Date().toISOString() // Auto-accept terms on first activation for simplicity
+        };
+        
         if (body.password_set) {
-            updateData.password_set = true;
+            socioUpdate.password_set = true;
         }
 
-        if (Object.keys(updateData).length > 0) {
-            const { error: linkError } = await supabaseAdmin
-                .from('socios')
-                .update(updateData)
-                .eq('id', invite.socio_id);
+        await supabaseAdmin.from('socios').update(socioUpdate).eq('id', invite.socio_id);
 
-            if (linkError) {
-                console.error('Link/Update Error', linkError);
-                return NextResponse.json({ error: 'Failed to update account link' }, { status: 500 });
-            }
-        }
+        await supabaseAdmin.from('socio_invites').update({
+            consumed_at: new Date().toISOString(),
+            status: 'consumed'
+        }).eq('id', invite.id);
 
-        // B. Mark Token Used
-        await supabaseAdmin
-            .from('socio_invites')
-            .update({
-                used_at: new Date().toISOString(), // legacy
-                consumed_at: new Date().toISOString(),
-                status: 'consumed'
-            })
-            .eq('id', invite.id);
-
-        return NextResponse.json({ success: true, redirect: '/portal' });
+        return NextResponse.json({ success: true, message: 'Cuenta activada correctamente' });
 
     } catch (e: any) {
-        console.error('Consume Error', e);
+        console.error('Consume Error:', e);
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
 }

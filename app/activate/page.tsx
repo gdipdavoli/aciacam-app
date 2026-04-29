@@ -76,28 +76,8 @@ function ActivateContent() {
 
     }, [token, urlError, urlErrorDesc]);
 
-    const handleLogin = async () => {
-        if (!inviteData || !supabase) return;
-
-        setLoading(true);
-        setStatus('processing');
-        setError('');
-
-        const { error } = await supabase.auth.signInWithOtp({
-            email: inviteData.email,
-            options: {
-                emailRedirectTo: `${window.location.origin}/activate?token=${token}&flow=consume`,
-            }
-        });
-
-        if (error) {
-            setError(error.message);
-            setStatus('valid');
-            setLoading(false);
-        } else {
-            alert(`Link de acceso enviado a ${inviteData.email}. Revisá tu correo.`);
-            setLoading(false);
-        }
+    const handleStartActivation = () => {
+        setStatus('setting_password');
     };
 
     const handleFinalize = async () => {
@@ -115,22 +95,8 @@ function ActivateContent() {
 
         if (!supabase) return;
 
-        // 1. Update Password
-        const { error: updateError } = await supabase.auth.updateUser({ password: password });
-
-        if (updateError) {
-            setError(updateError.message);
-            setSettingPassLoading(false);
-            return;
-        }
-
-        // 2. Consume Invite
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-            setError("Sesión expirada.");
-            setSettingPassLoading(false);
-            return;
-        }
+        // We'll let the API handle the password update and linking using the token
+        // to avoid session issues during first-time activation.
 
         fetch('/api/activate/consume', {
             method: 'POST',
@@ -243,8 +209,8 @@ function ActivateContent() {
                 <h1 className="text-2xl font-bold mb-2">Activación</h1>
                 {inviteData && <p className="mb-6 text-muted-foreground">Hola <strong>{inviteData.socioName}</strong></p>}
 
-                <button onClick={handleLogin} className="w-full py-2 px-4 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
-                    Ingresar y Crear Contraseña
+                <button onClick={handleStartActivation} className="w-full py-2 px-4 bg-blue-600 text-white rounded hover:bg-blue-700 transition font-bold">
+                    Comenzar Activación
                 </button>
                 {error && <p className="mt-4 text-red-500 text-sm">{error}</p>}
             </div>
