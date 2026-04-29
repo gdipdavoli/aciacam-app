@@ -31,7 +31,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'La invitación ha expirado' }, { status: 400 });
         }
 
-        let targetUserId = access_token ? null : null;
+        let targetUserId: string | null = access_token ? null : null;
 
         // 2. Handle User Creation/Update
         if (!access_token && password) {
