@@ -27,7 +27,8 @@ export default function NewProductPage() {
         categoria: '',
         stockDisponible: 0,
         activo: true,
-        imagen: ''
+        imagen: '',
+        peso_gramos: 10
     });
 
     // Load draft on mount
@@ -78,7 +79,8 @@ export default function NewProductPage() {
             const product = await StoreService.addProduct({
                 ...formData,
                 tipo: formData.tipo as any,
-                stockDisponible: Number(formData.stockDisponible)
+                stockDisponible: Number(formData.stockDisponible),
+                peso_gramos: Number(formData.peso_gramos)
             }, user.id);
 
             if (imageFile) {
@@ -224,6 +226,24 @@ export default function NewProductPage() {
                                 setFormData({
                                     ...formData,
                                     stockDisponible: val === '' ? '' : Number(val)
+                                } as any)
+                            }}
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Peso por unidad (gramos)</label>
+                        <input
+                            type="number"
+                            required
+                            min="1"
+                            className="w-full p-2 border rounded-md bg-background text-foreground"
+                            value={formData.peso_gramos.toString()}
+                            onChange={e => {
+                                const val = e.target.value;
+                                setFormData({
+                                    ...formData,
+                                    peso_gramos: val === '' ? '' : Number(val)
                                 } as any)
                             }}
                         />

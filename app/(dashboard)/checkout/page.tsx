@@ -10,7 +10,7 @@ import { Trash2, Plus, Minus, MapPin, CheckCircle, ExternalLink, Navigation, Shi
 import { SlotSelector } from '@/app/components/SlotSelector'; // Import Component
 
 export default function CheckoutPage() {
-    const { items, removeItem, itemCount, clearCart, updateQuantity } = useCart();
+    const { items, removeItem, itemCount, clearCart, updateQuantity, pesoTotal } = useCart();
 
     const { user, refreshUser } = useAuth();
     const router = useRouter();
@@ -106,11 +106,11 @@ export default function CheckoutPage() {
         if (!user) return;
 
         // VALIDATION
-        if (itemCount < globalConfigs.limite_gramos_min) {
+        if (pesoTotal < globalConfigs.limite_gramos_min) {
             alert(`El mínimo para solicitar provisión es de ${globalConfigs.limite_gramos_min}g.`);
             return;
         }
-        if (itemCount > globalConfigs.limite_gramos_max) {
+        if (pesoTotal > globalConfigs.limite_gramos_max) {
             alert(`El máximo mensual permitido es de ${globalConfigs.limite_gramos_max}g.`);
             return;
         }
@@ -458,28 +458,28 @@ export default function CheckoutPage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 500, fontSize: '1rem' }}>
                                 <span>Total solicitado (gramos)</span>
-                                <span>{itemCount}g</span>
+                                <span>{pesoTotal}g</span>
                             </div>
                             
                             {/* Validation limits */}
                             <div style={{ fontSize: '0.85rem' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                                    <span className={itemCount > globalConfigs.limite_gramos_max || itemCount < globalConfigs.limite_gramos_min ? "text-destructive" : "text-muted-foreground"}>
-                                        {itemCount > globalConfigs.limite_gramos_max ? "Excede límite mensual" : itemCount < globalConfigs.limite_gramos_min ? `Mínimo ${globalConfigs.limite_gramos_min}g requerido` : "Dentro del máximo mensual permitido"}
+                                    <span className={pesoTotal > globalConfigs.limite_gramos_max || pesoTotal < globalConfigs.limite_gramos_min ? "text-destructive" : "text-muted-foreground"}>
+                                        {pesoTotal > globalConfigs.limite_gramos_max ? "Excede límite mensual" : pesoTotal < globalConfigs.limite_gramos_min ? `Mínimo ${globalConfigs.limite_gramos_min}g requerido` : "Dentro del máximo mensual permitido"}
                                     </span>
                                     <span className="text-muted-foreground">{globalConfigs.limite_gramos_max}g max</span>
                                 </div>
                                 <div className="w-full bg-muted rounded-full h-2">
                                     <div 
-                                        className={`h-2 rounded-full ${itemCount > globalConfigs.limite_gramos_max ? 'bg-destructive' : 'bg-primary'}`} 
-                                        style={{ width: `${Math.min(100, (itemCount / globalConfigs.limite_gramos_max) * 100)}%` }}
+                                        className={`h-2 rounded-full ${pesoTotal > globalConfigs.limite_gramos_max ? 'bg-destructive' : 'bg-primary'}`} 
+                                        style={{ width: `${Math.min(100, (pesoTotal / globalConfigs.limite_gramos_max) * 100)}%` }}
                                     ></div>
                                 </div>
                             </div>
 
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '1.1rem', marginTop: '1rem', borderTop: '1px dashed hsl(var(--border))', paddingTop: '1rem' }}>
                                 <span>Aporte estimado</span>
-                                <span>${(itemCount * globalConfigs.aporte_por_gramo).toLocaleString('es-AR')}</span>
+                                <span>${(pesoTotal * globalConfigs.aporte_por_gramo).toLocaleString('es-AR')}</span>
                             </div>
                         </div>
                     </div>

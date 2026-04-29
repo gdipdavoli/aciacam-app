@@ -136,7 +136,7 @@ const mapProductFromDB = (row: any): Producto => ({
     stockDisponible: row.stock_disponible,
     activo: row.activo,
     imagen: row.imagen,
-    // precio: row.precio // Add to generic type if needed later
+    peso_gramos: row.peso_gramos || 1 // Fallback to 1 if not set
 });
 
 // Helper to map DB Order
@@ -462,7 +462,8 @@ export const StoreService = {
             categoria: producto.categoria,
             stock_disponible: producto.stockDisponible,
             activo: producto.activo !== undefined ? producto.activo : true,
-            imagen: producto.imagen
+            imagen: producto.imagen,
+            peso_gramos: producto.peso_gramos || 10
         };
 
         const { data, error } = await supabase
@@ -487,6 +488,7 @@ export const StoreService = {
         if (updates.stockDisponible !== undefined) dbUpdates.stock_disponible = updates.stockDisponible;
         if (updates.activo !== undefined) dbUpdates.activo = updates.activo;
         if (updates.imagen !== undefined) dbUpdates.imagen = updates.imagen;
+        if (updates.peso_gramos !== undefined) dbUpdates.peso_gramos = updates.peso_gramos;
 
         const { error } = await supabase
             .from('products')
