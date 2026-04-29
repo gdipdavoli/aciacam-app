@@ -40,6 +40,7 @@ export default function CheckoutPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [finalAporte, setFinalAporte] = useState(0);
 
     // Global Configs
     const [globalConfigs, setGlobalConfigs] = useState({
@@ -151,6 +152,7 @@ export default function CheckoutPage() {
                 }
             }
 
+            setFinalAporte(pesoTotal * globalConfigs.aporte_por_gramo);
             setShowSuccessModal(true);
             clearCart();
         } catch (error) {
@@ -183,7 +185,7 @@ export default function CheckoutPage() {
                                     <span className="text-xs font-bold bg-primary/10 text-primary px-2 py-0.5 rounded uppercase">Pendiente</span>
                                 </div>
                                 <div className="text-3xl font-black text-primary">
-                                    ${(pesoTotal * globalConfigs.aporte_por_gramo).toLocaleString('es-AR')}
+                                    ${finalAporte.toLocaleString('es-AR')}
                                 </div>
                             </div>
 
