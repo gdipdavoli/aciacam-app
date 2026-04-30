@@ -162,21 +162,51 @@ export const StoreService = {
     getProductos: async (includeInactive = false): Promise<Producto[]> => {
         if (!supabase) return [];
 
+        // 1. Fetch Products
         let query = supabase.from('products').select('*').order('created_at', { ascending: false });
-
         if (!includeInactive) {
             query = query.eq('activo', true);
         }
-
-        const { data, error } = await query;
-
-        if (error) {
-            // Expanded Error Logging for Safari/Mobile debugging
-            console.error('Error fetching products:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+        const { data: productsData, error: prodError } = await query;
+        if (prodError) {
+            console.error('Error fetching products:', prodError);
             return [];
         }
 
-        return (data || []).map(mapProductFromDB);
+        // 2. Fetch Pending/Preparing orders to calculate "Committed Stock"
+        // We only care about orders that are NOT yet delivered or cancelled.
+        const { data: pendingOrders, error: orderError } = await supabase
+            .from('pedidos')
+            .select('items')
+            .in('estado', ['pendiente', 'preparando', 'confirmado']);
+
+        if (orderError) {
+            console.error('Error fetching pending orders for stock calc:', orderError);
+            // Fallback to raw stock if orders fetch fails
+            return (productsData || []).map(mapProductFromDB);
+        }
+
+        // 3. Aggregate committed stock per product
+        const committedStockMap: Record<string, number> = {};
+        pendingOrders?.forEach((order: any) => {
+            const items = order.items as any[];
+            if (Array.isArray(items)) {
+                items.forEach(item => {
+                    const id = item.productoId;
+                    const qty = item.cantidad || 0;
+                    committedStockMap[id] = (committedStockMap[id] || 0) + qty;
+                });
+            }
+        });
+
+        // 4. Map and subtract
+        return (productsData || []).map(row => {
+            const product = mapProductFromDB(row);
+            const committed = committedStockMap[product.id] || 0;
+            // The available stock for NEW orders is the DB stock minus what's already committed
+            product.stockDisponible = Math.max(0, product.stockDisponible - committed);
+            return product;
+        });
     },
 
     getProductById: async (id: string): Promise<Producto | undefined> => {
