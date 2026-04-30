@@ -106,7 +106,23 @@ export default function CheckoutPage() {
     const handleCheckout = async () => {
         if (!user) return;
 
-        // VALIDATION
+        // 1. FRESH STOCK CHECK (To prevent race conditions)
+        setIsSubmitting(true);
+        try {
+            const freshProducts = await StoreService.getProductos();
+            for (const item of items) {
+                const freshProd = freshProducts.find(p => p.id === item.productoId);
+                if (!freshProd || freshProd.stockDisponible < item.cantidad) {
+                    alert(`Lo sentimos, el stock de "${item.productoNombre}" ha cambiado y ya no hay unidades suficientes disponibles. Por favor ajusta tu carrito.`);
+                    setIsSubmitting(false);
+                    return;
+                }
+            }
+        } catch (stockErr) {
+            console.error("Stock pre-check failed", stockErr);
+        }
+
+        // 2. CONTINUE WITH VALIDATION
         if (pesoTotal < globalConfigs.limite_gramos_min) {
             alert(`El mínimo para solicitar provisión es de ${globalConfigs.limite_gramos_min}g.`);
             return;
