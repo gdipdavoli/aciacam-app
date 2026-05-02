@@ -88,12 +88,20 @@ export default function EstadisticasPage() {
         // Filtrar datos por rango seleccionado
         const filterByRange = (items: any[]) => {
             return items.filter(item => {
-                const d = new Date(item.fechaCreacion || item.fecha);
+                // Priorizamos la fecha de retiro/entrega sobre la de creación para las estadísticas
+                const dateToUse = item.fechaRetiroPreferida || item.fechaCreacion || item.fecha;
+                const d = new Date(dateToUse);
+                // Si la fecha es YYYY-MM-DD, ajustamos a local para comparar bien
+                if (typeof dateToUse === 'string' && dateToUse.length === 10) {
+                    d.setHours(12, 0, 0, 0); 
+                }
                 return d >= startDate && d <= endDate;
             });
         };
 
-        const currentRangePedidos = filterByRange(data.pedidos).filter(p => p.estado !== 'cancelado');
+        const currentRangePedidos = filterByRange(data.pedidos).filter(p => 
+            p.estado !== 'cancelado' && p.estado !== 'pendiente'
+        );
         const currentRangePagos = filterByRange(data.pagos);
 
         // Para variaciones, comparamos con el periodo anterior de la misma duración
@@ -108,7 +116,9 @@ export default function EstadisticasPage() {
             });
         };
 
-        const lastRangePedidos = filterByPrevRange(data.pedidos).filter(p => p.estado !== 'cancelado');
+        const lastRangePedidos = filterByPrevRange(data.pedidos).filter(p => 
+            p.estado !== 'cancelado' && p.estado !== 'pendiente'
+        );
         const lastRangePagos = filterByPrevRange(data.pagos);
 
         // Cálculos de Gramos
@@ -149,7 +159,10 @@ export default function EstadisticasPage() {
             for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
                 const dayStr = d.toISOString().split('T')[0];
                 const dayGrams = currentRangePedidos
-                    .filter(p => new Date(p.fechaCreacion).toISOString().split('T')[0] === dayStr)
+                    .filter(p => {
+                        const dateToUse = p.fechaRetiroPreferida || p.fechaCreacion;
+                        return new Date(dateToUse).toISOString().split('T')[0] === dayStr;
+                    })
                     .reduce((acc, p) => acc + p.items.reduce((sum: number, item: any) => {
                         const prod = data.productos.find(pr => pr.id === item.productoId);
                         return sum + (item.cantidad * (prod?.peso_gramos || 10));
