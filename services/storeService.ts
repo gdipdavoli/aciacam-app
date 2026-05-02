@@ -815,6 +815,57 @@ export const StoreService = {
     getSociosConDocsPendientes: DocService.getSociosConDocsPendientes,
     getSociosReprocannPorVencer: DocService.getSociosReprocannPorVencer,
 
+    // --- SLOTS (AGENDA) ---
+    getSlots: async (startDate?: string): Promise<any[]> => {
+        if (!supabase) return [];
+        let query = supabase.from('pickup_slots').select('*').order('date', { ascending: true }).order('start_time', { ascending: true });
+        
+        if (startDate) {
+            query = query.gte('date', startDate);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+        return data || [];
+    },
+
+    deleteSlot: async (id: string): Promise<void> => {
+        if (!supabase) return;
+        const { error } = await supabase.from('pickup_slots').delete().eq('id', id);
+        if (error) throw error;
+    },
+
+    createMassiveSlots: async (dates: string[], startTime: string, endTime: string, intervalMinutes: number): Promise<void> => {
+        if (!supabase) return;
+        
+        const slotsToInsert: any[] = [];
+        
+        dates.forEach(date => {
+            let current = new Date(`${date}T${startTime}`);
+            const end = new Date(`${date}T${endTime}`);
+            
+            while (current < end) {
+                const startStr = current.toTimeString().substring(0, 5);
+                current.setMinutes(current.getMinutes() + intervalMinutes);
+                const endStr = current.toTimeString().substring(0, 5);
+                
+                if (current <= end) {
+                    slotsToInsert.push({
+                        date,
+                        start_time: startStr,
+                        end_time: endStr,
+                        capacity: 1 // Default capacity
+                    });
+                }
+            }
+        });
+
+        if (slotsToInsert.length > 0) {
+            const { error } = await supabase.from('pickup_slots').insert(slotsToInsert);
+            if (error) throw error;
+        }
+    },
+
     inviteSocio: async (socioId: string): Promise<any> => {
         // Retrieve Token using Supabase Client (Auth Context)
         if (!supabase) throw new Error("Supabase client not initialized");

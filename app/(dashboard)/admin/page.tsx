@@ -139,6 +139,9 @@ export default function AdminPage() {
                         <a href="/admin/products" className="flex items-center gap-2 bg-card border border-border px-3 py-2 rounded-md text-sm font-medium text-foreground hover:bg-muted transition-colors no-underline">
                             📦 Productos
                         </a>
+                        <a href="/admin/agenda" className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-3 py-2 rounded-md text-sm font-medium text-primary hover:bg-primary/20 transition-colors no-underline">
+                            📅 Agenda
+                        </a>
                     </div>
 
                     {/* Mobile Menu for Secondary Actions */}
@@ -161,6 +164,9 @@ export default function AdminPage() {
                                 </button>
                                 <a href="/admin/products" className="block w-full px-4 py-2 text-sm hover:bg-muted rounded text-foreground no-underline">
                                     📦 Ver Productos
+                                </a>
+                                <a href="/admin/agenda" className="block w-full px-4 py-2 text-sm hover:bg-primary/10 rounded text-primary font-bold no-underline">
+                                    📅 Gestionar Agenda
                                 </a>
                             </div>
                         </details>
