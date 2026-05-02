@@ -187,7 +187,7 @@ export default function EstadisticasPage() {
 
         // Socios con más retiros
         const socioStatsMap: Record<string, { id: string, name: string, dni: string, grams: number, orders: number }> = {};
-        currentMonthPedidos.forEach(p => {
+        currentRangePedidos.forEach(p => {
             const socio = data.socios.find(s => s.id === p.socioId);
             const name = socio ? `${socio.nombre} ${socio.apellido}` : 'Desconocido';
             const dni = socio?.dni || '';
