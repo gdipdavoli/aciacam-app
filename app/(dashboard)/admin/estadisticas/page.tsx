@@ -64,7 +64,7 @@ export default function EstadisticasPage() {
             }
             fetchStats();
         }
-    }, [user, authLoading]);
+    }, [user, authLoading, dateRange.start, dateRange.end]);
 
     const fetchStats = async () => {
         setLoading(true);
@@ -81,27 +81,35 @@ export default function EstadisticasPage() {
     // --- LÓGICA DE CÁLCULOS ---
 
     const stats = useMemo(() => {
-        const now = new Date();
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
-        
-        const lastMonthDate = new Date(currentYear, currentMonth - 1, 1);
-        const lastMonth = lastMonthDate.getMonth();
-        const lastMonthYear = lastMonthDate.getFullYear();
+        const startDate = new Date(dateRange.start);
+        const endDate = new Date(dateRange.end);
+        endDate.setHours(23, 59, 59, 999);
 
-        // Filtrar pedidos del mes actual y anterior (excluyendo cancelados para gramos)
-        const filterByMonth = (items: any[], month: number, year: number) => {
+        // Filtrar datos por rango seleccionado
+        const filterByRange = (items: any[]) => {
             return items.filter(item => {
                 const d = new Date(item.fechaCreacion || item.fecha);
-                return d.getMonth() === month && d.getFullYear() === year;
+                return d >= startDate && d <= endDate;
             });
         };
 
-        const currentMonthPedidos = filterByMonth(data.pedidos, currentMonth, currentYear).filter(p => p.estado !== 'cancelado');
-        const lastMonthPedidos = filterByMonth(data.pedidos, lastMonth, lastMonthYear).filter(p => p.estado !== 'cancelado');
-        
-        const currentMonthPagos = filterByMonth(data.pagos, currentMonth, currentYear);
-        const lastMonthPagos = filterByMonth(data.pagos, lastMonth, lastMonthYear);
+        const currentRangePedidos = filterByRange(data.pedidos).filter(p => p.estado !== 'cancelado');
+        const currentRangePagos = filterByRange(data.pagos);
+
+        // Para variaciones, comparamos con el periodo anterior de la misma duración
+        const rangeDuration = endDate.getTime() - startDate.getTime();
+        const prevStartDate = new Date(startDate.getTime() - rangeDuration);
+        const prevEndDate = new Date(endDate.getTime() - rangeDuration);
+
+        const filterByPrevRange = (items: any[]) => {
+            return items.filter(item => {
+                const d = new Date(item.fechaCreacion || item.fecha);
+                return d >= prevStartDate && d <= prevEndDate;
+            });
+        };
+
+        const lastRangePedidos = filterByPrevRange(data.pedidos).filter(p => p.estado !== 'cancelado');
+        const lastRangePagos = filterByPrevRange(data.pagos);
 
         // Cálculos de Gramos
         const getGrams = (pedidos: any[]) => {
@@ -115,16 +123,16 @@ export default function EstadisticasPage() {
             }, 0);
         };
 
-        const totalGrams = getGrams(currentMonthPedidos);
-        const prevTotalGrams = getGrams(lastMonthPedidos);
+        const totalGrams = getGrams(currentRangePedidos);
+        const prevTotalGrams = getGrams(lastRangePedidos);
         
         // Socios que retiraron
-        const currentSociosCount = new Set(currentMonthPedidos.map(p => p.socioId)).size;
-        const lastSociosCount = new Set(lastMonthPedidos.map(p => p.socioId)).size;
+        const currentSociosCount = new Set(currentRangePedidos.map(p => p.socioId)).size;
+        const lastSociosCount = new Set(lastRangePedidos.map(p => p.socioId)).size;
 
         // Aportes
-        const totalAportes = currentMonthPagos.reduce((acc, p) => acc + (p.monto || 0), 0);
-        const prevTotalAportes = lastMonthPagos.reduce((acc, p) => acc + (p.monto || 0), 0);
+        const totalAportes = currentRangePagos.reduce((acc, p) => acc + (p.monto || 0), 0);
+        const prevTotalAportes = lastRangePagos.reduce((acc, p) => acc + (p.monto || 0), 0);
 
         // Variaciones
         const getVariation = (curr: number, prev: number) => {
@@ -132,38 +140,40 @@ export default function EstadisticasPage() {
             return ((curr - prev) / prev) * 100;
         };
 
-        // Datos para gráfico de línea (Días del mes)
-        const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-        const chartData = Array.from({ length: daysInMonth }, (_, i) => {
-            const day = i + 1;
-            const dayGrams = currentMonthPedidos
-                .filter(p => new Date(p.fechaCreacion).getDate() === day)
-                .reduce((acc, p) => {
-                    return acc + p.items.reduce((sum: number, item: any) => {
+        // Datos para gráfico (agrupado por días si el rango es corto, o meses si es largo)
+        const diffDays = Math.ceil(rangeDuration / (1000 * 60 * 60 * 24));
+        const chartData = [];
+        
+        if (diffDays <= 62) {
+            // Agrupar por días
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                const dayStr = d.toISOString().split('T')[0];
+                const dayGrams = currentRangePedidos
+                    .filter(p => new Date(p.fechaCreacion).toISOString().split('T')[0] === dayStr)
+                    .reduce((acc, p) => acc + p.items.reduce((sum: number, item: any) => {
                         const prod = data.productos.find(pr => pr.id === item.productoId);
                         return sum + (item.cantidad * (prod?.peso_gramos || 10));
-                    }, 0);
+                    }, 0), 0);
+                
+                chartData.push({ name: d.getDate().toString() + '/' + (d.getMonth()+1), actual: dayGrams });
+            }
+        } else {
+            // Agrupar por meses
+            const months: Record<string, number> = {};
+            currentRangePedidos.forEach(p => {
+                const m = new Date(p.fechaCreacion).toLocaleString('default', { month: 'short' });
+                const g = p.items.reduce((sum: number, item: any) => {
+                    const prod = data.productos.find(pr => pr.id === item.productoId);
+                    return sum + (item.cantidad * (prod?.peso_gramos || 10));
                 }, 0);
-            
-            const prevDayGrams = lastMonthPedidos
-                .filter(p => new Date(p.fechaCreacion).getDate() === day)
-                .reduce((acc, p) => {
-                    return acc + p.items.reduce((sum: number, item: any) => {
-                        const prod = data.productos.find(pr => pr.id === item.productoId);
-                        return sum + (item.cantidad * (prod?.peso_gramos || 10));
-                    }, 0);
-                }, 0);
-
-            return {
-                name: day.toString(),
-                actual: dayGrams,
-                anterior: prevDayGrams
-            };
-        });
+                months[m] = (months[m] || 0) + g;
+            });
+            Object.entries(months).forEach(([name, actual]) => chartData.push({ name, actual }));
+        }
 
         // Variedades dispensadas
         const varietyMap: Record<string, number> = {};
-        currentMonthPedidos.forEach(p => {
+        currentRangePedidos.forEach(p => {
             p.items.forEach((item: any) => {
                 const prod = data.productos.find(pr => pr.id === item.productoId);
                 const g = item.cantidad * (prod?.peso_gramos || 10);
@@ -264,14 +274,37 @@ export default function EstadisticasPage() {
                     <h1 className="text-3xl font-bold tracking-tight">Panel de Estadísticas</h1>
                     <p className="text-muted-foreground">Monitoreo de dispensación y sostenibilidad.</p>
                 </div>
-                <div className="flex gap-2">
-                    <button className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-muted transition-colors">
-                        <Calendar size={16} />
+                <div className="flex flex-wrap gap-4 items-center bg-card border p-3 rounded-xl shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <label className="text-xs font-bold text-muted-foreground uppercase">Desde</label>
+                        <input 
+                            type="date" 
+                            className="bg-background border rounded px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                            value={dateRange.start}
+                            onChange={e => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <label className="text-xs font-bold text-muted-foreground uppercase">Hasta</label>
+                        <input 
+                            type="date" 
+                            className="bg-background border rounded px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                            value={dateRange.end}
+                            onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                        />
+                    </div>
+                    <div className="h-6 w-px bg-border mx-2 hidden md:block"></div>
+                    <button 
+                        onClick={() => {
+                            const now = new Date();
+                            setDateRange({
+                                start: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0],
+                                end: new Date().toISOString().split('T')[0]
+                            });
+                        }}
+                        className="text-xs font-bold text-primary hover:underline"
+                    >
                         Mes Actual
-                    </button>
-                    <button className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
-                        <Download size={16} />
-                        Exportar Reporte
                     </button>
                 </div>
             </div>

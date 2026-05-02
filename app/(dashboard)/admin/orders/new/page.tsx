@@ -58,8 +58,8 @@ export default function NewDispensePage() {
     };
 
     const handleNextStep = () => {
-        if (orderType === 'retiro_sede' && !selectedSlotId) {
-            alert('Por favor selecciona un turno de retiro.');
+        if (orderType === 'retiro_sede' && !slotDate && !date) {
+            alert('Por favor selecciona una fecha de retiro.');
             return;
         }
         if (orderType === 'delivery' && !address) {
@@ -99,8 +99,8 @@ export default function NewDispensePage() {
                 origen: 'admin',
                 direccionEntrega: orderType === 'delivery' ? address : undefined,
                 observaciones: notes,
-                fechaRetiroPreferida: orderType === 'retiro_sede' ? slotDate : undefined,
-                slotId: orderType === 'retiro_sede' ? selectedSlotId! : undefined,
+                fechaRetiroPreferida: orderType === 'retiro_sede' ? (slotDate || date) : undefined,
+                slotId: orderType === 'retiro_sede' ? (selectedSlotId || undefined) : undefined,
                 estado: 'confirmado' // Auto-confirm admin orders
             });
             alert('Dispensa creada correctamente');
@@ -207,13 +207,31 @@ export default function NewDispensePage() {
 
                     {orderType === 'retiro_sede' ? (
                         <div style={{ marginBottom: '1rem' }}>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Turno de Retiro</label>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Fecha y Turno (Opcional)</label>
+                            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: '0.8rem', opacity: 0.7, display: 'block', marginBottom: '0.25rem' }}>Fecha de Dispensa</label>
+                                    <input 
+                                        type="date" 
+                                        value={date} 
+                                        onChange={e => {
+                                            setDate(e.target.value);
+                                            setSelectedSlotId(null); // Reset slot if date manual changed
+                                            setSlotDate('');
+                                        }} 
+                                        style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }} 
+                                    />
+                                </div>
+                            </div>
+                            
+                            <p style={{ fontSize: '0.8rem', marginBottom: '0.5rem', opacity: 0.8 }}>O selecciona un turno existente:</p>
                             <SlotSelector
                                 selectedSlotId={selectedSlotId}
                                 onSelect={(id, label, date) => {
                                     setSelectedSlotId(id);
                                     setSlotLabel(label);
                                     setSlotDate(date);
+                                    setDate(date); // Sync manual date with slot date
                                 }}
                             />
                         </div>
