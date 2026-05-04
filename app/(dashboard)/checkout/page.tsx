@@ -16,8 +16,12 @@ export default function CheckoutPage() {
     const router = useRouter();
 
     React.useEffect(() => {
-        if (user && user.rol === 'admin') {
-            router.push('/admin');
+        if (user) {
+            if (user.rol === 'admin') {
+                router.push('/admin');
+            } else if (user.bloqueado) {
+                router.push('/variedades');
+            }
         }
     }, [user, router]);
 

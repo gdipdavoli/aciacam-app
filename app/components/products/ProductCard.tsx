@@ -81,14 +81,14 @@ export default function ProductCard({ product }: ProductCardProps) {
                     {user?.rol !== 'admin' && user?.rol !== 'staff' && (
                         <button
                             onClick={handleAdd}
-                            disabled={!product.activo || isOutOfStock}
+                            disabled={!product.activo || isOutOfStock || user?.bloqueado}
                             className={`
                                 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all
                                 ${added
                                     ? 'bg-green-600 text-white hover:bg-green-700'
                                     : 'bg-primary text-primary-foreground hover:bg-primary/90'
                                 }
-                                ${(!product.activo || isOutOfStock) ? 'opacity-50 cursor-not-allowed' : ''}
+                                ${(!product.activo || isOutOfStock || user?.bloqueado) ? 'opacity-50 cursor-not-allowed grayscale' : ''}
                             `}
                         >
                             {added ? (
