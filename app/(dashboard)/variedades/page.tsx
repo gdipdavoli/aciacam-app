@@ -4,9 +4,11 @@ import React, { useEffect, useState } from 'react';
 import { StoreService } from '@/services/storeService';
 import { Producto } from '@/types';
 import ProductCard from '@/app/components/products/ProductCard';
-import { Search, Leaf } from 'lucide-react';
+import { Search, Leaf, ShieldAlert } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 export default function VariedadesPage() {
+    const { user } = useAuth();
     const [products, setProducts] = useState<Producto[]>([]);
     const [filteredProducts, setFilteredProducts] = useState<Producto[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -56,9 +58,28 @@ export default function VariedadesPage() {
                 </p>
             </div>
 
-            {/* Rendering Catalog or Empty State */}
+            {/* Rendering Catalog or Blocked State or Empty State */}
             {loading ? (
                 <div className="text-center py-12 text-muted-foreground">Cargando catálogo...</div>
+            ) : user?.bloqueado ? (
+                <div className="flex flex-col items-center justify-center py-16 px-4 mt-8 rounded-2xl border-2 border-red-200 bg-red-50 text-center">
+                    <div className="bg-red-100 text-red-600 p-5 rounded-full mb-5 shadow-sm">
+                        <ShieldAlert size={40} strokeWidth={1.5} />
+                    </div>
+                    <h2 className="text-2xl font-bold mb-2 text-red-900">Acceso Restringido</h2>
+                    <p className="text-red-800/80 max-w-md text-lg mb-4">
+                        Tu cuenta se encuentra bloqueada temporalmente por administración.
+                    </p>
+                    {user.motivo_bloqueo && (
+                        <div className="bg-white/50 border border-red-200 p-4 rounded-xl max-w-lg">
+                            <p className="text-xs uppercase font-black text-red-900/40 mb-1 tracking-widest">Motivo de la restricción</p>
+                            <p className="text-red-700 font-medium">{user.motivo_bloqueo}</p>
+                        </div>
+                    )}
+                    <p className="mt-8 text-sm text-red-900/60">
+                        Por favor, contacta con el equipo de administración para regularizar tu situación.
+                    </p>
+                </div>
             ) : products.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 px-4 mt-8 rounded-2xl border-2 border-dashed border-green-200 bg-green-50">
                     <div className="bg-green-100 text-green-700 p-5 rounded-full mb-5 shadow-sm">

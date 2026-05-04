@@ -1417,6 +1417,44 @@ export default function SocioDetailsPage() {
                             </div>
                         </div>
 
+                        {/* BLOQUEO MANUAL */}
+                        <div style={{ 
+                            marginTop: '1rem', 
+                            padding: '1rem', 
+                            backgroundColor: socio.bloqueado ? '#fef2f2' : '#f0fdf4', 
+                            border: socio.bloqueado ? '1px solid #fecaca' : '1px solid #bbf7d0', 
+                            borderRadius: 'var(--radius)' 
+                        }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: editingSection === 'admin' ? 'pointer' : 'default' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={socio.bloqueado || false}
+                                    onChange={(e) => setSocio({ ...socio, bloqueado: e.target.checked })}
+                                    disabled={editingSection !== 'admin'}
+                                    style={{ transform: 'scale(1.2)' }}
+                                />
+                                <div>
+                                    <span style={{ display: 'block', fontWeight: 600, color: socio.bloqueado ? '#991b1b' : '#166534' }}>
+                                        {socio.bloqueado ? 'SOCIO BLOQUEADO' : 'Socio Habilitado'}
+                                    </span>
+                                    <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>
+                                        Impide el acceso al catálogo y pedidos.
+                                    </span>
+                                </div>
+                            </label>
+                            {socio.bloqueado && (
+                                <div style={{ marginTop: '0.75rem' }}>
+                                    <InputGroup 
+                                        label="Motivo del Bloqueo" 
+                                        value={socio.motivo_bloqueo} 
+                                        onChange={(v: string) => setSocio({ ...socio, motivo_bloqueo: v })} 
+                                        placeholder="Ej: Documentación vencida" 
+                                        readOnly={editingSection !== 'admin'} 
+                                    />
+                                </div>
+                            )}
+                        </div>
+
                         {/* Delivery Toggle */}
                         <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: editingSection === 'admin' ? 'hsl(var(--background))' : 'transparent', border: editingSection === 'admin' ? '1px solid hsl(var(--border))' : 'none', borderRadius: 'var(--radius)' }}>
                             <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: editingSection === 'admin' ? 'pointer' : 'default' }}>
