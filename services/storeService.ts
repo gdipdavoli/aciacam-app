@@ -98,7 +98,9 @@ const mapSocioFromDB = (row: any): Socio => {
         invited_at: row.invited_at,
         terms_accepted_at: row.terms_accepted_at,
         terms_version: row.terms_version,
-        onboarding_completed_at: row.onboarding_completed_at
+        onboarding_completed_at: row.onboarding_completed_at,
+        bloqueado: row.bloqueado,
+        motivo_bloqueo: row.motivo_bloqueo
     };
 };
 
@@ -781,6 +783,8 @@ export const StoreService = {
         if (updates.envios_habilitados !== undefined) dbUpdates.envios_habilitados = updates.envios_habilitados;
         if (updates.status !== undefined) dbUpdates.status = updates.status;
         if (updates.rol !== undefined) dbUpdates.rol = updates.rol;
+        if (updates.bloqueado !== undefined) dbUpdates.bloqueado = updates.bloqueado;
+        if (updates.motivo_bloqueo !== undefined) dbUpdates.motivo_bloqueo = updates.motivo_bloqueo;
 
         // Reprocann
         if (updates.reprocann) {
