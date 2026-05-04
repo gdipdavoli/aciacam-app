@@ -87,6 +87,10 @@ export interface Socio {
     terms_accepted_at?: string; // ISO Date
     terms_version?: string;
     onboarding_completed_at?: string; // ISO Date
+    
+    // Safety & Compliance
+    bloqueado?: boolean;
+    motivo_bloqueo?: string;
 }
 
 export interface SocioInvite {
