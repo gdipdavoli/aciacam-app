@@ -197,14 +197,24 @@ const InviteStatusWidget = ({ socioId, socioEmail, mode = 'full' }: { socioId: s
     };
 
     const handleCopyLink = () => {
-        if (!status?.latestInvite?.token) return;
-        // Construct link assuming localhost or env var
+        if (!status?.latestInvite?.token) {
+            alert("No hay un token de invitación disponible. Intenta reenviar la invitación.");
+            return;
+        }
         const baseUrl = window.location.origin;
         const link = `${baseUrl}/activate?token=${status.latestInvite.token}`;
-        navigator.clipboard.writeText(link).then(() => {
-            setCopying(true);
-            setTimeout(() => setCopying(false), 2000);
-        });
+        
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(link).then(() => {
+                setCopying(true);
+                setTimeout(() => setCopying(false), 2000);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                prompt("No se pudo copiar automáticamente. Copiá el link de acá:", link);
+            });
+        } else {
+            prompt("Copiá el link de activación:", link);
+        }
     };
 
     if (loading && !status) return <span style={{ fontSize: '0.8rem', color: 'gray' }}>Cargando estado...</span>;
@@ -228,6 +238,7 @@ const InviteStatusWidget = ({ socioId, socioEmail, mode = 'full' }: { socioId: s
     const isExpired = !isActive && computed === 'expired';
     const isPending = !isActive && (computed === 'sent' || computed === 'created');
     const hasNoInvite = !isActive && !latest;
+    const hasToken = !!latest?.token;
 
     // Label Logic
     let label = 'Desconocido';
@@ -241,7 +252,6 @@ const InviteStatusWidget = ({ socioId, socioEmail, mode = 'full' }: { socioId: s
         label = 'Expirada';
         badgeColor = '#991b1b'; badgeBg = '#fee2e2';
     } else if (computed === 'consumed') {
-        // Should verify if consumed but not active? Likely impossible unless error.
         label = 'Consumida';
         badgeColor = '#166534'; badgeBg = '#dcfce7';
     } else if (isPending) {
@@ -315,20 +325,25 @@ const InviteStatusWidget = ({ socioId, socioEmail, mode = 'full' }: { socioId: s
                             {sending ? 'Procesando...' : (hasNoInvite ? 'Enviar invitación' : 'Reenviar')}
                         </button>
 
-                        {!hasNoInvite && !isExpired && (
+                        {hasToken && (
                             <button
                                 onClick={handleCopyLink}
+                                title="Copiar link de activación"
                                 style={{
                                     padding: '0.4rem 0.8rem',
-                                    backgroundColor: 'hsl(var(--secondary))',
+                                    backgroundColor: isExpired ? 'hsl(var(--muted))' : 'hsl(var(--secondary))',
                                     color: 'hsl(var(--secondary-foreground))',
                                     border: '1px solid hsl(var(--border))',
                                     borderRadius: 'var(--radius)',
                                     fontSize: '0.8rem',
-                                    cursor: 'pointer'
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.4rem'
                                 }}
                             >
-                                {copying ? 'Copiado!' : 'Copiar Link'}
+                                <ExternalLink size={14} />
+                                {copying ? 'Copiado!' : (isExpired ? 'Link Expirado (Copiar)' : 'Copiar Link')}
                             </button>
                         )}
                     </>

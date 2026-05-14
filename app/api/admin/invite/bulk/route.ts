@@ -133,6 +133,22 @@ export async function POST(req: Request) {
                 // We count success because user got email
             }
 
+            // 6. Create custom invite record for "Copy Link" support
+            const customToken = crypto.randomUUID();
+            const expiresAt = new Date();
+            expiresAt.setHours(expiresAt.getHours() + 72); // 3 days
+
+            await supabaseAdmin
+                .from('socio_invites')
+                .insert({
+                    socio_id: socio.id,
+                    email: socio.email,
+                    token: customToken,
+                    expires_at: expiresAt.toISOString(),
+                    status: 'sent',
+                    created_by: user.id
+                });
+
             // Audit
             await supabaseAdmin.from('audit_logs').insert({
                 user_id: user.id,

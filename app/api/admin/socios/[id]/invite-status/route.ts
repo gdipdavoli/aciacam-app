@@ -26,7 +26,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
         const { data: socio, error } = await supabaseAdmin
             .from('socios')
-            .select('status, invited_at, auth_user_id, email, terms_accepted_at')
+            .select(`
+                status, 
+                invited_at, 
+                auth_user_id, 
+                email, 
+                terms_accepted_at,
+                socio_invites!socio_invites_socio_id_fkey (
+                    token,
+                    created_at,
+                    expires_at,
+                    consumed_at,
+                    status
+                )
+            `)
             .eq('id', id)
             .single();
 
@@ -39,34 +52,42 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         if (socio.auth_user_id) {
             const { data: { user }, error: userError } = await supabaseAdmin.auth.admin.getUserById(socio.auth_user_id);
             if (user && !userError) {
-                // Check if user has encrypted password (no direct way via API, but we know they are registered)
-                // "encrypted_password" is in auth.users but not exposed by admin API usually.
-                // We can rely on 'identities' provider 'email'.
+                // Check if user has encrypted password
                 passwordSet = user.identities?.some(i => i.provider === 'email') ?? false;
             }
         }
 
+        // Get latest invite from the join
+        const invites = socio.socio_invites as any[] || [];
+        const latestInvite = invites.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+
         // Compute Derived Status for Widget
-        const invitedAt = socio.invited_at;
+        const invitedAt = socio.invited_at || latestInvite?.created_at;
         const diffMinutes = invitedAt ? (new Date().getTime() - new Date(invitedAt).getTime()) / (1000 * 60) : 0;
 
         let computedStatus = 'ready_to_invite';
         if (socio.terms_accepted_at) {
             computedStatus = 'active';
+        } else if (latestInvite) {
+            computedStatus = latestInvite.status || 'sent';
+            if (new Date(latestInvite.expires_at) < new Date()) computedStatus = 'expired';
         } else if (socio.status === 'invited') {
             computedStatus = 'sent';
-            if (diffMinutes > 60 * 24 * 7) computedStatus = 'expired'; // Example expiration visual
-        } else if (socio.status === 'active') { // Explicit DB status
-            computedStatus = 'active';
+            if (diffMinutes > 60 * 24 * 7) computedStatus = 'expired'; 
         }
 
         return NextResponse.json({
             socioActive: !!socio.terms_accepted_at || socio.status === 'active',
             passwordSet,
-            latestInvite: {
+            latestInvite: latestInvite ? {
+                token: latestInvite.token,
+                sent_at: latestInvite.created_at,
+                expires_at: latestInvite.expires_at,
+                computed_status: computedStatus
+            } : socio.invited_at ? {
                 sent_at: socio.invited_at,
                 computed_status: computedStatus
-            },
+            } : null,
             socioUserId: socio.auth_user_id
         });
 

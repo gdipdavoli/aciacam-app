@@ -137,7 +137,28 @@ export async function POST(req: Request) {
             throw updateError;
         }
 
-        // 6. Audit Log (Manual Insert)
+        // 6. Create custom invite record for "Copy Link" support
+        const customToken = crypto.randomUUID();
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 72); // 3 days
+
+        const { error: customInviteError } = await supabaseAdmin
+            .from('socio_invites')
+            .insert({
+                socio_id: socioId,
+                email: socio.email,
+                token: customToken,
+                expires_at: expiresAt.toISOString(),
+                status: 'sent',
+                created_by: user.id
+            });
+
+        if (customInviteError) {
+            console.error("Custom Invite Error:", customInviteError);
+            // We don't fail the whole request if this fails, but it's bad.
+        }
+
+        // 7. Audit Log (Manual Insert)
         await supabaseAdmin.from('audit_logs').insert({
             user_id: user.id, // Actor
             entity_type: 'SOCIO',
