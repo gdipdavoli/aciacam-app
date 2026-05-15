@@ -158,8 +158,8 @@ export default function CheckoutPage() {
                 direccionEntrega: orderType === 'delivery' ? direccion : undefined,
                 localidad: orderType === 'delivery' ? localidad : undefined,
                 ubicacion_gps: orderType === 'delivery' ? ubicacionGps : undefined,
-                // Pass ISO Date for database compatibility (was slotLabel "Lunes...")
-                fechaRetiroPreferida: orderType === 'retiro_sede' ? (coordinarConAdmin ? "Coordinar con administración" : slotDate) : undefined,
+                // Pass ISO Date for database compatibility
+                fechaRetiroPreferida: orderType === 'retiro_sede' ? (coordinarConAdmin ? undefined : slotDate) : undefined,
                 slotId: orderType === 'retiro_sede' ? (coordinarConAdmin ? undefined : selectedSlotId!) : undefined
             });
 
