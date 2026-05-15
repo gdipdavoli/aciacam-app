@@ -349,7 +349,7 @@ export default function CheckoutPage() {
                                                                 setSlotDate('');
                                                             }
                                                         }}
-                                                        style={{ width: '18px', h: '18px', accentColor: 'hsl(var(--primary))' }}
+                                                        style={{ width: '18px', height: '18px', accentColor: 'hsl(var(--primary))' }}
                                                     />
                                                     <div>
                                                         <span style={{ display: 'block', fontWeight: 600, fontSize: '0.9rem' }}>Coordinar con administración</span>
