@@ -12,6 +12,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
+
+/**
+ * SEGURIDAD - WEBHOOK WHATSAPP
+ * ============================
+ * Hallazgo #3: Validación de Firma.
+ * Dado que el servicio NO está en uso, se bloquean todas las peticiones 
+ * que no superen la validación de firma criptográfica.
+ */
+const APP_SECRET = process.env.WHATSAPP_APP_SECRET;
+
+function validateSignature(payload: string, signature: string | null): boolean {
+    if (!APP_SECRET) {
+        // Al no haber APP_SECRET, la validación siempre falla por seguridad
+        return false; 
+    }
+    if (!signature) return false;
+
+    const hash = crypto
+        .createHmac('sha256', APP_SECRET)
+        .update(payload)
+        .digest('hex');
+    
+    const expectedSignature = `sha256=${hash}`;
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+}
 
 // ── Clientes ──────────────────────────────────────────────
 const anthropic = new Anthropic({
@@ -54,7 +80,15 @@ export async function GET(req: NextRequest) {
 // ── POST: recibe mensajes entrantes ───────────────────────
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const rawBody = await req.text();
+    const signature = req.headers.get('x-hub-signature-256');
+
+    if (!validateSignature(rawBody, signature)) {
+      console.warn('⚠️ Intento de acceso no autorizado al webhook de WhatsApp o firma inválida.');
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
+    const body = JSON.parse(rawBody);
 
     // Extraer mensaje del payload de Meta
     const entry   = body.entry?.[0];

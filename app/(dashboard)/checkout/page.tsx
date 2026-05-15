@@ -40,6 +40,7 @@ export default function CheckoutPage() {
     const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
     const [slotLabel, setSlotLabel] = useState('');
     const [slotDate, setSlotDate] = useState('');
+    const [coordinarConAdmin, setCoordinarConAdmin] = useState(false);
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -136,8 +137,8 @@ export default function CheckoutPage() {
             return;
         }
 
-        if (orderType === 'retiro_sede' && !selectedSlotId) {
-            alert("Por favor selecciona un turno para retirar.");
+        if (orderType === 'retiro_sede' && !selectedSlotId && !coordinarConAdmin) {
+            alert("Por favor selecciona un turno para retirar o marca la opción para coordinar con administración.");
             return;
         }
         if (orderType === 'delivery' && (!direccion || !localidad)) {
@@ -148,14 +149,18 @@ export default function CheckoutPage() {
         setIsSubmitting(true);
 
         try {
+            const finalObservaciones = coordinarConAdmin 
+                ? `${observaciones}\n\nSOLICITUD: Coordinar retiro con administración.` 
+                : observaciones;
+
             await StoreService.createPedido(user.id, items, orderType, {
-                observaciones,
+                observaciones: finalObservaciones,
                 direccionEntrega: orderType === 'delivery' ? direccion : undefined,
                 localidad: orderType === 'delivery' ? localidad : undefined,
                 ubicacion_gps: orderType === 'delivery' ? ubicacionGps : undefined,
                 // Pass ISO Date for database compatibility (was slotLabel "Lunes...")
-                fechaRetiroPreferida: orderType === 'retiro_sede' ? slotDate : undefined,
-                slotId: orderType === 'retiro_sede' ? selectedSlotId! : undefined
+                fechaRetiroPreferida: orderType === 'retiro_sede' ? (coordinarConAdmin ? "Coordinar con administración" : slotDate) : undefined,
+                slotId: orderType === 'retiro_sede' ? (coordinarConAdmin ? undefined : selectedSlotId!) : undefined
             });
 
             // 2. Persistent Profile Update (Optional)
@@ -320,8 +325,38 @@ export default function CheckoutPage() {
                                                     setSelectedSlotId(id);
                                                     setSlotLabel(label);
                                                     setSlotDate(date);
+                                                    setCoordinarConAdmin(false); // Reset coordination if slot selected
                                                 }}
                                             />
+
+                                            <div style={{ 
+                                                marginTop: '1.5rem', 
+                                                padding: '1rem', 
+                                                borderRadius: 'var(--radius)', 
+                                                border: `1px dashed ${coordinarConAdmin ? 'hsl(var(--primary))' : 'hsl(var(--border))'}`,
+                                                backgroundColor: coordinarConAdmin ? 'hsl(var(--primary) / 0.05)' : 'transparent',
+                                                transition: 'all 0.2s ease'
+                                            }}>
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={coordinarConAdmin}
+                                                        onChange={(e) => {
+                                                            setCoordinarConAdmin(e.target.checked);
+                                                            if (e.target.checked) {
+                                                                setSelectedSlotId(null);
+                                                                setSlotLabel('');
+                                                                setSlotDate('');
+                                                            }
+                                                        }}
+                                                        style={{ width: '18px', h: '18px', accentColor: 'hsl(var(--primary))' }}
+                                                    />
+                                                    <div>
+                                                        <span style={{ display: 'block', fontWeight: 600, fontSize: '0.9rem' }}>Coordinar con administración</span>
+                                                        <span style={{ display: 'block', fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>Elegí esta opción si no encontrás un turno conveniente.</span>
+                                                    </div>
+                                                </label>
+                                            </div>
                                         </div>
                                     </div>
                                 ) : (

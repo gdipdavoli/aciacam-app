@@ -30,30 +30,54 @@ export default function SetPasswordPage() {
         try {
             if (!supabase) throw new Error("Supabase no inicializado");
 
-            // Verify session exists
+            // 1. Verify session exists
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) {
-                // If session is lost (e.g. Safari private), we can't set password without token.
-                // We should guide user to recover.
-
-                // Note: We can Try to extract 'access_token' from URL hash manually if Supabase client missed it?
-                // But usually Supabase client handles it.
-
-                // Show Error and Link to Login/Reset
                 setError("SESSION_EXPIRED");
                 setLoading(false);
                 return;
             }
 
+            // 2. Hallazgo #2: Verificar que el correo tenga una invitación válida en DB
+            // Solo permitimos el acceso si hay una invitación pendiente y no expirada.
+            const { data: invite, error: inviteError } = await supabase
+                .from('socio_invites')
+                .select('id, status, expires_at')
+                .eq('email', session.user.email)
+                .is('consumed_at', null)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (inviteError || !invite) {
+                setError("No se encontró una invitación válida o activa para este correo. Por favor contacte a soporte.");
+                setLoading(false);
+                return;
+            }
+
+            if (new Date(invite.expires_at) < new Date()) {
+                setError("Tu invitación ha expirado. Solicitá un nuevo acceso.");
+                setLoading(false);
+                return;
+            }
+
+            // 3. Actualizar contraseña en Auth
             const { error: updateError } = await supabase.auth.updateUser({
                 password: password
             });
 
             if (updateError) throw updateError;
 
+            // 4. Mark invite as consumed
+            await supabase
+                .from('socio_invites')
+                .update({ 
+                    consumed_at: new Date().toISOString(),
+                    status: 'consumed'
+                })
+                .eq('id', invite.id);
+
             // Success!
-            // Optional: Update metadata so we know they set it? 
-            // supabase.auth.updateUser takes care of the password.
             // We can now proceed to Terms or Onboarding.
 
             // 5. Fetch Role to Decide Redirect
@@ -87,9 +111,9 @@ export default function SetPasswordPage() {
             // Route
             router.replace(targetRoute);
 
-        } catch (err: any) {
-            console.error(err);
-            setError(err.message || "Error al guardar la contraseña.");
+        } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : "Error al guardar la contraseña.";
+            setError(errorMessage);
         } finally {
             // Only stop loading if we didn't return early
             if (loading) setLoading(false);

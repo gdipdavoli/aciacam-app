@@ -1,38 +1,66 @@
-
-import { createClient } from '@supabase/supabase-js';
+import { createClientServer } from '@/app/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { UserRole } from '@/types';
 
-// Initialize Supabase Admin Client
-const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+/**
+ * Interface para validar el rol del usuario solicitante
+ */
+interface CallerInfo {
+    rol: UserRole;
+}
 
 export async function GET(request: Request) {
     try {
-        // 1. Verify Authentication (Admin Only)
-        // ... (existing comments)
+        // 1. Crear cliente de servidor (valida cookies automáticamente)
+        const supabase = await createClientServer();
+        
+        // 2. Obtener sesión actual
+        const { data: { session }, error: authError } = await supabase.auth.getSession();
 
+        if (authError || !session) {
+            return NextResponse.json({ error: 'No autorizado: Inicie sesión' }, { status: 401 });
+        }
+
+        // 3. Verificar Rol de Administrador en la tabla de socios
+        const { data: caller, error: roleError } = await supabase
+            .from('socios')
+            .select('rol')
+            .eq('auth_user_id', session.user.id)
+            .single();
+
+        const callerInfo = caller as CallerInfo | null;
+
+        if (roleError || !callerInfo || (callerInfo.rol !== 'admin' && callerInfo.rol !== 'staff')) {
+            return NextResponse.json(
+                { error: 'Prohibido: Se requieren permisos de administrador' }, 
+                { status: 403 }
+            );
+        }
+
+        // 4. Procesar consulta (si llega aquí, está autorizado)
         const { searchParams } = new URL(request.url);
-        const role = searchParams.get('role');
+        const roleFilter = searchParams.get('role');
 
-        let query = supabaseAdmin
+        let query = supabase
             .from('socios')
             .select('*')
             .order('created_at', { ascending: false });
 
-        if (role) {
-            query = query.eq('rol', role);
+        if (roleFilter) {
+            query = query.eq('rol', roleFilter);
         }
 
-        const { data: socios, error } = await query;
+        const { data: socios, error: queryError } = await query;
 
-        if (error) {
-            return NextResponse.json({ error: error.message }, { status: 500 });
+        if (queryError) {
+            return NextResponse.json({ error: 'Error al consultar datos' }, { status: 500 });
         }
 
+        // 5. Retornar datos (sin logs sensibles en consola)
         return NextResponse.json(socios);
-    } catch (e: any) {
-        return NextResponse.json({ error: e.message }, { status: 500 });
+
+    } catch (e: unknown) {
+        // Error genérico para no filtrar detalles de implementación
+        return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
     }
 }
