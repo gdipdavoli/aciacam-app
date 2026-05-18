@@ -822,15 +822,26 @@ export const StoreService = {
     // --- SLOTS (AGENDA) ---
     getSlots: async (startDate?: string): Promise<any[]> => {
         if (!supabase) return [];
-        let query = supabase.from('pickup_slots').select('*').order('date', { ascending: true }).order('start_time', { ascending: true });
+        let query = supabase.from('pickup_slots').select('*').order('start_time', { ascending: true });
         
         if (startDate) {
-            query = query.gte('date', startDate);
+            const startOfDate = new Date(`${startDate}T00:00:00`).toISOString();
+            query = query.gte('start_time', startOfDate);
         }
 
         const { data, error } = await query;
         if (error) throw error;
-        return data || [];
+        
+        return (data || []).map(slot => {
+            const startObj = new Date(slot.start_time);
+            const endObj = new Date(slot.end_time);
+            return {
+                ...slot,
+                date: startObj.toLocaleDateString('en-CA'), // Formato YYYY-MM-DD para el UI
+                start_time: startObj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+                end_time: endObj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+            };
+        });
     },
 
     deleteSlot: async (id: string): Promise<void> => {
@@ -849,13 +860,12 @@ export const StoreService = {
             const end = new Date(`${date}T${endTime}`);
             
             while (current < end) {
-                const startStr = current.toTimeString().substring(0, 5);
+                const startStr = current.toISOString();
                 current.setMinutes(current.getMinutes() + intervalMinutes);
-                const endStr = current.toTimeString().substring(0, 5);
+                const endStr = current.toISOString();
                 
                 if (current <= end) {
                     slotsToInsert.push({
-                        date,
                         start_time: startStr,
                         end_time: endStr,
                         capacity: 1 // Default capacity
