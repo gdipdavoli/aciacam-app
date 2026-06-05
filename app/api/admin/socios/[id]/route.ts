@@ -23,7 +23,7 @@ export async function GET(
         }
 
         const { data: socio, error } = await supabaseAdmin
-            .from('socios')
+            .from('socios_with_auth')
             .select('*')
             .eq('id', id)
             .single();

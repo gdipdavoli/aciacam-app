@@ -23,6 +23,22 @@ export default function DashboardLayout({
 
     const pathname = usePathname();
     const [unreadCount, setUnreadCount] = React.useState(0);
+    const prevUnreadCountRef = React.useRef<number | null>(null);
+
+    React.useEffect(() => {
+        if (prevUnreadCountRef.current !== null && unreadCount > prevUnreadCountRef.current) {
+            const playSound = async () => {
+                try {
+                    const audio = new Audio('/sounds/notification.mp3');
+                    await audio.play();
+                } catch (error) {
+                    console.log('Notification sound autoplay was prevented by browser policies:', error);
+                }
+            };
+            playSound();
+        }
+        prevUnreadCountRef.current = unreadCount;
+    }, [unreadCount]);
 
     useEffect(() => {
         if (!user) return;

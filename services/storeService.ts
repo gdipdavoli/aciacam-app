@@ -100,7 +100,8 @@ const mapSocioFromDB = (row: any): Socio => {
         terms_version: row.terms_version,
         onboarding_completed_at: row.onboarding_completed_at,
         bloqueado: row.bloqueado,
-        motivo_bloqueo: row.motivo_bloqueo
+        motivo_bloqueo: row.motivo_bloqueo,
+        last_sign_in_at: row.last_sign_in_at
     };
 };
 
@@ -453,7 +454,9 @@ export const StoreService = {
 
         if (fetchError || !order) throw new Error("Pedido no encontrado");
         if (order.socio_id !== socioId) throw new Error("No autorizado");
-        if (order.estado !== 'pendiente') throw new Error("Solo se pueden cancelar pedidos pendientes");
+        if (order.estado !== 'pendiente' && order.estado !== 'procesando') {
+            throw new Error("Solo se pueden cancelar pedidos pendientes o en proceso");
+        }
 
         // 2. Update
         const { error } = await supabase

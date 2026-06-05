@@ -108,12 +108,12 @@ export default function MisPedidosPage() {
 
                                 <div className={`
                                     self-start sm:self-center px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1.5
-                                    ${order.estado === 'pendiente' ? 'bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20' :
-                                        order.estado === 'confirmado' ? 'bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20' :
+                                    ${(order.estado === 'pendiente' || order.estado === 'procesando') ? 'bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20' :
+                                        (order.estado === 'confirmado' || order.estado === 'en_preparacion' || order.estado === 'en_camino' || order.estado === 'retirado' || order.estado === 'entregado') ? 'bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20' :
                                             'bg-destructive/10 text-destructive border border-destructive/20'}
                                 `}>
-                                    {order.estado === 'pendiente' && <Clock size={14} />}
-                                    {order.estado === 'confirmado' && <CheckCircle size={14} />}
+                                    {(order.estado === 'pendiente' || order.estado === 'procesando') && <Clock size={14} />}
+                                    {(order.estado === 'confirmado' || order.estado === 'en_preparacion' || order.estado === 'en_camino' || order.estado === 'retirado' || order.estado === 'entregado') && <CheckCircle size={14} />}
                                     {order.estado === 'cancelado' && <AlertCircle size={14} />}
                                     {getStatusLabel(order.estado)}
                                 </div>
@@ -164,7 +164,7 @@ export default function MisPedidosPage() {
                                 </div>
                             )}
 
-                            {order.estado === 'pendiente' && (
+                            {(order.estado === 'pendiente' || order.estado === 'procesando') && (
                                 <div className="mt-3 pt-3 border-t border-border/50 flex justify-end">
                                     <button
                                         onClick={async () => {

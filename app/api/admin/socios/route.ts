@@ -42,7 +42,7 @@ export async function GET(request: Request) {
         const roleFilter = searchParams.get('role');
 
         let query = supabase
-            .from('socios')
+            .from('socios_with_auth')
             .select('*')
             .order('created_at', { ascending: false });
 

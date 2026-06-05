@@ -50,7 +50,11 @@ export default function EstadisticasPage() {
         pagos: any[]
     }>({ pedidos: [], socios: [], productos: [], pagos: [] });
 
-    // Rango de fechas (por defecto mes actual)
+    const [tempDateRange, setTempDateRange] = useState({
+        start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+        end: new Date().toISOString().split('T')[0]
+    });
+
     const [dateRange, setDateRange] = useState({
         start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
         end: new Date().toISOString().split('T')[0]
@@ -64,7 +68,7 @@ export default function EstadisticasPage() {
             }
             fetchStats();
         }
-    }, [user, authLoading, dateRange.start, dateRange.end]);
+    }, [user, authLoading]);
 
     const fetchStats = async () => {
         setLoading(true);
@@ -276,7 +280,52 @@ export default function EstadisticasPage() {
             inactiveSocios,
             alerts
         };
-    }, [data]);
+    }, [data, dateRange]);
+
+    const monthlyData = useMemo(() => {
+        const groups: Record<string, { monthKey: string, monthName: string, year: number, totalGrams: number }> = {};
+        
+        const monthNames = [
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+        ];
+
+        const completedPedidos = data.pedidos.filter(p => 
+            p.estado !== 'cancelado' && p.estado !== 'pendiente'
+        );
+
+        completedPedidos.forEach(p => {
+            const date = new Date(p.fechaRetiroPreferida || p.fechaCreacion);
+            if (isNaN(date.getTime())) return;
+            
+            const year = date.getFullYear();
+            const monthIdx = date.getMonth();
+            const monthKey = `${year}-${String(monthIdx + 1).padStart(2, '0')}`;
+            const monthName = `${monthNames[monthIdx]} ${year}`;
+
+            const grams = p.items.reduce((sum: number, item: any) => {
+                const prod = data.productos.find(pr => pr.id === item.productoId);
+                return sum + (item.cantidad * (prod?.peso_gramos || 10));
+            }, 0);
+
+            if (!groups[monthKey]) {
+                groups[monthKey] = {
+                    monthKey,
+                    monthName,
+                    year,
+                    totalGrams: 0
+                };
+            }
+            groups[monthKey].totalGrams += grams;
+        });
+
+        return Object.keys(groups)
+            .sort()
+            .map(key => ({
+                name: groups[key].monthName,
+                gramos: groups[key].totalGrams
+            }));
+    }, [data.pedidos, data.productos]);
 
     if (loading || authLoading) return <div className="p-8 text-center">Analizando datos...</div>;
 
@@ -293,8 +342,8 @@ export default function EstadisticasPage() {
                         <input 
                             type="date" 
                             className="bg-background border rounded px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                            value={dateRange.start}
-                            onChange={e => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                            value={tempDateRange.start}
+                            onChange={e => setTempDateRange(prev => ({ ...prev, start: e.target.value }))}
                         />
                     </div>
                     <div className="flex items-center gap-2">
@@ -302,18 +351,29 @@ export default function EstadisticasPage() {
                         <input 
                             type="date" 
                             className="bg-background border rounded px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                            value={dateRange.end}
-                            onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                            value={tempDateRange.end}
+                            onChange={e => setTempDateRange(prev => ({ ...prev, end: e.target.value }))}
                         />
                     </div>
+                    <button 
+                        onClick={() => {
+                            setDateRange({
+                                start: tempDateRange.start,
+                                end: tempDateRange.end
+                            });
+                        }}
+                        className="bg-primary text-primary-foreground hover:bg-primary/90 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm"
+                    >
+                        Aplicar Filtros
+                    </button>
                     <div className="h-6 w-px bg-border mx-2 hidden md:block"></div>
                     <button 
                         onClick={() => {
                             const now = new Date();
-                            setDateRange({
-                                start: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0],
-                                end: new Date().toISOString().split('T')[0]
-                            });
+                            const startStr = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+                            const endStr = new Date().toISOString().split('T')[0];
+                            setTempDateRange({ start: startStr, end: endStr });
+                            setDateRange({ start: startStr, end: endStr });
                         }}
                         className="text-xs font-bold text-primary hover:underline"
                     >
@@ -418,6 +478,58 @@ export default function EstadisticasPage() {
                             />
                         </AreaChart>
                     </ResponsiveContainer>
+                </div>
+            </div>
+
+            {/* Gráfico de Barras Comparativo (Gramos por Mes) */}
+            <div className="bg-card p-6 rounded-xl border border-border shadow-sm">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-bold text-lg flex items-center gap-2">
+                        <BarChart3 size={20} className="text-primary" />
+                        Historial de Dispensación por Mes (Gramos)
+                    </h3>
+                </div>
+                <div className="h-[250px] w-full">
+                    {monthlyData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={monthlyData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                                <XAxis 
+                                    dataKey="name" 
+                                    axisLine={false} 
+                                    tickLine={false} 
+                                    tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                                    dy={10}
+                                />
+                                <YAxis 
+                                    axisLine={false} 
+                                    tickLine={false} 
+                                    tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                                />
+                                <Tooltip 
+                                    contentStyle={{ 
+                                        backgroundColor: 'hsl(var(--card))', 
+                                        borderColor: 'hsl(var(--border))',
+                                        borderRadius: '8px',
+                                        fontSize: '12px'
+                                    }}
+                                    formatter={(value: any) => [`${value}g`, 'Gramos']}
+                                />
+                                <Bar dataKey="gramos" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]}>
+                                    {monthlyData.map((entry, index) => (
+                                        <Cell 
+                                            key={`cell-${index}`} 
+                                            fill={`hsl(var(--primary) / ${1 - Math.max(0, (monthlyData.length - 1 - index) * 0.15)})`} 
+                                        />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                            No hay datos suficientes para graficar
+                        </div>
+                    )}
                 </div>
             </div>
 

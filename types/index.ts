@@ -91,6 +91,9 @@ export interface Socio {
     // Safety & Compliance
     bloqueado?: boolean;
     motivo_bloqueo?: string;
+    
+    // Activity
+    last_sign_in_at?: string;
 }
 
 export interface SocioInvite {
@@ -116,7 +119,7 @@ export interface Producto {
     peso_gramos: number; // Peso por unidad (ej. 10 para flores)
 }
 
-export type OrderStatus = 'pendiente' | 'confirmado' | 'en_preparacion' | 'en_camino' | 'retirado' | 'entregado' | 'cancelado';
+export type OrderStatus = 'pendiente' | 'confirmado' | 'en_preparacion' | 'en_camino' | 'retirado' | 'entregado' | 'cancelado' | 'procesando';
 export type OrderType = 'retiro_sede' | 'delivery';
 
 export interface OrderItem {

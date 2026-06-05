@@ -7,6 +7,32 @@ import { StoreService } from '@/services/storeService';
 import { Socio } from '@/types';
 import { Plus, Search, User, AlertTriangle } from 'lucide-react';
 
+function formatFriendlyDate(dateStr?: string): string {
+    if (!dateStr) return 'Nunca';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return 'Nunca';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMs < 0) return 'Hace un momento';
+    if (diffMins < 1) return 'Hace un momento';
+    if (diffMins < 60) return `Hace ${diffMins} ${diffMins === 1 ? 'minuto' : 'minutos'}`;
+    if (diffHours < 24) return `Hace ${diffHours} ${diffHours === 1 ? 'hora' : 'horas'}`;
+    if (diffDays === 1) return 'Ayer';
+    if (diffDays < 7) return `Hace ${diffDays} días`;
+
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${day}/${month}/${year} - ${hours}:${minutes}`;
+}
+
 export default function AdminSociosPage() {
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
@@ -198,6 +224,7 @@ export default function AdminSociosPage() {
                             <th className="p-4 text-muted-foreground font-medium">Ubicación</th>
                             <th className="p-4 text-muted-foreground font-medium">REPROCANN</th>
                             <th className="p-4 text-muted-foreground font-medium">Documentación</th>
+                            <th className="p-4 text-muted-foreground font-medium">Última Conexión</th>
                             <th className="p-4 text-muted-foreground font-medium">Acciones</th>
                         </tr>
                     </thead>
@@ -259,6 +286,10 @@ export default function AdminSociosPage() {
                                         <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${docBadgeClass}`}>
                                             {docStatusLabel}
                                         </span>
+                                    </td>
+
+                                    <td className="p-4 text-sm text-muted-foreground">
+                                        {formatFriendlyDate(socio.last_sign_in_at)}
                                     </td>
 
                                     <td className="p-4">
