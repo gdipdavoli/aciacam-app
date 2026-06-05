@@ -60,7 +60,11 @@ export async function DELETE(
 
         if (!isMetadataAdmin) {
             // Check DB
-            const { data: caller, error: roleError } = await supabaseAdmin.from('socios').select('rol').eq('auth_user_id', user.id).single();
+            const { data: caller, error: roleError } = await supabaseAdmin
+                .from('socios')
+                .select('rol')
+                .or(`auth_user_id.eq.${user.id},user_id.eq.${user.id}`)
+                .single();
             if (roleError || caller?.rol !== 'admin') {
                 return NextResponse.json({ error: 'Forbidden: Admins only' }, { status: 403 });
             }

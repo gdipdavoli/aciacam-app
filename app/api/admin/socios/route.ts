@@ -21,11 +21,11 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'No autorizado: Inicie sesión' }, { status: 401 });
         }
 
-        // 3. Verificar Rol de Administrador en la tabla de socios
+        // 3. Verificar Rol de Administrador en la tabla de socios (revisa ambos campos)
         const { data: caller, error: roleError } = await supabase
             .from('socios')
             .select('rol')
-            .eq('auth_user_id', session.user.id)
+            .or(`auth_user_id.eq.${session.user.id},user_id.eq.${session.user.id}`)
             .single();
 
         const callerInfo = caller as CallerInfo | null;
