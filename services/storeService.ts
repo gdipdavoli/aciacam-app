@@ -560,10 +560,16 @@ export const StoreService = {
     // --- SOCIOS: NOW USING SUPABASE ---
 
     getAllSocios: async (role?: string): Promise<Socio[]> => {
-        // Use API Route allows bypass of RLS using Service Key on server
         try {
+            if (!supabase) throw new Error("Supabase client not initialized");
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = {};
+            if (session?.access_token) {
+                headers['Authorization'] = `Bearer ${session.access_token}`;
+            }
+
             const url = role ? `/api/admin/socios?role=${role}` : '/api/admin/socios';
-            const res = await fetch(url);
+            const res = await fetch(url, { headers });
             if (!res.ok) throw new Error('Failed to fetch socios');
             const data = await res.json();
             return (data || []).map(mapSocioFromDB);

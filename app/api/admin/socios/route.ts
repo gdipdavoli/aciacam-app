@@ -14,11 +14,23 @@ export async function GET(request: Request) {
         // 1. Crear cliente de servidor (valida cookies automáticamente)
         const supabase = await createClientServer();
         
-        // 2. Obtener sesión actual
-        const { data: { session }, error: authError } = await supabase.auth.getSession();
+        // 2. Obtener sesión actual (soporta tanto cookies como el header Authorization)
+        let session = null;
+        const authHeader = request.headers.get('Authorization');
+        const token = authHeader?.replace('Bearer ', '');
 
-        if (authError || !session) {
-            return NextResponse.json({ error: 'No autorizado: Inicie sesión' }, { status: 401 });
+        if (token) {
+            const { data } = await supabase.auth.setSession({ access_token: token, refresh_token: '' });
+            session = data.session;
+        } else {
+            const { data: { session: currentSession }, error: authError } = await supabase.auth.getSession();
+            if (!authError) {
+                session = currentSession;
+            }
+        }
+
+        if (!session) {
+            return NextResponse.json({ error: 'No autorizado: Inicie sesión (Token faltante o inválido)' }, { status: 401 });
         }
 
         // 3. Verificar Rol de Administrador en la tabla de socios (revisa ambos campos)
