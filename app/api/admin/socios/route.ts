@@ -53,14 +53,15 @@ export async function GET(request: Request) {
         const { data: socios, error: queryError } = await query;
 
         if (queryError) {
-            return NextResponse.json({ error: 'Error al consultar datos' }, { status: 500 });
+            console.error('API queryError:', queryError);
+            return NextResponse.json({ error: `Error al consultar datos: ${queryError.message}`, details: queryError }, { status: 500 });
         }
 
-        // 5. Retornar datos (sin logs sensibles en consola)
+        // 5. Retornar datos
         return NextResponse.json(socios);
 
-    } catch (e: unknown) {
-        // Error genérico para no filtrar detalles de implementación
-        return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
+    } catch (e: any) {
+        console.error('API catch error:', e);
+        return NextResponse.json({ error: `Error interno del servidor: ${e.message}` }, { status: 500 });
     }
 }
