@@ -10,6 +10,10 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Ignore API requests so they don't get stripped of headers or cached incorrectly
+  if (event.request.url.includes('/api/')) {
+    return;
+  }
   // Estrategia de red por defecto para este SW básico
   event.respondWith(fetch(event.request));
 });

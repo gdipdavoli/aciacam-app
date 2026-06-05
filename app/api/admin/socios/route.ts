@@ -1,6 +1,19 @@
+import { createClient } from '@supabase/supabase-js';
 import { createClientServer } from '@/app/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { UserRole } from '@/types';
+
+// Server-Role Supabase Client (Admin Access)
+const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+        auth: {
+            autoRefreshToken: false,
+            persistSession: false
+        }
+    }
+);
 
 /**
  * Interface para validar el rol del usuario solicitante
@@ -11,33 +24,38 @@ interface CallerInfo {
 
 export async function GET(request: Request) {
     try {
-        // 1. Crear cliente de servidor (valida cookies automáticamente)
-        const supabase = await createClientServer();
-        
-        // 2. Obtener sesión actual (soporta tanto cookies como el header Authorization)
-        let session = null;
+        // 1. Obtener token del header Authorization
         const authHeader = request.headers.get('Authorization');
         const token = authHeader?.replace('Bearer ', '');
 
+        let user = null;
+
         if (token) {
-            const { data } = await supabase.auth.setSession({ access_token: token, refresh_token: '' });
-            session = data.session;
-        } else {
-            const { data: { session: currentSession }, error: authError } = await supabase.auth.getSession();
-            if (!authError) {
-                session = currentSession;
+            // Validar token con el cliente de servicio para robustez
+            const { data: { user: authUser }, error: authError } = await supabaseAdmin.auth.getUser(token);
+            if (!authError && authUser) {
+                user = authUser;
             }
         }
 
-        if (!session) {
+        // 2. Si no hay token, o falló, buscar sesión por cookie usando el cliente de servidor
+        if (!user) {
+            const supabase = await createClientServer();
+            const { data: { session }, error: authError } = await supabase.auth.getSession();
+            if (!authError && session?.user) {
+                user = session.user;
+            }
+        }
+
+        if (!user) {
             return NextResponse.json({ error: 'No autorizado: Inicie sesión (Token faltante o inválido)' }, { status: 401 });
         }
 
         // 3. Verificar Rol de Administrador en la tabla de socios (revisa ambos campos)
-        const { data: caller, error: roleError } = await supabase
+        const { data: caller, error: roleError } = await supabaseAdmin
             .from('socios')
             .select('rol')
-            .or(`auth_user_id.eq.${session.user.id},user_id.eq.${session.user.id}`)
+            .or(`auth_user_id.eq.${user.id},user_id.eq.${user.id}`)
             .single();
 
         const callerInfo = caller as CallerInfo | null;
@@ -49,11 +67,11 @@ export async function GET(request: Request) {
             );
         }
 
-        // 4. Procesar consulta (si llega aquí, está autorizado)
+        // 4. Procesar consulta usando supabaseAdmin para evitar cualquier restricción de RLS
         const { searchParams } = new URL(request.url);
         const roleFilter = searchParams.get('role');
 
-        let query = supabase
+        let query = supabaseAdmin
             .from('socios_with_auth')
             .select('*')
             .order('created_at', { ascending: false });
