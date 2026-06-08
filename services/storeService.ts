@@ -957,6 +957,30 @@ export const StoreService = {
         if (error) throw error;
     },
 
+    getProductAuditLogs: async (): Promise<any[]> => {
+        if (!supabase) return [];
+        const { data, error } = await supabase
+            .from('audit_logs')
+            .select(`
+                id,
+                actor_id,
+                action,
+                entity_type,
+                entity_id,
+                details,
+                created_at,
+                actor:socios(nombre, apellido)
+            `)
+            .eq('entity_type', 'PRODUCT')
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error("StoreService: getProductAuditLogs failed", error);
+            return [];
+        }
+        return data || [];
+    },
+
     getStatsData: async () => {
         if (!supabase) throw new Error("Supabase client not initialized");
         

@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { Producto } from '@/types';
 import { useRouter } from 'next/navigation';
-import { Plus, Edit, Trash2, CheckCircle, XCircle, Search, ImageIcon } from 'lucide-react';
+import { Plus, Edit, Trash2, CheckCircle, XCircle, Search, ImageIcon, History } from 'lucide-react';
 
 export default function AdminProductsPage() {
     const { user, loading: authLoading } = useAuth();
@@ -77,13 +77,22 @@ export default function AdminProductsPage() {
                     <h1 className="text-2xl font-bold mb-2">Productos</h1>
                     <p className="text-muted-foreground">Gestiona el catálogo de dispensas.</p>
                 </div>
-                <button
-                    onClick={() => router.push('/admin/products/new')}
-                    className="bg-primary text-primary-foreground px-4 py-2 rounded-lg flex items-center gap-2 font-medium hover:bg-primary/90 transition-colors"
-                >
-                    <Plus size={18} />
-                    Nuevo Producto
-                </button>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => router.push('/admin/products/audit')}
+                        className="bg-secondary text-secondary-foreground border border-border px-4 py-2 rounded-lg flex items-center gap-2 font-medium hover:bg-muted transition-colors"
+                    >
+                        <History size={18} />
+                        Auditar Stock
+                    </button>
+                    <button
+                        onClick={() => router.push('/admin/products/new')}
+                        className="bg-primary text-primary-foreground px-4 py-2 rounded-lg flex items-center gap-2 font-medium hover:bg-primary/90 transition-colors"
+                    >
+                        <Plus size={18} />
+                        Nuevo Producto
+                    </button>
+                </div>
             </div>
 
             {/* Filters */}
