@@ -963,13 +963,13 @@ export const StoreService = {
             .from('audit_logs')
             .select(`
                 id,
-                actor_id,
+                actor_socio_id,
                 action,
                 entity_type,
                 entity_id,
                 details,
                 created_at,
-                actor:socios(nombre, apellido)
+                actor:socios!actor_socio_id(nombre, apellido)
             `)
             .eq('entity_type', 'PRODUCT')
             .order('created_at', { ascending: false });
