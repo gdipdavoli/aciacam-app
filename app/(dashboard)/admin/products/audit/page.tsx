@@ -45,6 +45,9 @@ export default function StockAuditPage() {
         let productName = details.new?.nombre || details.after?.nombre || details.before?.nombre || details.old?.nombre || 'Producto Desconocido';
         let changeType = 'Actualización';
         
+        const note = details.note || null;
+        const orderId = details.order_id || null;
+
         if (action === 'CREATE') {
             newStock = details.after?.stock_disponible || 0;
             oldStock = 0;
@@ -60,22 +63,17 @@ export default function StockAuditPage() {
             newStock = details.new?.stock_disponible ?? details.after?.stock_disponible ?? 0;
             diff = newStock - oldStock;
             
-            // Check if only stock_disponible changed
             const changes = details.changes || {};
             const changedKeys = Object.keys(changes);
-            const onlyStock = changedKeys.length === 1 && changedKeys.includes('stock_disponible');
             
-            if (onlyStock) {
-                changeType = diff < 0 ? 'Deducción (Pedido/Dispensa)' : 'Ajuste de Stock';
-            } else if (changedKeys.includes('stock_disponible')) {
-                changeType = 'Edición General (Stock Modificado)';
+            if (orderId) {
+                changeType = 'Deducción (Pedido/Dispensa)';
+            } else if (changedKeys.includes('stock_disponible') || oldStock !== newStock) {
+                changeType = diff < 0 ? 'Deducción (Ajuste)' : 'Ajuste de Stock';
             } else {
                 changeType = 'Edición de variedad';
             }
         }
-
-        const note = details.note || null;
-        const orderId = details.order_id || null;
 
         return {
             productName,
