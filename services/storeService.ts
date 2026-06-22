@@ -514,7 +514,7 @@ export const StoreService = {
         return mapProductFromDB(data);
     },
 
-    updateProduct: async (id: string, updates: Partial<Producto>, actorId: string): Promise<void> => {
+    updateProduct: async (id: string, updates: Partial<Producto> & { last_audit_note?: string }, actorId: string): Promise<void> => {
         const dbUpdates: any = {};
         if (updates.nombre !== undefined) dbUpdates.nombre = updates.nombre;
         if (updates.tipo !== undefined) dbUpdates.tipo = updates.tipo;
@@ -524,6 +524,7 @@ export const StoreService = {
         if (updates.activo !== undefined) dbUpdates.activo = updates.activo;
         if (updates.imagen !== undefined) dbUpdates.imagen = updates.imagen;
         if (updates.peso_gramos !== undefined) dbUpdates.peso_gramos = updates.peso_gramos;
+        if (updates.last_audit_note !== undefined) dbUpdates.last_audit_note = updates.last_audit_note;
 
         const { error } = await supabase
             .from('products')

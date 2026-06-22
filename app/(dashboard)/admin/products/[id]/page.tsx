@@ -34,6 +34,8 @@ export default function EditProductPage() {
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
     const [formData, setFormData] = useState<Producto | null>(null);
+    const [originalStock, setOriginalStock] = useState<number | null>(null);
+    const [auditNote, setAuditNote] = useState('');
 
     useEffect(() => {
         if (id) {
@@ -41,6 +43,7 @@ export default function EditProductPage() {
                 .then(p => {
                     if (p) {
                         setFormData(p);
+                        setOriginalStock(p.stockDisponible);
                         if (p.imagen) setPreviewUrl(p.imagen);
                     } else {
                         alert("Producto no encontrado");
@@ -114,7 +117,8 @@ export default function EditProductPage() {
                 stockDisponible: Number(formData.stockDisponible),
                 activo: formData.activo,
                 imagen: imagePath,
-                peso_gramos: Number(formData.peso_gramos)
+                peso_gramos: Number(formData.peso_gramos),
+                last_audit_note: originalStock !== Number(formData.stockDisponible) ? auditNote : undefined
             }, user!.id);
 
             router.push('/admin/products');
@@ -235,6 +239,22 @@ export default function EditProductPage() {
                             }}
                         />
                     </div>
+
+                    {originalStock !== null && Number(formData.stockDisponible) !== originalStock && (
+                        <div className="col-span-2 bg-amber-50 dark:bg-amber-950/20 p-4 rounded-lg border border-amber-200 dark:border-amber-900/50">
+                            <label className="block text-sm font-semibold mb-1 text-amber-800 dark:text-amber-300">
+                                Observación del cambio de stock (Requerido)
+                            </label>
+                            <input
+                                type="text"
+                                required
+                                placeholder="Ej: stock chequeado, coincide"
+                                className="w-full p-2 border border-amber-300 dark:border-amber-800 rounded-md bg-background text-foreground text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                                value={auditNote}
+                                onChange={e => setAuditNote(e.target.value)}
+                            />
+                        </div>
+                    )}
 
                     <div>
                         <label className="block text-sm font-medium mb-1">Peso por unidad (gramos)</label>

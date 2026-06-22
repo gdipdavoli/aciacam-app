@@ -74,12 +74,17 @@ export default function StockAuditPage() {
             }
         }
 
+        const note = details.note || null;
+        const orderId = details.order_id || null;
+
         return {
             productName,
             oldStock,
             newStock,
             diff,
-            changeType
+            changeType,
+            note,
+            orderId
         };
     };
 
@@ -249,9 +254,24 @@ export default function StockAuditPage() {
                                                 </div>
                                             </td>
                                             <td className="p-4 font-medium">
-                                                <div className="flex items-center gap-2">
-                                                    <Package size={16} className="text-muted-foreground" />
-                                                    {productName}
+                                                <div className="flex flex-col">
+                                                    <div className="flex items-center gap-2">
+                                                        <Package size={16} className="text-muted-foreground" />
+                                                        {productName}
+                                                    </div>
+                                                    {note && (
+                                                        <span className="text-xs text-muted-foreground mt-0.5 font-normal bg-muted/50 px-1.5 py-0.5 rounded max-w-max italic">
+                                                            Nota: {note}
+                                                        </span>
+                                                    )}
+                                                    {orderId && (
+                                                        <a 
+                                                            href={`/admin/orders/${orderId}`} 
+                                                            className="text-xs text-primary hover:underline mt-1 font-semibold flex items-center gap-1"
+                                                        >
+                                                            📋 Pedido #{orderId.substring(0, 8)}
+                                                        </a>
+                                                    )}
                                                 </div>
                                             </td>
                                             <td className="p-4 text-muted-foreground">
