@@ -220,7 +220,7 @@ export default function StockAuditPage() {
                                 </tr>
                             ) : (
                                 filteredLogs.map((log) => {
-                                    const { productName, oldStock, newStock, diff, changeType } = log.parsed;
+                                    const { productName, oldStock, newStock, diff, changeType, note, orderId } = log.parsed;
                                     const actorName = log.actor 
                                         ? `${log.actor.nombre} ${log.actor.apellido}`
                                         : 'Sistema / Proceso Automático';
