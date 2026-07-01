@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { StoreService } from '@/services/storeService';
 import { Upload, X, Save } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 export default function NewProductPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const duplicateId = searchParams?.get('duplicate') || null;
     const { user, loading: authLoading } = useAuth();
     const [loading, setLoading] = useState(false);
 
@@ -31,28 +33,55 @@ export default function NewProductPage() {
         peso_gramos: 10
     });
 
-    // Load draft on mount
+    // Load draft or duplicate product on mount
     React.useEffect(() => {
-        const saved = localStorage.getItem('new_product_draft');
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                setFormData(prev => ({ ...prev, ...parsed }));
-            } catch (e) {
-                console.error("Failed to parse product draft", e);
+        if (duplicateId) {
+            setLoading(true);
+            StoreService.getProductById(duplicateId)
+                .then(prod => {
+                    if (prod) {
+                        setFormData({
+                            nombre: `${prod.nombre} (Copia)`,
+                            tipo: prod.tipo,
+                            descripcion: prod.descripcion || '',
+                            categoria: prod.categoria || '',
+                            stockDisponible: prod.stockDisponible || 0,
+                            activo: prod.activo,
+                            imagen: prod.imagen || '',
+                            peso_gramos: prod.peso_gramos || 10
+                        });
+                        if (prod.imagen) {
+                            setPreviewUrl(prod.imagen);
+                        }
+                    }
+                    setLoading(false);
+                })
+                .catch(err => {
+                    console.error("Failed to fetch product for duplication", err);
+                    setLoading(false);
+                });
+        } else {
+            const saved = localStorage.getItem('new_product_draft');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    setFormData(prev => ({ ...prev, ...parsed }));
+                } catch (e) {
+                    console.error("Failed to parse product draft", e);
+                }
             }
         }
         setIsLoaded(true);
-    }, []);
+    }, [duplicateId]);
 
-    // Save draft on change
+    // Save draft on change (only if not duplicating)
     React.useEffect(() => {
-        if (!isLoaded) return;
+        if (!isLoaded || duplicateId) return;
         const timeout = setTimeout(() => {
             localStorage.setItem('new_product_draft', JSON.stringify(formData));
         }, 1000);
         return () => clearTimeout(timeout);
-    }, [formData, isLoaded]);
+    }, [formData, isLoaded, duplicateId]);
 
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {

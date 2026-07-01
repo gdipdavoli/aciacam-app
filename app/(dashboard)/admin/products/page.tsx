@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { Producto } from '@/types';
 import { useRouter } from 'next/navigation';
-import { Plus, Edit, Trash2, CheckCircle, XCircle, Search, ImageIcon, History } from 'lucide-react';
+import { Plus, Edit, Trash2, CheckCircle, XCircle, Search, ImageIcon, History, Copy } from 'lucide-react';
 
 export default function AdminProductsPage() {
     const { user, loading: authLoading } = useAuth();
@@ -178,6 +178,13 @@ export default function AdminProductsPage() {
                                         </td>
                                         <td className="p-4 text-right">
                                             <div className="flex justify-end gap-2">
+                                                <button
+                                                    onClick={() => router.push(`/admin/products/new?duplicate=${product.id}`)}
+                                                    className="p-2 hover:bg-secondary rounded-md text-muted-foreground hover:text-foreground transition-colors"
+                                                    title="Duplicar"
+                                                >
+                                                    <Copy size={16} />
+                                                </button>
                                                 <button
                                                     onClick={() => router.push(`/admin/products/${product.id}`)}
                                                     className="p-2 hover:bg-secondary rounded-md text-muted-foreground hover:text-foreground transition-colors"

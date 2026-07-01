@@ -38,20 +38,40 @@ export const StorageService = {
      * Generates a temporary signed URL to view/download the file.
      */
     createSignedUrl: async (path: string, expiresInSeconds = 600): Promise<string> => {
-        if (!supabase) {
-            console.warn('Supabase not configured, cannot generate signed URL');
-            return '';
+        try {
+            // Get session token if available to authenticate the fetch call
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = {};
+            if (session?.access_token) {
+                headers['Authorization'] = `Bearer ${session.access_token}`;
+            }
+
+            const response = await fetch(`/api/docs/signed-url?path=${encodeURIComponent(path)}`, { headers });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to fetch signed URL from API');
+            }
+
+            const data = await response.json();
+            return data.signedUrl;
+        } catch (err) {
+            console.warn("Failed to generate signed URL via API, falling back to client-side SDK...", err);
+            
+            if (!supabase) {
+                console.warn('Supabase not configured, cannot generate signed URL');
+                return '';
+            }
+
+            const { data, error } = await supabase.storage
+                .from(BUCKET_NAME)
+                .createSignedUrl(path, expiresInSeconds);
+
+            if (error) {
+                console.error('Error creating signed URL via client-side SDK:', error);
+                throw error;
+            }
+
+            return data.signedUrl;
         }
-
-        const { data, error } = await supabase.storage
-            .from(BUCKET_NAME)
-            .createSignedUrl(path, expiresInSeconds);
-
-        if (error) {
-            console.error('Error creating signed URL:', error);
-            throw error;
-        }
-
-        return data.signedUrl;
     }
 };
