@@ -43,7 +43,7 @@ export default function ResetPasswordPage() {
         } else {
             setSuccess(true);
             setTimeout(() => {
-                router.push('/portal');
+                router.push('/');
             }, 2000);
         }
     };
@@ -53,7 +53,7 @@ export default function ResetPasswordPage() {
             <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'hsl(var(--background))' }}>
                 <div style={{ padding: '2rem', maxWidth: '400px', width: '100%', textAlign: 'center', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))' }}>
                     <h1 style={{ fontSize: '1.5rem', color: '#166534', marginBottom: '1rem' }}>¡Contraseña Actualizada!</h1>
-                    <p>Redirigiendo al portal...</p>
+                    <p>Redirigiendo al inicio...</p>
                 </div>
             </div>
         );

@@ -28,7 +28,7 @@ export default function RegisterSuccessPage() {
                 </div>
 
                 <Link 
-                    href="/portal"
+                    href="/"
                     style={{
                         display: 'block',
                         padding: '1rem',

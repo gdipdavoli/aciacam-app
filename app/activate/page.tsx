@@ -29,7 +29,7 @@ function ActivateContent() {
             // If flow=consume, we ARE logged in but need to finish the logic below.
             const flow = searchParams.get('flow');
             if (session?.user && flow !== 'consume') {
-                router.replace('/portal');
+                router.replace('/');
             }
         };
         checkSession();

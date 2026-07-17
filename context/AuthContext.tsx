@@ -237,6 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const isExempt =
                 pathname === '/login' ||
                 pathname === '/terms' ||
+                pathname === '/reset-password' ||
                 pathname?.startsWith('/auth/');
 
             // 1. TERMS GATE
