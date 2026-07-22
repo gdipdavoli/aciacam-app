@@ -159,10 +159,20 @@ export default function AdminProductsPage() {
                                             <div className="text-xs text-muted-foreground truncate max-w-[200px]">{product.descripcion}</div>
                                         </td>
                                         <td className="p-4 text-sm">{product.categoria}</td>
-                                        <td className="p-4 text-sm">
-                                            <span className={product.stockDisponible > 0 ? "text-green-600 font-medium" : "text-red-500 font-medium"}>
-                                                {product.stockDisponible} u.
-                                            </span>
+                                        <td className="p-4 text-sm font-medium">
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-foreground">
+                                                    Físico: <strong className="text-foreground font-semibold">{product.stockReal ?? product.stockDisponible}</strong> u.
+                                                </span>
+                                                {product.stockReservado !== undefined && product.stockReservado > 0 ? (
+                                                    <span className="text-xs text-amber-600 dark:text-amber-400">
+                                                        Reservado: {product.stockReservado} u.
+                                                    </span>
+                                                ) : null}
+                                                <span className={`text-xs ${product.stockDisponible > 0 ? "text-green-600 dark:text-green-400" : "text-red-500 font-medium"}`}>
+                                                    Disponible: {product.stockDisponible} u.
+                                                </span>
+                                            </div>
                                         </td>
                                         <td className="p-4">
                                             <button

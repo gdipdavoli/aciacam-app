@@ -1,21 +1,11 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation'; // Correct import for App Router
+import { useRouter, useParams } from 'next/navigation'; // Correct import for App Router
 import { StoreService } from '@/services/storeService';
 import { Producto } from '@/types';
 import { useAuth } from '@/context/AuthContext';
-import { Upload, X, Save, Trash2 } from 'lucide-react';
-
-// For Next.js 15, params are a Promise, but for clientside commonly we use use(params) or just props in previous versions.
-// However, since this is "use client", we receive params via props. 
-// Standard in Page.tsx: ({ params }: { params: { id: string } })
-// BUT in Next 15 it might be await params. Let's use React.use() if needed or just async props wrapper? 
-// Simplest: use `useParams` hook or standard props. 
-// Warning: `params` prop in Client Components is not recommended in recent Next.js checks, but typically still passed.
-// Safe bet: Helper wrapper or use router params? No, `useParams` hook.
-
-import { useParams } from 'next/navigation';
+import { Upload, X, Save } from 'lucide-react';
 
 export default function EditProductPage() {
     const router = useRouter();
@@ -24,11 +14,6 @@ export default function EditProductPage() {
     const { user, loading: authLoading } = useAuth();
 
     const [loading, setLoading] = useState(true);
-
-    if (!authLoading && user && user.rol !== 'admin' && user.rol !== 'staff') {
-        router.push('/');
-        return null; // or render Access Denied
-    }
     const [saving, setSaving] = useState(false);
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -36,14 +21,22 @@ export default function EditProductPage() {
     const [formData, setFormData] = useState<Producto | null>(null);
     const [originalStock, setOriginalStock] = useState<number | null>(null);
     const [auditNote, setAuditNote] = useState('');
+    const [adjustmentType, setAdjustmentType] = useState<'none' | 'add' | 'subtract'>('none');
+    const [adjustmentQty, setAdjustmentQty] = useState<number>(0);
+
+    if (!authLoading && user && user.rol !== 'admin' && user.rol !== 'staff') {
+        router.push('/');
+        return null;
+    }
 
     useEffect(() => {
         if (id) {
-            StoreService.getProductById(id)
-                .then(p => {
+            StoreService.getProductos(true)
+                .then(products => {
+                    const p = products.find(prod => prod.id === id);
                     if (p) {
                         setFormData(p);
-                        setOriginalStock(p.stockDisponible);
+                        setOriginalStock(p.stockReal ?? p.stockDisponible);
                         if (p.imagen) setPreviewUrl(p.imagen);
                     } else {
                         alert("Producto no encontrado");
@@ -109,16 +102,28 @@ export default function EditProductPage() {
                 }
             }
 
+            const finalStock = adjustmentType === 'add' 
+                ? (originalStock ?? 0) + adjustmentQty 
+                : adjustmentType === 'subtract' 
+                    ? (originalStock ?? 0) - adjustmentQty 
+                    : (originalStock ?? 0);
+
+            if (finalStock < 0) {
+                alert("No podés reducir el stock por debajo de cero.");
+                setSaving(false);
+                return;
+            }
+
             await StoreService.updateProduct(formData.id, {
                 nombre: formData.nombre,
                 tipo: formData.tipo,
                 descripcion: formData.descripcion,
                 categoria: formData.categoria,
-                stockDisponible: Number(formData.stockDisponible),
+                stockDisponible: finalStock,
                 activo: formData.activo,
                 imagen: imagePath,
                 peso_gramos: Number(formData.peso_gramos),
-                last_audit_note: originalStock !== Number(formData.stockDisponible) ? auditNote : undefined
+                last_audit_note: adjustmentType !== 'none' && adjustmentQty > 0 ? auditNote : undefined
             }, user!.id);
 
             router.push('/admin/products');
@@ -222,39 +227,97 @@ export default function EditProductPage() {
                         />
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Stock Disponible</label>
-                        <input
-                            type="number"
-                            required
-                            min="0"
-                            className="w-full p-2 border rounded-md bg-background text-foreground"
-                            value={formData.stockDisponible.toString()}
-                            onChange={e => {
-                                const val = e.target.value;
-                                setFormData({
-                                    ...formData,
-                                    stockDisponible: val === '' ? '' : Number(val)
-                                } as any)
-                            }}
-                        />
+                    {/* Sección de stock actual e info */}
+                    <div className="col-span-2 bg-muted/40 p-4 rounded-lg border border-border">
+                        <h3 className="text-sm font-semibold mb-2">Información de Stock Actual</h3>
+                        <div className="grid grid-cols-3 gap-4 text-center">
+                            <div className="bg-background p-2 rounded border">
+                                <div className="text-xs text-muted-foreground">Físico (Depósito)</div>
+                                <div className="text-lg font-bold text-foreground">{originalStock ?? 0} u.</div>
+                            </div>
+                            <div className="bg-background p-2 rounded border">
+                                <div className="text-xs text-muted-foreground">Reservado (Pedidos)</div>
+                                <div className="text-lg font-bold text-amber-600 dark:text-amber-400">{formData.stockReservado ?? 0} u.</div>
+                            </div>
+                            <div className="bg-background p-2 rounded border">
+                                <div className="text-xs text-muted-foreground">Disponible</div>
+                                <div className="text-lg font-bold text-green-600 dark:text-green-400">
+                                    {Math.max(0, (originalStock ?? 0) - (formData.stockReservado ?? 0))} u.
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
-                    {originalStock !== null && Number(formData.stockDisponible) !== originalStock && (
-                        <div className="col-span-2 bg-amber-50 dark:bg-amber-950/20 p-4 rounded-lg border border-amber-200 dark:border-amber-900/50">
-                            <label className="block text-sm font-semibold mb-1 text-amber-800 dark:text-amber-300">
-                                Observación del cambio de stock (Requerido)
-                            </label>
-                            <input
-                                type="text"
-                                required
-                                placeholder="Ej: stock chequeado, coincide"
-                                className="w-full p-2 border border-amber-300 dark:border-amber-800 rounded-md bg-background text-foreground text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                                value={auditNote}
-                                onChange={e => setAuditNote(e.target.value)}
-                            />
+                    {/* Controles de Ajuste de Stock */}
+                    <div className="col-span-2 border-t pt-4 mt-2">
+                        <label className="block text-sm font-semibold mb-2">Ajustar Inventario Físico</label>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs text-muted-foreground mb-1">Acción</label>
+                                <select
+                                    className="w-full p-2 border rounded-md bg-background text-foreground text-sm"
+                                    value={adjustmentType}
+                                    onChange={e => {
+                                        const type = e.target.value as any;
+                                        setAdjustmentType(type);
+                                        if (type === 'none') {
+                                            setAdjustmentQty(0);
+                                            setAuditNote('');
+                                        }
+                                    }}
+                                >
+                                    <option value="none">Sin cambios en el stock</option>
+                                    <option value="add">Aumentar Stock (+)</option>
+                                    <option value="subtract">Disminuir Stock (-)</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs text-muted-foreground mb-1">Cantidad</label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    disabled={adjustmentType === 'none'}
+                                    className="w-full p-2 border rounded-md bg-background text-foreground text-sm disabled:opacity-50"
+                                    placeholder="Ej. 5"
+                                    value={adjustmentQty === 0 ? '' : adjustmentQty}
+                                    onChange={e => {
+                                        const val = e.target.value;
+                                        setAdjustmentQty(val === '' ? 0 : Math.max(0, parseInt(val, 10)));
+                                    }}
+                                />
+                            </div>
                         </div>
-                    )}
+
+                        {adjustmentType !== 'none' && adjustmentQty > 0 && (
+                            <div className="mt-4 space-y-4">
+                                {/* Vista previa del stock final */}
+                                <div className="bg-blue-50 dark:bg-blue-950/20 p-3 rounded border border-blue-200 dark:border-blue-900/50 text-sm flex justify-between items-center">
+                                    <span className="text-blue-800 dark:text-blue-300 font-medium">Stock Físico Resultante:</span>
+                                    <span className="text-blue-900 dark:text-blue-200 font-bold text-base">
+                                        {adjustmentType === 'add' 
+                                            ? (originalStock ?? 0) + adjustmentQty 
+                                            : Math.max(0, (originalStock ?? 0) - adjustmentQty)} u.
+                                    </span>
+                                </div>
+
+                                {/* Observación obligatoria */}
+                                <div className="bg-amber-50 dark:bg-amber-950/20 p-4 rounded-lg border border-amber-200 dark:border-amber-900/50">
+                                    <label className="block text-sm font-semibold mb-1 text-amber-800 dark:text-amber-300">
+                                        Observación del ajuste de stock (Requerido)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="Ej: ingreso de lote, corrección de inventario"
+                                        className="w-full p-2 border border-amber-300 dark:border-amber-800 rounded-md bg-background text-foreground text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                                        value={auditNote}
+                                        onChange={e => setAuditNote(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     <div>
                         <label className="block text-sm font-medium mb-1">Peso por unidad (gramos)</label>
@@ -274,7 +337,7 @@ export default function EditProductPage() {
                         />
                     </div>
 
-                    <div className="flex items-center gap-3 pt-6">
+                    <div className="flex items-center gap-3 pt-6 col-span-2">
                         <label className="flex items-center gap-2 cursor-pointer">
                             <input
                                 type="checkbox"

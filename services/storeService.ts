@@ -177,11 +177,11 @@ export const StoreService = {
         }
 
         // 2. Fetch Pending/Preparing orders to calculate "Committed Stock"
-        // We only care about orders that are NOT yet delivered or cancelled.
+        // We only care about orders that are NOT yet delivered, picked up, or cancelled.
         const { data: pendingOrders, error: orderError } = await supabase
             .from('pedidos')
             .select('items')
-            .in('estado', ['pendiente', 'preparando', 'confirmado']);
+            .not('estado', 'in', '("entregado","retirado","cancelado")');
 
         if (orderError) {
             console.error('Error fetching pending orders for stock calc:', orderError);
@@ -206,8 +206,10 @@ export const StoreService = {
         return (productsData || []).map(row => {
             const product = mapProductFromDB(row);
             const committed = committedStockMap[product.id] || 0;
+            product.stockReal = row.stock_disponible;
+            product.stockReservado = committed;
             // The available stock for NEW orders is the DB stock minus what's already committed
-            product.stockDisponible = Math.max(0, product.stockDisponible - committed);
+            product.stockDisponible = Math.max(0, row.stock_disponible - committed);
             return product;
         });
     },

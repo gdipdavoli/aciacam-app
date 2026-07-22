@@ -117,6 +117,8 @@ export interface Producto {
     activo: boolean;
     imagen?: string;
     peso_gramos: number; // Peso por unidad (ej. 10 para flores)
+    stockReal?: number;
+    stockReservado?: number;
 }
 
 export type OrderStatus = 'pendiente' | 'confirmado' | 'en_preparacion' | 'en_camino' | 'retirado' | 'entregado' | 'cancelado' | 'procesando';
