@@ -41,7 +41,7 @@ export async function POST(req: Request) {
             if (socioByEmail) {
                 console.log(`AcceptTerms: Found socio by email ${socioByEmail.id}. Healing link...`);
                 // Heal the link immediately
-                await supabaseAdmin.from('socios').update({ auth_user_id: user.id }).eq('id', socioByEmail.id);
+                await supabaseAdmin.from('socios').update({ auth_user_id: user.id, user_id: user.id }).eq('id', socioByEmail.id);
                 socio = socioByEmail;
             }
         }

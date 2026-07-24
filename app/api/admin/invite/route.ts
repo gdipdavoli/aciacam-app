@@ -129,7 +129,8 @@ export async function POST(req: Request) {
                 status: 'invited',
                 invited_at: new Date().toISOString(),
                 invited_by: user.id, // Auth User ID of Admin
-                auth_user_id: invitedUser.id // Link the Auth User
+                auth_user_id: invitedUser.id, // Link the Auth User
+                user_id: invitedUser.id // Sync user_id to avoid RLS/policy issues
             })
             .eq('id', socioId);
 
