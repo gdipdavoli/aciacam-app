@@ -372,7 +372,7 @@ export default function AdminProductsPage() {
             {/* 1. Stock Adjust Drawer */}
             {adjustingProduct && (
                 <div 
-                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center md:hidden"
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-end justify-center md:hidden"
                     onClick={() => setAdjustingProduct(null)}
                 >
                     <div 
@@ -474,7 +474,7 @@ export default function AdminProductsPage() {
             {/* 2. Audit Log Drawer */}
             {auditingProduct && (
                 <div 
-                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center md:hidden"
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-end justify-center md:hidden"
                     onClick={() => setAuditingProduct(null)}
                 >
                     <div 
