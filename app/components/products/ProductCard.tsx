@@ -24,7 +24,7 @@ export default function ProductCard({ product }: ProductCardProps) {
     };
 
     const isLowStock = product.stockDisponible < 10 && product.stockDisponible > 0;
-    const isOutOfStock = product.stockDisponible === 0;
+    const isOutOfStock = product.stockDisponible <= 0;
 
     return (
         <div className="bg-card rounded-xl border shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow">

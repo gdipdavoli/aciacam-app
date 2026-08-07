@@ -125,6 +125,9 @@ export default function CheckoutPage() {
             }
         } catch (stockErr) {
             console.error("Stock pre-check failed", stockErr);
+            alert("No se pudo verificar el stock disponible en este momento. Por favor, reintente en unos instantes.");
+            setIsSubmitting(false);
+            return;
         }
 
         // 2. CONTINUE WITH VALIDATION
