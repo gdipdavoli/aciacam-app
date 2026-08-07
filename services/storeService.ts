@@ -401,6 +401,22 @@ export const StoreService = {
         return (data || []).map(mapPagoFromDB);
     },
 
+    getAllPagos: async (): Promise<Pago[]> => {
+        if (!supabase) return [];
+
+        const { data, error } = await supabase
+            .from('pagos')
+            .select('*')
+            .order('fecha', { ascending: false });
+
+        if (error) {
+            console.error("StoreService: Get All Pagos Failed", error.message || error);
+            return [];
+        }
+
+        return (data || []).map(mapPagoFromDB);
+    },
+
     createPago: async (pago: Omit<Pago, 'id'>, actorId: string): Promise<Pago> => {
         if (!supabase) throw new Error("Supabase client not initialized");
 
