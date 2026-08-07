@@ -141,6 +141,15 @@ export const NotificationService = {
             .eq('id', ticketId);
 
         if (error) throw error;
+
+        // If ticket is closed, automatically mark all thread messages as read for admin
+        if (estado === 'cerrado') {
+            try {
+                await NotificationService.markThreadAsRead(ticketId, true);
+            } catch (err) {
+                console.error("Error marking thread as read on status update:", err);
+            }
+        }
     },
 
     /**
@@ -374,12 +383,25 @@ export const NotificationService = {
                 .eq('leido', false);
             
             if (error) throw error;
-            if (!data) return 0;
+            if (!data || data.length === 0) return 0;
 
             // Group by the "root" message ID. 
             // If it has a parent_id, that's the root. If not, the message itself is the root.
-            const uniqueThreads = new Set(data.map(n => n.parent_id || n.id));
-            return uniqueThreads.size;
+            const uniqueThreads = Array.from(new Set(data.map(n => n.parent_id || n.id)));
+            
+            // Filter out threads that are closed ('cerrado')
+            const { data: rootStatuses, error: statusErr } = await supabase
+                .from('notificaciones')
+                .select('id, estado')
+                .in('id', uniqueThreads);
+
+            if (statusErr || !rootStatuses) {
+                console.error("Error fetching root statuses for unread count:", statusErr);
+                return uniqueThreads.length;
+            }
+
+            const activeThreads = rootStatuses.filter(r => r.estado !== 'cerrado');
+            return activeThreads.length;
         } else {
             // For Socio, keep counting individual unread notifications
             let query = supabase
