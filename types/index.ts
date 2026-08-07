@@ -121,7 +121,14 @@ export interface Producto {
     stockReservado?: number;
 }
 
-export type OrderStatus = 'pendiente' | 'confirmado' | 'en_preparacion' | 'en_camino' | 'retirado' | 'entregado' | 'cancelado' | 'procesando';
+export interface ProductoWithStockInfo extends Producto {
+    stock_disponible: number;
+    stock_reservado: number;
+    stock_fisico: number;
+    pedidos_reservados_count: number;
+}
+
+export type OrderStatus = 'pendiente' | 'confirmado' | 'en_preparacion' | 'listo_para_retiro' | 'en_camino' | 'retirado' | 'entregado' | 'cancelado' | 'procesando';
 export type OrderType = 'retiro_sede' | 'delivery';
 
 export interface OrderItem {

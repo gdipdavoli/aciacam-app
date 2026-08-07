@@ -1,4 +1,4 @@
-import { Producto, Pedido, OrderType, OrderItem, Socio, Pago } from '@/types';
+import { Producto, Pedido, OrderType, OrderItem, Socio, Pago, ProductoWithStockInfo } from '@/types';
 import { MOCK_PRODUCTOS, MOCK_SOCIOS } from './mockData';
 import { supabase } from './supabaseClient';
 import * as DocService from './documentacionService';
@@ -202,15 +202,75 @@ export const StoreService = {
             }
         });
 
-        // 4. Map and subtract
+        // 4. Map
         return (productsData || []).map(row => {
             const product = mapProductFromDB(row);
             const committed = committedStockMap[product.id] || 0;
-            product.stockReal = row.stock_disponible;
-            product.stockReservado = committed;
-            // The available stock for NEW orders is the DB stock minus what's already committed
-            product.stockDisponible = Math.max(0, row.stock_disponible - committed);
+            product.stockReal = row.stock_disponible + committed; // Physical stock in warehouse
+            product.stockReservado = committed; // Reserved stock
+            product.stockDisponible = row.stock_disponible; // Net available stock (trigger already deducted active ones)
             return product;
+        });
+    },
+
+    getVariedadesWithStockInfo: async (): Promise<ProductoWithStockInfo[]> => {
+        if (!supabase) return [];
+
+        // 1. Fetch Products
+        const { data: productsData, error: prodError } = await supabase
+            .from('products')
+            .select('*')
+            .order('nombre', { ascending: true });
+
+        if (prodError) {
+            console.error('Error fetching products for stock info:', prodError);
+            throw prodError;
+        }
+
+        // 2. Fetch all orders with state 'pendiente' or 'en_preparacion'
+        const { data: activeOrders, error: orderError } = await supabase
+            .from('pedidos')
+            .select('items')
+            .in('estado', ['pendiente', 'en_preparacion']);
+
+        if (orderError) {
+            console.error('Error fetching active orders for stock info:', orderError);
+            throw orderError;
+        }
+
+        // 3. Aggregate reserved stock and count of orders
+        const reservedStockMap: Record<string, number> = {};
+        const countMap: Record<string, number> = {};
+
+        activeOrders?.forEach((order: any) => {
+            const items = order.items as any[];
+            if (Array.isArray(items)) {
+                items.forEach(item => {
+                    const id = item.productoId;
+                    const qty = parseInt(item.cantidad) || 0;
+                    if (id) {
+                        reservedStockMap[id] = (reservedStockMap[id] || 0) + qty;
+                        countMap[id] = (countMap[id] || 0) + 1;
+                    }
+                });
+            }
+        });
+
+        // 4. Map to ProductoWithStockInfo
+        return (productsData || []).map(row => {
+            const prod = mapProductFromDB(row);
+            const stock_reservado = reservedStockMap[prod.id] || 0;
+            const stock_disponible = row.stock_disponible || 0;
+            const stock_fisico = stock_disponible + stock_reservado;
+            const pedidos_reservados_count = countMap[prod.id] || 0;
+
+            return {
+                ...prod,
+                stock_disponible,
+                stock_reservado,
+                stock_fisico,
+                pedidos_reservados_count
+            };
         });
     },
 
