@@ -64,7 +64,7 @@ export async function POST(req: Request) {
         // 2. Fetch Target Socio
         const { data: socio, error: socioError } = await supabaseAdmin
             .from('socios')
-            .select('email, status, invited_at, auth_user_id')
+            .select('email, status, invited_at, auth_user_id, password_set')
             .eq('id', socioId)
             .single();
 
@@ -86,41 +86,82 @@ export async function POST(req: Request) {
             }
         }
 
-        // 4. Invite User (Supabase Auth) - WITH CLEAN START FOR RE-INVITES
+        // 4. Check status and handle confirmed/password state
         let targetAuthId = socio.auth_user_id;
+        let isAlreadyConfirmed = false;
+        let existingAuthUser = null;
 
         if (targetAuthId) {
-            // Check current auth status
-            const { data: { user: existingAuthUser } } = await supabaseAdmin.auth.admin.getUserById(targetAuthId);
-            
-            // If user exists but is NOT confirmed, delete them to allow a fresh invite
-            if (existingAuthUser && !existingAuthUser.confirmed_at) {
-                console.log(`API Invite: User ${targetAuthId} exists but not confirmed. Deleting for fresh start.`);
-                await supabaseAdmin.auth.admin.deleteUser(targetAuthId);
-                // We clear targetAuthId so we don't accidentally try to use it later
-                targetAuthId = null;
+            const { data: { user: fetchedUser } } = await supabaseAdmin.auth.admin.getUserById(targetAuthId);
+            existingAuthUser = fetchedUser;
+        }
+
+        // Self-healing: lookup by email if auth_user_id is not set
+        if (!existingAuthUser && socio.email) {
+            const { data: { users } } = await supabaseAdmin.auth.admin.listUsers();
+            existingAuthUser = users.find(u => u.email?.toLowerCase() === socio.email.toLowerCase()) || null;
+            if (existingAuthUser) {
+                targetAuthId = existingAuthUser.id;
             }
         }
 
-        // Determine Origin for Redirect
-        const origin = providedOrigin || process.env.SITE_URL || req.headers.get('origin') || 'http://localhost:3000';
-        const finalRedirectTo = `${origin}/auth/invite-callback`;
-
-        console.log(`API Invite: Sending invite to ${socio.email}`);
-        const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(socio.email, {
-            redirectTo: finalRedirectTo
-        });
-
-        if (inviteError) {
-            console.error("Invite Error:", inviteError.message);
-            
-            // Fallback: If it still says "already registered", maybe they DID confirm but never set terms?
-            // In that case, we should NOT delete them, but maybe send a password reset.
-            // But for now, we follow the user's lead: "delete and recreate".
-            return NextResponse.json({ error: inviteError.message }, { status: 500 });
+        if (existingAuthUser) {
+            if (!existingAuthUser.confirmed_at) {
+                console.log(`API Invite: User ${existingAuthUser.id} exists but not confirmed. Deleting for fresh start.`);
+                await supabaseAdmin.auth.admin.deleteUser(existingAuthUser.id);
+                targetAuthId = null;
+                existingAuthUser = null;
+            } else {
+                isAlreadyConfirmed = true;
+            }
         }
 
-        const invitedUser = inviteData.user;
+        // Fetch latest invites to check for consumption
+        const { data: invites } = await supabaseAdmin
+            .from('socio_invites')
+            .select('status, consumed_at')
+            .eq('socio_id', socioId)
+            .order('created_at', { ascending: false });
+        
+        const latestInvite = invites && invites.length > 0 ? invites[0] : null;
+
+        let invitedUser = null;
+        let customToken = crypto.randomUUID();
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 72); // 3 days
+
+        if (isAlreadyConfirmed) {
+            const isPasswordSet = socio.password_set || (latestInvite && latestInvite.consumed_at !== null) || (latestInvite && latestInvite.status === 'consumed');
+            
+            if (isPasswordSet) {
+                return NextResponse.json({ 
+                    error: 'El socio ya está registrado y tiene clave configurada. Por favor, indíquele que ingrese con sus credenciales.' 
+                }, { status: 400 });
+            }
+
+            console.log(`API Invite: User ${targetAuthId} is already confirmed but has no password set. Renewing token only.`);
+            invitedUser = existingAuthUser;
+        } else {
+            // Determine Origin for Redirect
+            const origin = providedOrigin || process.env.SITE_URL || req.headers.get('origin') || 'http://localhost:3000';
+            const finalRedirectTo = `${origin}/auth/invite-callback`;
+
+            console.log(`API Invite: Sending invite to ${socio.email}`);
+            const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(socio.email, {
+                redirectTo: finalRedirectTo
+            });
+
+            if (inviteError) {
+                console.error("Invite Error:", inviteError.message);
+                return NextResponse.json({ error: inviteError.message }, { status: 500 });
+            }
+
+            invitedUser = inviteData.user;
+        }
+
+        if (!invitedUser) {
+            return NextResponse.json({ error: "Fallo al inicializar el usuario" }, { status: 500 });
+        }
 
         // 5. Update Socio Record
         const { error: updateError } = await supabaseAdmin
@@ -139,9 +180,6 @@ export async function POST(req: Request) {
         }
 
         // 6. Create custom invite record for "Copy Link" support
-        const customToken = crypto.randomUUID();
-        const expiresAt = new Date();
-        expiresAt.setHours(expiresAt.getHours() + 72); // 3 days
 
         const { error: customInviteError } = await supabaseAdmin
             .from('socio_invites')
@@ -168,7 +206,8 @@ export async function POST(req: Request) {
             details: {
                 inviterAuthUserId: user.id,
                 socioEmail: socio.email,
-                targetAuthUserId: invitedUser.id
+                targetAuthUserId: invitedUser.id,
+                renewedOnly: isAlreadyConfirmed
             }
         });
 

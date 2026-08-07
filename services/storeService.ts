@@ -581,7 +581,7 @@ export const StoreService = {
             if (!supabase) return MOCK_SOCIOS;
 
             let query = supabase
-                .from('socios')
+                .from('socios_with_auth')
                 .select('*')
                 .order('created_at', { ascending: false });
 
@@ -984,9 +984,28 @@ export const StoreService = {
         return data || [];
     },
 
-    getStatsData: async () => {
+    getStatsData: async (startDate?: string, endDate?: string) => {
         if (!supabase) throw new Error("Supabase client not initialized");
         
+        let queryPedidos = supabase.from('pedidos').select('*');
+        let queryPagos = supabase.from('pagos').select('*');
+
+        if (startDate && endDate) {
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            const rangeDuration = end.getTime() - start.getTime();
+            const prevStartDate = new Date(start.getTime() - rangeDuration);
+            const prevStartStr = prevStartDate.toISOString().split('T')[0];
+            
+            queryPedidos = queryPedidos
+                .gte('created_at', prevStartStr)
+                .lte('created_at', endDate + 'T23:59:59.999Z');
+            queryPagos = queryPagos
+                .gte('fecha', prevStartStr)
+                .lte('fecha', endDate + 'T23:59:59.999Z');
+        }
+
         // Fetch everything needed for stats
         const [
             { data: pedidos, error: errP },
@@ -994,10 +1013,10 @@ export const StoreService = {
             { data: productos, error: errProd },
             { data: pagos, error: errPag }
         ] = await Promise.all([
-            supabase.from('pedidos').select('*'),
+            queryPedidos,
             supabase.from('socios').select('*'),
             supabase.from('products').select('*'),
-            supabase.from('pagos').select('*')
+            queryPagos
         ]);
 
         if (errP || errS || errProd || errPag) {

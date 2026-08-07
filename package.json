@@ -11,6 +11,7 @@
     "@ai-sdk/openai": "^2.0.88",
     "@ai-sdk/react": "^2.0.117",
     "@anthropic-ai/sdk": "^0.82.0",
+    "@ducanh2912/next-pwa": "^10.2.9",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.87.1",
     "ai": "^5.0.115",

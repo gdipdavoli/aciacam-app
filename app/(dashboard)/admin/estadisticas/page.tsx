@@ -60,27 +60,28 @@ export default function EstadisticasPage() {
         end: new Date().toISOString().split('T')[0]
     });
 
-    useEffect(() => {
-        if (!authLoading) {
-            if (!user || (user.rol !== 'admin' && user.rol !== 'staff')) {
-                router.push('/');
-                return;
-            }
-            fetchStats();
-        }
-    }, [user, authLoading]);
-
-    const fetchStats = async () => {
+    const fetchStats = async (start = tempDateRange.start, end = tempDateRange.end) => {
         setLoading(true);
         try {
-            const res = await StoreService.getStatsData();
+            const res = await StoreService.getStatsData(start, end);
             setData(res);
+            setDateRange({ start, end });
         } catch (e) {
             console.error(e);
         } finally {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        if (!authLoading) {
+            if (!user || (user.rol !== 'admin' && user.rol !== 'staff')) {
+                router.push('/');
+                return;
+            }
+            fetchStats(dateRange.start, dateRange.end);
+        }
+    }, [user, authLoading]);
 
     // --- LÓGICA DE CÁLCULOS ---
 
@@ -356,15 +357,10 @@ export default function EstadisticasPage() {
                         />
                     </div>
                     <button 
-                        onClick={() => {
-                            setDateRange({
-                                start: tempDateRange.start,
-                                end: tempDateRange.end
-                            });
-                        }}
+                        onClick={() => fetchStats()}
                         className="bg-primary text-primary-foreground hover:bg-primary/90 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm"
                     >
-                        Aplicar Filtros
+                        Actualizar Datos
                     </button>
                     <div className="h-6 w-px bg-border mx-2 hidden md:block"></div>
                     <button 
@@ -373,7 +369,7 @@ export default function EstadisticasPage() {
                             const startStr = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
                             const endStr = new Date().toISOString().split('T')[0];
                             setTempDateRange({ start: startStr, end: endStr });
-                            setDateRange({ start: startStr, end: endStr });
+                            fetchStats(startStr, endStr);
                         }}
                         className="text-xs font-bold text-primary hover:underline"
                     >

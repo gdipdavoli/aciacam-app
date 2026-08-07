@@ -27,12 +27,14 @@ export default function DashboardLayout({
 
     React.useEffect(() => {
         if (prevUnreadCountRef.current !== null && unreadCount > prevUnreadCountRef.current) {
-            const playSound = async () => {
+            const playSound = () => {
                 try {
                     const audio = new Audio('/sounds/notification.mp3');
-                    await audio.play();
+                    audio.play().catch((error) => {
+                        console.log('Notification sound autoplay was prevented by browser policies:', error);
+                    });
                 } catch (error) {
-                    console.log('Notification sound autoplay was prevented by browser policies:', error);
+                    console.error('Audio initialization failed:', error);
                 }
             };
             playSound();
