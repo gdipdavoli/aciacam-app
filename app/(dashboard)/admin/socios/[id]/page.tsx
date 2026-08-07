@@ -359,12 +359,7 @@ const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onS
     const [form, setForm] = useState<DocumentoSocio>(initialData || { verificacion_estado: 'pendiente' } as any);
     const [file, setFile] = useState<File | null>(null);
     const [isEditing, setIsEditing] = useState(true); // START IN EDIT MODE
-
-    // 4. Verification Log
-    useEffect(() => {
-        console.log("MOUNT modal");
-        return () => console.log("UNMOUNT modal");
-    }, []);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
     // Sync only on mount/key change
     useEffect(() => {
@@ -372,6 +367,36 @@ const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onS
             setForm(initialData);
         }
     }, [initialData]);
+
+    // Handle preview url fetch/creation
+    useEffect(() => {
+        let active = true;
+        if (file) {
+            if (file.type.startsWith('image/')) {
+                const objectUrl = URL.createObjectURL(file);
+                setPreviewUrl(objectUrl);
+                return () => URL.revokeObjectURL(objectUrl);
+            } else {
+                setPreviewUrl(null);
+            }
+        } else if (form.archivoPath) {
+            const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(form.archivoPath);
+            if (isImage) {
+                StorageService.createSignedUrl(form.archivoPath).then(url => {
+                    if (active && url) {
+                        setPreviewUrl(url);
+                    }
+                });
+            } else {
+                setPreviewUrl(null);
+            }
+        } else {
+            setPreviewUrl(null);
+        }
+        return () => {
+            active = false;
+        };
+    }, [file, form.archivoPath]);
 
     const handleSave = () => {
         onSave(form, file);
@@ -389,6 +414,10 @@ const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onS
         }
     };
 
+    const isPdf = file 
+        ? file.type === 'application/pdf'
+        : form.archivoPath?.toLowerCase().endsWith('.pdf');
+
     return (
         <div style={{
             position: 'fixed',
@@ -399,15 +428,10 @@ const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onS
             justifyContent: 'center',
             zIndex: 100
         }}>
-            <div style={{
-                backgroundColor: 'hsl(var(--card))',
-                padding: '2rem',
-                borderRadius: 'var(--radius)',
-                width: '100%',
-                maxWidth: '500px',
-                border: '1px solid hsl(var(--border))',
-                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
-            }}>
+            <div 
+                className="bg-card w-full max-w-lg rounded-2xl border p-6 shadow-2xl mx-4 overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-150"
+                onClick={e => e.stopPropagation()}
+            >
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                     <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Gestionar Documento</h3>
                     <button onClick={handleClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
@@ -503,6 +527,41 @@ const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onS
                         </p>
                     )}
                 </div>
+
+                {/* Document Previews (Responsive & Safe Area) */}
+                {previewUrl && (
+                    <div className="mb-4">
+                        <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>Vista Previa</label>
+                        <div className="border border-border rounded-xl overflow-hidden bg-muted/30 flex items-center justify-center p-2">
+                            <img 
+                                src={previewUrl} 
+                                alt="Vista previa" 
+                                className="object-contain max-h-60 w-full"
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {isPdf && (
+                    <div className="mb-4 p-4 bg-muted/40 border rounded-xl flex flex-col items-center justify-center gap-2 text-center text-xs">
+                        <FileText className="text-primary animate-pulse" size={32} />
+                        <span className="font-bold text-foreground">Documento PDF Adjunto</span>
+                        <button 
+                            type="button"
+                            onClick={async () => {
+                                if (file) {
+                                    window.open(URL.createObjectURL(file), '_blank');
+                                } else if (form.archivoPath) {
+                                    const url = await StorageService.createSignedUrl(form.archivoPath);
+                                    if (url) window.open(url, '_blank');
+                                }
+                            }}
+                            className="text-primary underline font-semibold flex items-center gap-1 mt-1 hover:text-primary/80 transition-colors"
+                        >
+                            Ver PDF en pestaña nueva <ExternalLink size={12} />
+                        </button>
+                    </div>
+                )}
 
                 {/* General Observaciones */}
                 <InputGroup label="Notas Internas" value={form.observaciones} onChange={(v: string) => setForm({ ...form, observaciones: v })} multiline readOnly={!isEditing} />
@@ -948,10 +1007,8 @@ export default function SocioDetailsPage() {
     if (loading || authLoading) return <div style={{ padding: '2rem' }}>Cargando ficha...</div>;
     if (!socio) return <div style={{ padding: '2rem' }}>Socio no encontrado.</div>;
 
-
-
     return (
-        <div style={{ maxWidth: '1000px', margin: '0 auto', paddingBottom: '4rem' }}>
+        <div className="w-full max-w-5xl mx-auto px-4 pb-16 overflow-x-hidden">
 
             {/* Header Sticky Bar */}
             <div style={{
@@ -1032,10 +1089,10 @@ export default function SocioDetailsPage() {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '1.5rem' }}>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full max-w-full overflow-x-hidden">
 
                 {/* Left Column (Main Info) */}
-                <div style={{ gridColumn: 'span 8' }}>
+                <div className="col-span-1 lg:col-span-8 flex flex-col gap-6">
 
                     <Section title="Cuenta de Usuario">
                         <InviteStatusWidget socioId={socio.id} socioEmail={socio.email} mode="full" />
@@ -1044,7 +1101,7 @@ export default function SocioDetailsPage() {
 
                     {/* SECCION B: Datos Personales */}
                     <Section title="Datos Personales" actions={<SectionEditActions sectionKey="personal" />}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <InputGroup label="Nombre" value={socio.nombre} onChange={(v: string) => setSocio({ ...socio, nombre: v })} readOnly={editingSection !== 'personal'} />
                             <InputGroup label="Apellido" value={socio.apellido} onChange={(v: string) => setSocio({ ...socio, apellido: v })} readOnly={editingSection !== 'personal'} />
                             <InputGroup label="DNI" value={socio.dni} onChange={(v: string) => setSocio({ ...socio, dni: v })} readOnly={editingSection !== 'personal'} />
@@ -1204,7 +1261,7 @@ export default function SocioDetailsPage() {
 
                     {/* SECCION G: Médico y Diagnóstico */}
                     <Section title="Médico Tratante y Diagnóstico" icon={Activity} actions={<SectionEditActions sectionKey="medico" />}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <InputGroup label="Nombre del Médico" value={socio.medicoNombre} onChange={(v: string) => setSocio({ ...socio, medicoNombre: v })} readOnly={editingSection !== 'medico'} />
                             <InputGroup label="Matrícula" value={socio.medicoMatricula} onChange={(v: string) => setSocio({ ...socio, medicoMatricula: v })} readOnly={editingSection !== 'medico'} />
                         </div>
@@ -1213,7 +1270,7 @@ export default function SocioDetailsPage() {
 
                     {/* SECCION D: Domicilio */}
                     <Section title="Domicilio" actions={<SectionEditActions sectionKey="domicilio" />}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <InputGroup label="Calle y Número" value={socio.direccion} onChange={(v: string) => setSocio({ ...socio, direccion: v })} readOnly={editingSection !== 'domicilio'} />
                             <InputGroup label="Localidad" value={socio.localidad} onChange={(v: string) => setSocio({ ...socio, localidad: v })} readOnly={editingSection !== 'domicilio'} />
                             {/* <InputGroup label="Provincia" value={socio.provincia} onChange={(v: string) => setSocio({ ...socio, provincia: v })} readOnly={editingSection !== 'domicilio'} /> */}
@@ -1298,7 +1355,7 @@ export default function SocioDetailsPage() {
                                 border: '1px solid hsl(var(--border))'
                             }}>
                                 <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '1rem' }}>Saldar Cuota / Registrar nuevo pago</h4>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <InputGroup label="Fecha" type="date" value={newPago.fecha} onChange={(v: string) => setNewPago({ ...newPago, fecha: v })} />
                                     <InputGroup label="Concepto" value={newPago.concepto} onChange={(v: string) => setNewPago({ ...newPago, concepto: v })} />
                                     <InputGroup label="Monto ($)" type="number" value={newPago.monto} onChange={(v: string) => setNewPago({ ...newPago, monto: parseFloat(v) })} />
@@ -1367,69 +1424,61 @@ export default function SocioDetailsPage() {
                 </div>
 
                 {/* Right Column (Admin & Status) */}
-                <div style={{ gridColumn: 'span 4', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <div className="col-span-1 lg:col-span-4 flex flex-col gap-6">
 
                     {/* SECCION C: Datos Administrativos */}
                     <Section title="Administración" icon={Activity} actions={<SectionEditActions sectionKey="admin" />}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <InputGroup
                                 label="Nº Orden Libro"
                                 type="number"
-                                value={editingSection === 'admin' ? socio.ordenLibro : socio.ordenLibro}
+                                value={socio.ordenLibro}
                                 onChange={(v: string) => setSocio({ ...socio, ordenLibro: parseInt(v) })}
                                 readOnly={editingSection !== 'admin'}
                             />
                             <InputGroup
                                 label="Nº Acta"
                                 type="number"
-                                value={editingSection === 'admin' ? socio.actaNumero : socio.actaNumero}
+                                value={socio.actaNumero}
                                 onChange={(v: string) => setSocio({ ...socio, actaNumero: parseInt(v) })}
                                 readOnly={editingSection !== 'admin'}
                             />
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                                <InputGroup
-                                    label="Fecha Ingreso"
-                                    type="date"
-                                    value={editingSection === 'admin' ? socio.fechaIngresoOng : socio.fechaIngresoOng}
-                                    onChange={(v: string) => setSocio({ ...socio, fechaIngresoOng: v })}
-                                    readOnly={editingSection !== 'admin'}
-                                    width="50%"
-                                />
-                                {user?.rol === 'admin' && (
-                                    <SelectGroup
-                                        label="Rol del Usuario"
-                                        value={socio.rol}
-                                        onChange={(v: any) => setSocio({ ...socio, rol: v })}
-                                        options={[
-                                            { val: 'socio', label: 'Socio (Cliente)' },
-                                            { val: 'staff', label: 'Staff' },
-                                            { val: 'admin', label: 'Administrador' }
-                                        ]}
-                                        readOnly={editingSection !== 'admin'}
-                                        width="50%"
-                                    />
-                                )}
-                            </div>
-                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <InputGroup
+                                label="Fecha Ingreso"
+                                type="date"
+                                value={socio.fechaIngresoOng}
+                                onChange={(v: string) => setSocio({ ...socio, fechaIngresoOng: v })}
+                                readOnly={editingSection !== 'admin'}
+                            />
+                            {user?.rol === 'admin' && (
                                 <SelectGroup
-                                    label="Estado"
-                                    value={socio.status}
-                                    onChange={(v: any) => setSocio({ ...socio, status: v })}
-                                    options={[{ val: 'active', label: 'AC' }, { val: 'suspended', label: 'SU' }]}
-                                    readOnly={true}
-                                    width="50%"
-                                />
-                                <SelectGroup
-                                    label="Activo"
-                                    value={socio.activo ? 'si' : 'no'}
-                                    onChange={(v: string) => setSocio({ ...socio, activo: v === 'si' })}
-                                    options={[{ val: 'si', label: 'Sí' }, { val: 'no', label: 'No' }]}
+                                    label="Rol del Usuario"
+                                    value={socio.rol}
+                                    onChange={(v: any) => setSocio({ ...socio, rol: v })}
+                                    options={[
+                                        { val: 'socio', label: 'Socio (Cliente)' },
+                                        { val: 'staff', label: 'Staff' },
+                                        { val: 'admin', label: 'Administrador' }
+                                    ]}
                                     readOnly={editingSection !== 'admin'}
-                                    width="50%"
                                 />
-                            </div>
+                            )}
+                            <SelectGroup
+                                label="Estado"
+                                value={socio.status}
+                                onChange={(v: any) => setSocio({ ...socio, status: v })}
+                                options={[{ val: 'active', label: 'AC' }, { val: 'suspended', label: 'SU' }]}
+                                readOnly={true}
+                            />
+                            <SelectGroup
+                                label="Activo"
+                                value={socio.activo ? 'si' : 'no'}
+                                onChange={(v: string) => setSocio({ ...socio, activo: v === 'si' })}
+                                options={[{ val: 'si', label: 'Sí' }, { val: 'no', label: 'No' }]}
+                                readOnly={editingSection !== 'admin'}
+                            />
                         </div>
 
                         {/* BLOQUEO MANUAL */}

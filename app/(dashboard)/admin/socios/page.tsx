@@ -213,8 +213,111 @@ export default function AdminSociosPage() {
                 </select>
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto bg-card rounded-xl border border-border">
+            {/* 1. MOBILE CARDS VIEW (< 768px) */}
+            <div className="md:hidden space-y-3">
+                {filteredSocios.length === 0 ? (
+                    <div className="p-8 text-center text-muted-foreground bg-card rounded-xl border border-border">
+                        No se encontraron socios con esos criterios.
+                    </div>
+                ) : (
+                    filteredSocios.map(socio => {
+                        const reprocann = getReprocannStatus(socio);
+                        const status = getSocioStatus(socio);
+
+                        // Clean phone number for WhatsApp link
+                        const cleanPhone = socio.telefono 
+                            ? socio.telefono.replace(/[^0-9]/g, '') 
+                            : '';
+                        const whatsappLink = `https://wa.me/${cleanPhone}`;
+
+                        // Calculate user friendly role
+                        const roleLabel = socio.rol === 'admin' ? 'Admin' : socio.rol === 'staff' ? 'Staff' : 'Socio';
+
+                        return (
+                            <div 
+                                key={socio.id}
+                                className="bg-card border border-border rounded-xl p-4 shadow-sm space-y-4 transition-all"
+                            >
+                                {/* Header: Name & Role Badge */}
+                                <div className="flex justify-between items-start gap-4">
+                                    <div className="min-w-0">
+                                        <h4 className="font-bold text-foreground text-sm leading-tight truncate">
+                                            {socio.nombre} {socio.apellido}
+                                        </h4>
+                                        <div className="text-xs text-muted-foreground truncate">{socio.email}</div>
+                                        <span className="text-[10px] font-extrabold text-muted-foreground bg-muted px-1.5 py-0.5 rounded uppercase mt-1.5 inline-block">
+                                            Rol: {roleLabel}
+                                        </span>
+                                    </div>
+                                    
+                                    {/* State Badge */}
+                                    <div className="shrink-0 text-right">
+                                        {status === 'vinculado' && <span className="px-2.5 py-0.5 rounded-full text-[9px] uppercase font-black bg-green-100 text-green-700 border border-green-200 block text-center">Vinculado</span>}
+                                        {status === 'enviado' && <span className="px-2.5 py-0.5 rounded-full text-[9px] uppercase font-black bg-blue-100 text-blue-700 border border-blue-200 block text-center">Enviado</span>}
+                                        {status === 'vencido' && <span className="px-2.5 py-0.5 rounded-full text-[9px] uppercase font-black bg-red-100 text-red-700 border border-red-200 block text-center">Expirado</span>}
+                                        {status === 'borrador' && <span className="px-2.5 py-0.5 rounded-full text-[9px] uppercase font-black bg-gray-100 text-gray-500 border border-gray-200 block text-center">Borrador</span>}
+                                    </div>
+                                </div>
+
+                                {/* Details & REPROCANN Badges */}
+                                <div className="flex justify-between items-center text-xs border-t border-b border-dashed py-3">
+                                    <div className="space-y-1">
+                                        <div className="text-muted-foreground font-medium">DNI: <span className="text-foreground font-bold">{socio.dni}</span></div>
+                                        <div className="text-muted-foreground font-medium">REPROCANN:</div>
+                                    </div>
+                                    <div className="text-right space-y-1.5">
+                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border block ${
+                                            reprocann === 'vigente'
+                                                ? 'bg-green-100 text-green-700 border-green-200'
+                                                : 'bg-red-100 text-red-700 border-red-200'
+                                        }`}>
+                                            {reprocann}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Last Connection */}
+                                <div className="text-xs text-muted-foreground flex justify-between items-center">
+                                    <span>Última conexión:</span>
+                                    <span className="font-semibold text-foreground">{formatFriendlyDate(socio.last_sign_in_at)}</span>
+                                </div>
+
+                                {/* Bottom Tactile Buttons */}
+                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                    <button
+                                        onClick={() => router.push(`/admin/socios/${socio.id}`)}
+                                        className="text-white py-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 shadow-sm animate-active"
+                                        style={{ backgroundColor: '#0F3822' }}
+                                    >
+                                        Ver Ficha
+                                    </button>
+                                    
+                                    {socio.telefono ? (
+                                        <a
+                                            href={whatsappLink}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 shadow-sm text-center"
+                                        >
+                                            WhatsApp
+                                        </a>
+                                    ) : (
+                                        <button
+                                            disabled
+                                            className="bg-muted text-muted-foreground py-3 rounded-xl text-xs font-bold cursor-not-allowed opacity-60"
+                                        >
+                                            Sin Teléfono
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
+            </div>
+
+            {/* 2. DESKTOP TRADITIONAL TABLE VIEW (>= 768px) */}
+            <div className="hidden md:block overflow-x-auto bg-card rounded-xl border border-border">
                 <table className="w-full border-collapse min-w-[800px]">
                     <thead>
                         <tr className="border-b border-border text-left bg-muted/50">
