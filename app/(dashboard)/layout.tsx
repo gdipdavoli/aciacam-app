@@ -328,83 +328,92 @@ export default function DashboardLayout({
                 ) : (
                     // Regular Socio navigation
                     <>
-                        {navItems.map((item) => {
-                            const Icon = item.icon;
-                            const isActive = pathname === item.href;
-                            return (
-                                <Link
-                                    key={item.href}
-                                    href={item.href}
-                                    className={`${styles.mobileNavItem} ${isActive ? styles.mobileNavItemActive : ''}`}
-                                >
-                                    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                        <Icon size={22} />
-                                        {item.badge !== undefined && item.badge > 0 && (
-                                            <span style={{
-                                                position: 'absolute',
-                                                top: '-4px',
-                                                right: '-4px',
-                                                backgroundColor: 'hsl(var(--destructive))',
-                                                color: 'white',
-                                                borderRadius: '50%',
-                                                width: '14px',
-                                                height: '14px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                fontSize: '0.6rem',
-                                                fontWeight: 700
-                                            }}>
-                                                {item.badge > 9 ? '9+' : item.badge}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <span>{item.label}</span>
-                                </Link>
-                            );
-                        })}
-
-                        {/* Mobile Cart - Only for Members */}
-                        {user.rol === 'socio' && (
-                            <Link
-                                href="/checkout"
-                                className={`${styles.mobileNavItem} ${pathname === '/checkout' ? styles.mobileNavItemActive : ''}`}
-                            >
-                                <div style={{ position: 'relative' }}>
-                                    <ShoppingBag size={22} />
-                                    {itemCount > 0 && (
-                                        <span style={{
-                                            position: 'absolute',
-                                            top: '-5px',
-                                            right: '-5px',
-                                            backgroundColor: 'hsl(var(--primary))',
-                                            color: 'hsl(var(--primary-foreground))',
-                                            borderRadius: '50%',
-                                            width: '16px',
-                                            height: '16px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontSize: '0.65rem',
-                                            fontWeight: 700
-                                        }}>
-                                            {itemCount}
-                                        </span>
-                                    )}
-                                </div>
-                                <span>Solicitud</span>
-                            </Link>
-                        )}
-
-                        {/* Mobile Logout */}
-                        <button
-                            onClick={logout}
-                            className={styles.mobileNavItem}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                        {/* 1. Opciones (Variedades) */}
+                        <Link
+                            href="/variedades"
+                            className={`${styles.mobileNavItem} ${pathname === '/variedades' ? styles.mobileNavItemActive : ''}`}
                         >
-                            <LogOut size={22} color="hsl(var(--destructive))" />
-                            <span style={{ color: 'hsl(var(--destructive))' }}>Salir</span>
-                        </button>
+                            <Flower2 size={22} />
+                            <span>Tratamiento</span>
+                        </Link>
+
+                        {/* 2. Solicitud (Checkout/Cart) */}
+                        <Link
+                            href="/checkout"
+                            className={`${styles.mobileNavItem} ${pathname === '/checkout' ? styles.mobileNavItemActive : ''}`}
+                        >
+                            <div style={{ position: 'relative' }}>
+                                <ShoppingBag size={22} />
+                                {itemCount > 0 && (
+                                    <span style={{
+                                        position: 'absolute',
+                                        top: '-4px',
+                                        right: '-4px',
+                                        backgroundColor: 'hsl(var(--primary))',
+                                        color: 'hsl(var(--primary-foreground))',
+                                        borderRadius: '50%',
+                                        width: '14px',
+                                        height: '14px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '0.6rem',
+                                        fontWeight: 700
+                                    }}>
+                                        {itemCount}
+                                    </span>
+                                )}
+                            </div>
+                            <span>Solicitud</span>
+                        </Link>
+
+                        {/* 3. Mis Pedidos */}
+                        <Link
+                            href="/pedidos"
+                            className={`${styles.mobileNavItem} ${pathname === '/pedidos' ? styles.mobileNavItemActive : ''}`}
+                        >
+                            <Package size={22} />
+                            <span>Mis Pedidos</span>
+                        </Link>
+
+                        {/* 4. Notificaciones */}
+                        <Link
+                            href="/notificaciones"
+                            className={`${styles.mobileNavItem} ${pathname === '/notificaciones' ? styles.mobileNavItemActive : ''}`}
+                        >
+                            <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <Bell size={22} />
+                                {unreadCount > 0 && (
+                                    <span style={{
+                                        position: 'absolute',
+                                        top: '-4px',
+                                        right: '-4px',
+                                        backgroundColor: 'hsl(var(--destructive))',
+                                        color: 'white',
+                                        borderRadius: '50%',
+                                        width: '14px',
+                                        height: '14px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '0.6rem',
+                                        fontWeight: 700
+                                    }}>
+                                        {unreadCount > 9 ? '9+' : unreadCount}
+                                    </span>
+                                )}
+                            </div>
+                            <span>Mensajes</span>
+                        </Link>
+
+                        {/* 5. Mi Cuenta */}
+                        <Link
+                            href="/cuenta"
+                            className={`${styles.mobileNavItem} ${pathname === '/cuenta' ? styles.mobileNavItemActive : ''}`}
+                        >
+                            <User size={22} />
+                            <span>Mi Cuenta</span>
+                        </Link>
                     </>
                 )}
             </nav>

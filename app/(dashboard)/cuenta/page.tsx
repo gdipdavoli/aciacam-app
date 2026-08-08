@@ -8,7 +8,7 @@ import { Pago, Pedido, Socio } from '@/types';
 import { User, CreditCard, History, FileText, Activity, AlertCircle, FileCheck, CheckCircle, Clock, XCircle, ExternalLink, Upload, Plus, X } from 'lucide-react';
 
 export default function CuentaPage() {
-    const { user: authUser } = useAuth();
+    const { user: authUser, logout } = useAuth();
     const [socio, setSocio] = useState<Socio | null>(null);
     const [pagos, setPagos] = useState<Pago[]>([]);
     const [loading, setLoading] = useState(true);
@@ -277,9 +277,17 @@ export default function CuentaPage() {
                 </div>
             )}
 
-            <div style={{ marginBottom: '2rem' }}>
-                <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem', fontWeight: 700 }}>Mi Cuenta</h1>
-                <p style={{ color: 'hsl(var(--muted-foreground))' }}>Información personal, trámites y estado de cuenta.</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', gap: '1rem', flexWrap: 'wrap' }}>
+                <div>
+                    <h1 style={{ fontSize: '2rem', marginBottom: '0.5rem', fontWeight: 700 }}>Mi Cuenta</h1>
+                    <p style={{ color: 'hsl(var(--muted-foreground))' }}>Información personal, trámites y estado de cuenta.</p>
+                </div>
+                <button 
+                    onClick={logout}
+                    className="bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20 px-4 py-2.5 rounded-xl text-xs font-black transition-colors"
+                >
+                    Cerrar Sesión
+                </button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>

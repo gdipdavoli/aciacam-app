@@ -32,6 +32,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
                 auth_user_id, 
                 email, 
                 terms_accepted_at,
+                password_set,
                 socio_invites!socio_invites_socio_id_fkey (
                     token,
                     created_at,
@@ -47,19 +48,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
             return NextResponse.json({ error: 'Socio not found' }, { status: 404 });
         }
 
-        // Logic to verify if Auth User exists (optional, but robust)
-        let passwordSet = false;
-        if (socio.auth_user_id) {
-            const { data: { user }, error: userError } = await supabaseAdmin.auth.admin.getUserById(socio.auth_user_id);
-            if (user && !userError) {
-                // Check if user has encrypted password
-                passwordSet = user.identities?.some(i => i.provider === 'email') ?? false;
-            }
-        }
-
         // Get latest invite from the join
         const invites = socio.socio_invites as any[] || [];
         const latestInvite = invites.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+
+        // Robust check for password configuration:
+        // Either the password_set column on public.socios is true, 
+        // OR the latest invite has a non-null consumed_at / status = consumed.
+        const passwordSet = !!socio.password_set || 
+                            (latestInvite && latestInvite.consumed_at !== null) || 
+                            (latestInvite && latestInvite.status === 'consumed');
 
         // Compute Derived Status for Widget
         const invitedAt = socio.invited_at || latestInvite?.created_at;
