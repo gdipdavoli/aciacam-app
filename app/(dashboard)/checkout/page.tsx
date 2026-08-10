@@ -194,7 +194,7 @@ export default function CheckoutPage() {
     return (
         <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
             {showSuccessModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-card w-full max-w-md rounded-2xl shadow-2xl border border-border p-8 animate-in zoom-in-95 duration-200">
                         <div className="flex flex-col items-center text-center mb-8">
                             <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6">
