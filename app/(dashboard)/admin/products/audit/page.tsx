@@ -12,6 +12,8 @@ export default function StockAuditPage() {
     const [logs, setLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
     const [filterType, setFilterType] = useState<'all' | 'deduction' | 'adjustment' | 'create_delete'>('all');
     const [activeTab, setActiveTab] = useState<'reconciliation' | 'history'>('reconciliation');
 
@@ -87,17 +89,49 @@ export default function StockAuditPage() {
         };
     };
 
-    // Process all logs for summary statistics
-    const processedAllLogs = logs.map(log => {
-        const parsed = parseStockChange(log);
-        return { ...log, parsed };
+    // Process all logs to add parsed details and filter non-stock updates
+    const processedAllLogs = logs
+        .map(log => {
+            const parsed = parseStockChange(log);
+            return { ...log, parsed };
+        })
+        .filter(log => {
+            // Only keep logs that actually changed stock_disponible (or creation/deletion)
+            const details = log.details || {};
+            const changes = details.changes || {};
+            const oldStock = details.old?.stock_disponible ?? details.before?.stock_disponible;
+            const newStock = details.new?.stock_disponible ?? details.after?.stock_disponible;
+            
+            return oldStock !== newStock || Object.keys(changes).includes('stock_disponible') || log.action === 'CREATE' || log.action === 'DELETE';
+        });
+
+    // Apply global filters (Search term + Date range)
+    const filteredLogs = processedAllLogs.filter(log => {
+        // 1. Variety Search Filter
+        const matchesSearch = log.parsed.productName.toLowerCase().includes(searchTerm.toLowerCase());
+        if (!matchesSearch) return false;
+
+        // 2. Date range filter
+        const logDate = new Date(log.created_at);
+        if (startDate) {
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            if (logDate < start) return false;
+        }
+        if (endDate) {
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            if (logDate > end) return false;
+        }
+
+        return true;
     });
 
-    // Calculate Inflows and Outflows
+    // Calculate Inflows and Outflows based on FILTERED logs
     let totalInflow = 0;
     let totalOutflow = 0;
 
-    processedAllLogs.forEach(log => {
+    filteredLogs.forEach(log => {
         const diff = log.parsed.diff;
         if (diff > 0) {
             totalInflow += diff;
@@ -106,22 +140,24 @@ export default function StockAuditPage() {
         }
     });
 
-    // Group changes by product/variety
+    // Group changes by entity_id based on FILTERED logs (Prevent duplicates when name changes)
     const productSummaryMap: Record<string, {
+        id: string;
         name: string;
         inflow: number;
         outflow: number;
         net: number;
     }> = {};
 
-    processedAllLogs.forEach(log => {
+    filteredLogs.forEach(log => {
+        const entityId = log.entity_id;
         const parsed = log.parsed;
-        const name = parsed.productName;
         const diff = parsed.diff;
 
-        if (!productSummaryMap[name]) {
-            productSummaryMap[name] = {
-                name,
+        if (!productSummaryMap[entityId]) {
+            productSummaryMap[entityId] = {
+                id: entityId,
+                name: parsed.productName, // Since logs is DESC (latest first), this captures the most recent name
                 inflow: 0,
                 outflow: 0,
                 net: 0
@@ -129,38 +165,24 @@ export default function StockAuditPage() {
         }
 
         if (diff > 0) {
-            productSummaryMap[name].inflow += diff;
+            productSummaryMap[entityId].inflow += diff;
         } else if (diff < 0) {
-            productSummaryMap[name].outflow += Math.abs(diff);
+            productSummaryMap[entityId].outflow += Math.abs(diff);
         }
-        productSummaryMap[name].net += diff;
+        productSummaryMap[entityId].net += diff;
     });
 
     const productSummaries = Object.values(productSummaryMap).sort((a, b) => b.inflow + b.outflow - (a.inflow + a.outflow));
 
-    // Filters for list view
-    const filteredLogs = processedAllLogs
-        .filter(log => {
-            // Check if stock was updated
-            const details = log.details || {};
-            const changes = details.changes || {};
-            const oldStock = details.old?.stock_disponible ?? details.before?.stock_disponible;
-            const newStock = details.new?.stock_disponible ?? details.after?.stock_disponible;
-            
-            return oldStock !== newStock || Object.keys(changes).includes('stock_disponible') || log.action === 'CREATE' || log.action === 'DELETE';
-        })
-        .filter(log => {
-            // Search filter
-            const matchesSearch = log.parsed.productName.toLowerCase().includes(searchTerm.toLowerCase());
-            
-            // Type filter
-            if (filterType === 'all') return matchesSearch;
-            if (filterType === 'deduction') return matchesSearch && log.parsed.diff < 0;
-            if (filterType === 'adjustment') return matchesSearch && log.parsed.diff > 0;
-            if (filterType === 'create_delete') return matchesSearch && (log.action === 'CREATE' || log.action === 'DELETE');
-            
-            return matchesSearch;
-        });
+    // Filters specific for the history tab
+    const historyLogsList = filteredLogs.filter(log => {
+        if (filterType === 'all') return true;
+        if (filterType === 'deduction') return log.parsed.diff < 0;
+        if (filterType === 'adjustment') return log.parsed.diff > 0;
+        if (filterType === 'create_delete') return log.action === 'CREATE' || log.action === 'DELETE';
+        
+        return true;
+    });
 
     if (loading || authLoading) {
         return (
@@ -235,6 +257,63 @@ export default function StockAuditPage() {
                 <div className="text-xs text-muted-foreground mt-2 flex justify-between">
                     <span>Generado por: {user?.nombre} {user?.apellido}</span>
                     <span>Fecha: {new Date().toLocaleString('es-AR')}</span>
+                </div>
+                {/* Print Filter Subtitle */}
+                {(startDate || endDate || searchTerm) && (
+                    <div className="text-[10px] text-muted-foreground mt-1.5 uppercase font-bold tracking-wide">
+                        Filtros Aplicados: {searchTerm && `Variedad: "${searchTerm}" `} {startDate && `Desde: ${startDate} `} {endDate && `Hasta: ${endDate}`}
+                    </div>
+                )}
+            </div>
+
+            {/* Unified Global Filters */}
+            <div className="flex flex-col md:flex-row gap-4 bg-card p-4 rounded-xl border print:hidden">
+                {/* Search Variety */}
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                    <input
+                        type="text"
+                        placeholder="Buscar por variedad..."
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        className="pl-10 p-2.5 border rounded-lg w-full bg-background text-foreground text-sm focus:ring-2 focus:ring-primary focus:outline-none"
+                    />
+                </div>
+                
+                {/* Date range inputs */}
+                <div className="flex flex-col sm:flex-row items-center gap-2">
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider shrink-0">Desde:</span>
+                        <input
+                            type="date"
+                            value={startDate}
+                            onChange={e => setStartDate(e.target.value)}
+                            className="p-2 border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary w-full sm:w-auto"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider shrink-0">Hasta:</span>
+                        <input
+                            type="date"
+                            value={endDate}
+                            onChange={e => setEndDate(e.target.value)}
+                            className="p-2 border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary w-full sm:w-auto"
+                        />
+                    </div>
+                    
+                    {/* Reset button */}
+                    {(startDate || endDate || searchTerm) && (
+                        <button
+                            onClick={() => {
+                                setStartDate('');
+                                setEndDate('');
+                                setSearchTerm('');
+                            }}
+                            className="text-xs text-red-500 hover:text-red-700 font-bold px-2.5 py-2 border border-red-200 bg-red-50 hover:bg-red-100 rounded-lg transition-colors w-full sm:w-auto text-center"
+                        >
+                            Limpiar Filtros
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -314,7 +393,7 @@ export default function StockAuditPage() {
             {activeTab === 'reconciliation' && (
                 <div className="space-y-6">
                     <div className="bg-card rounded-xl border overflow-hidden shadow-sm print-report-container">
-                        <div className="p-5 border-b bg-muted/20">
+                        <div className="p-5 border-b bg-muted/20 print:hidden">
                             <h3 className="font-bold text-foreground">Desglose de Conciliación por Variedad</h3>
                             <p className="text-xs text-muted-foreground mt-1">Suma acumulada de entradas y salidas registradas en la auditoría de cada genética.</p>
                         </div>
@@ -332,12 +411,12 @@ export default function StockAuditPage() {
                                     {productSummaries.length === 0 ? (
                                         <tr>
                                             <td colSpan={4} className="p-12 text-center text-muted-foreground">
-                                                No se encontraron registros de conciliación de stock.
+                                                No se encontraron registros de conciliación de stock para los filtros aplicados.
                                             </td>
                                         </tr>
                                     ) : (
                                         productSummaries.map((summary) => (
-                                            <tr key={summary.name} className="hover:bg-muted/10 transition-colors">
+                                            <tr key={summary.id} className="hover:bg-muted/10 transition-colors">
                                                 <td className="p-4 font-bold text-foreground">
                                                     <div className="flex items-center gap-2">
                                                         <Package size={16} className="text-muted-foreground" />
@@ -374,45 +453,32 @@ export default function StockAuditPage() {
             {/* TAB: HISTORY LOGS */}
             {activeTab === 'history' && (
                 <div className="space-y-6">
-                    {/* Filters */}
-                    <div className="flex flex-col sm:flex-row gap-4 bg-card p-4 rounded-xl border print:hidden">
-                        <div className="relative flex-1">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-                            <input
-                                type="text"
-                                placeholder="Filtrar por variedad..."
-                                value={searchTerm}
-                                onChange={e => setSearchTerm(e.target.value)}
-                                className="pl-10 p-2.5 border rounded-lg w-full bg-background text-foreground text-sm focus:ring-2 focus:ring-primary focus:outline-none"
-                            />
-                        </div>
-                        
-                        <div className="flex flex-wrap gap-2">
-                            <button
-                                onClick={() => setFilterType('all')}
-                                className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'all' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted border'}`}
-                            >
-                                Todos
-                            </button>
-                            <button
-                                onClick={() => setFilterType('deduction')}
-                                className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'deduction' ? 'bg-orange-50 text-orange-700 border-orange-200 border hover:bg-orange-100/50' : 'bg-background hover:bg-muted border'}`}
-                            >
-                                Salidas / Deducciones
-                            </button>
-                            <button
-                                onClick={() => setFilterType('adjustment')}
-                                className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'adjustment' ? 'bg-green-50 text-green-700 border-green-200 border hover:bg-green-100/50' : 'bg-background hover:bg-muted border'}`}
-                            >
-                                Ajustes / Entradas
-                            </button>
-                            <button
-                                onClick={() => setFilterType('create_delete')}
-                                className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'create_delete' ? 'bg-blue-50 text-blue-700 border-blue-200 border hover:bg-blue-100/50' : 'bg-background hover:bg-muted border'}`}
-                            >
-                                Altas / Bajas
-                            </button>
-                        </div>
+                    {/* Filters specific to history tab */}
+                    <div className="flex flex-wrap gap-2 print:hidden">
+                        <button
+                            onClick={() => setFilterType('all')}
+                            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'all' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted border'}`}
+                        >
+                            Todos
+                        </button>
+                        <button
+                            onClick={() => setFilterType('deduction')}
+                            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'deduction' ? 'bg-orange-50 text-orange-700 border-orange-200 border hover:bg-orange-100/50' : 'bg-background hover:bg-muted border'}`}
+                        >
+                            Salidas / Deducciones
+                        </button>
+                        <button
+                            onClick={() => setFilterType('adjustment')}
+                            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'adjustment' ? 'bg-green-50 text-green-700 border-green-200 border hover:bg-green-100/50' : 'bg-background hover:bg-muted border'}`}
+                        >
+                            Ajustes / Entradas
+                        </button>
+                        <button
+                            onClick={() => setFilterType('create_delete')}
+                            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'create_delete' ? 'bg-blue-50 text-blue-700 border-blue-200 border hover:bg-blue-100/50' : 'bg-background hover:bg-muted border'}`}
+                        >
+                            Altas / Bajas
+                        </button>
                     </div>
 
                     {/* List */}
@@ -431,14 +497,14 @@ export default function StockAuditPage() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-border text-sm">
-                                    {filteredLogs.length === 0 ? (
+                                    {historyLogsList.length === 0 ? (
                                         <tr>
                                             <td colSpan={7} className="p-12 text-center text-muted-foreground">
                                                 No se encontraron registros de modificaciones de stock para los filtros aplicados.
                                             </td>
                                         </tr>
                                     ) : (
-                                        filteredLogs.map((log) => {
+                                        historyLogsList.map((log) => {
                                             const { productName, oldStock, newStock, diff, changeType, note, orderId } = log.parsed;
                                             const actorName = log.actor 
                                                 ? `${log.actor.nombre} ${log.actor.apellido}`
