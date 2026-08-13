@@ -610,15 +610,11 @@ export const StoreService = {
             .eq('id', id);
 
         if (error) throw error;
-
-        await StoreService.createAuditLog(actorId, 'UPDATE', 'PRODUCT', id, dbUpdates);
     },
 
     deleteProduct: async (id: string, actorId: string): Promise<void> => {
         const { error } = await supabase.from('products').delete().eq('id', id);
         if (error) throw error;
-
-        await StoreService.createAuditLog(actorId, 'DELETE', 'PRODUCT', id, { deletedId: id });
     },
 
     createAuditLog: async (actorId: string, action: string, entityType: string, entityId: string, details: any) => {

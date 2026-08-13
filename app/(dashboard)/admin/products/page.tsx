@@ -84,15 +84,9 @@ export default function AdminProductsPage() {
 
             // Update in Supabase
             await StoreService.updateProduct(adjustingProduct.id, { 
-                stockDisponible: newAvailable 
+                stockDisponible: newAvailable,
+                last_audit_note: adjustReason
             }, user.id);
-
-            // Log in audit log
-            await StoreService.createAuditLog(user.id, 'UPDATE', 'PRODUCT', adjustingProduct.id, {
-                old: { stock_disponible: adjustingProduct.stock_disponible },
-                new: { stock_disponible: newAvailable },
-                observation: adjustReason
-            });
 
             alert("Ajuste de stock realizado correctamente.");
             setAdjustingProduct(null);

@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Search, Calendar, User, Package, ChevronDown, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Search, Calendar, User, Package, ChevronDown, RefreshCw, TrendingUp, TrendingDown, Scale, Printer, FileText } from 'lucide-react';
 
 export default function StockAuditPage() {
     const { user, loading: authLoading } = useAuth();
@@ -13,6 +13,7 @@ export default function StockAuditPage() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState<'all' | 'deduction' | 'adjustment' | 'create_delete'>('all');
+    const [activeTab, setActiveTab] = useState<'reconciliation' | 'history'>('reconciliation');
 
     const fetchLogs = async () => {
         setLoading(true);
@@ -86,24 +87,67 @@ export default function StockAuditPage() {
         };
     };
 
-    const filteredLogs = logs
-        .map(log => {
-            const parsed = parseStockChange(log);
-            return { ...log, parsed };
-        })
-        // Filter logs to show only stock-related changes
+    // Process all logs for summary statistics
+    const processedAllLogs = logs.map(log => {
+        const parsed = parseStockChange(log);
+        return { ...log, parsed };
+    });
+
+    // Calculate Inflows and Outflows
+    let totalInflow = 0;
+    let totalOutflow = 0;
+
+    processedAllLogs.forEach(log => {
+        const diff = log.parsed.diff;
+        if (diff > 0) {
+            totalInflow += diff;
+        } else if (diff < 0) {
+            totalOutflow += Math.abs(diff);
+        }
+    });
+
+    // Group changes by product/variety
+    const productSummaryMap: Record<string, {
+        name: string;
+        inflow: number;
+        outflow: number;
+        net: number;
+    }> = {};
+
+    processedAllLogs.forEach(log => {
+        const parsed = log.parsed;
+        const name = parsed.productName;
+        const diff = parsed.diff;
+
+        if (!productSummaryMap[name]) {
+            productSummaryMap[name] = {
+                name,
+                inflow: 0,
+                outflow: 0,
+                net: 0
+            };
+        }
+
+        if (diff > 0) {
+            productSummaryMap[name].inflow += diff;
+        } else if (diff < 0) {
+            productSummaryMap[name].outflow += Math.abs(diff);
+        }
+        productSummaryMap[name].net += diff;
+    });
+
+    const productSummaries = Object.values(productSummaryMap).sort((a, b) => b.inflow + b.outflow - (a.inflow + a.outflow));
+
+    // Filters for list view
+    const filteredLogs = processedAllLogs
         .filter(log => {
-            const action = log.action;
-            const details = log.details || {};
-            
-            if (action === 'CREATE' || action === 'DELETE') return true;
-            
             // Check if stock was updated
+            const details = log.details || {};
             const changes = details.changes || {};
             const oldStock = details.old?.stock_disponible ?? details.before?.stock_disponible;
             const newStock = details.new?.stock_disponible ?? details.after?.stock_disponible;
             
-            return oldStock !== newStock || Object.keys(changes).includes('stock_disponible');
+            return oldStock !== newStock || Object.keys(changes).includes('stock_disponible') || log.action === 'CREATE' || log.action === 'DELETE';
         })
         .filter(log => {
             // Search filter
@@ -111,8 +155,8 @@ export default function StockAuditPage() {
             
             // Type filter
             if (filterType === 'all') return matchesSearch;
-            if (filterType === 'deduction') return matchesSearch && log.parsed.diff < 0 && log.parsed.changeType.includes('Deducción');
-            if (filterType === 'adjustment') return matchesSearch && log.parsed.diff > 0 && log.parsed.changeType.includes('Ajuste');
+            if (filterType === 'deduction') return matchesSearch && log.parsed.diff < 0;
+            if (filterType === 'adjustment') return matchesSearch && log.parsed.diff > 0;
             if (filterType === 'create_delete') return matchesSearch && (log.action === 'CREATE' || log.action === 'DELETE');
             
             return matchesSearch;
@@ -129,8 +173,28 @@ export default function StockAuditPage() {
 
     return (
         <div className="space-y-6">
+            <style>{`
+                @media print {
+                    aside, nav, .print\\:hidden, button {
+                        display: none !important;
+                    }
+                    main, .main {
+                        margin: 0 !important;
+                        padding: 0 !important;
+                    }
+                    body {
+                        background-color: white !important;
+                        color: black !important;
+                    }
+                    .print-report-container {
+                        border: none !important;
+                        box-shadow: none !important;
+                    }
+                }
+            `}</style>
+
             {/* Header */}
-            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 print:hidden">
                 <div className="flex items-center gap-3">
                     <button 
                         onClick={() => router.push('/admin/products')}
@@ -141,175 +205,334 @@ export default function StockAuditPage() {
                     </button>
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight">Auditoría de Stock</h1>
-                        <p className="text-sm text-muted-foreground">Historial de movimientos, ajustes y entregas de stock de variedades.</p>
+                        <p className="text-sm text-muted-foreground">Historial de movimientos, conciliación y reporte de stock de variedades.</p>
                     </div>
                 </div>
+                
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={fetchLogs}
+                        className="flex items-center gap-2 px-3 py-2.5 border rounded-lg hover:bg-muted text-sm font-medium transition-colors bg-background"
+                    >
+                        <RefreshCw size={14} />
+                        Actualizar
+                    </button>
+
+                    <button
+                        onClick={() => window.print()}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg hover:opacity-90 text-sm font-semibold transition-all shadow-sm"
+                    >
+                        <Printer size={15} />
+                        Imprimir Reporte
+                    </button>
+                </div>
+            </div>
+
+            {/* Print Header (Only visible when printing) */}
+            <div className="hidden print:block border-b pb-4 mb-6">
+                <h1 className="text-3xl font-black text-emerald-900">ACIACAM</h1>
+                <h2 className="text-xl font-bold text-foreground mt-1">Reporte de Auditoría y Conciliación de Stock</h2>
+                <div className="text-xs text-muted-foreground mt-2 flex justify-between">
+                    <span>Generado por: {user?.nombre} {user?.apellido}</span>
+                    <span>Fecha: {new Date().toLocaleString('es-AR')}</span>
+                </div>
+            </div>
+
+            {/* Tabs Selector */}
+            <div className="flex border-b print:hidden">
                 <button
-                    onClick={fetchLogs}
-                    className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-muted text-sm font-medium transition-colors"
+                    onClick={() => setActiveTab('reconciliation')}
+                    className={`px-5 py-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+                        activeTab === 'reconciliation'
+                            ? 'border-primary text-primary'
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
                 >
-                    <RefreshCw size={14} />
-                    Actualizar
+                    <Scale size={16} />
+                    Resumen de Conciliación
+                </button>
+                <button
+                    onClick={() => setActiveTab('history')}
+                    className={`px-5 py-3 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+                        activeTab === 'history'
+                            ? 'border-primary text-primary'
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                >
+                    <FileText size={16} />
+                    Historial de Transacciones
                 </button>
             </div>
 
-            {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-4 bg-card p-4 rounded-xl border">
-                <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-                    <input
-                        type="text"
-                        placeholder="Filtrar por variedad..."
-                        value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
-                        className="pl-10 p-2.5 border rounded-lg w-full bg-background text-foreground text-sm focus:ring-2 focus:ring-primary focus:outline-none"
-                    />
+            {/* SECTION: SUMMARY CARDS */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* 1. Inflow Card */}
+                <div className="bg-card p-5 rounded-2xl border shadow-sm flex items-center gap-4">
+                    <div className="p-3.5 bg-green-50 text-green-600 dark:bg-green-950/20 dark:text-green-400 rounded-xl">
+                        <TrendingUp size={24} />
+                    </div>
+                    <div>
+                        <span className="text-xs text-muted-foreground font-medium block">Total Ingresos / Carga</span>
+                        <span className="text-2xl font-black text-green-600 dark:text-green-400 mt-1 block">+{totalInflow} u.</span>
+                    </div>
                 </div>
-                
-                <div className="flex gap-2">
-                    <button
-                        onClick={() => setFilterType('all')}
-                        className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'all' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted border'}`}
-                    >
-                        Todos
-                    </button>
-                    <button
-                        onClick={() => setFilterType('deduction')}
-                        className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'deduction' ? 'bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300' : 'bg-background hover:bg-muted border'}`}
-                    >
-                        Deducciones/Ventas
-                    </button>
-                    <button
-                        onClick={() => setFilterType('adjustment')}
-                        className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'adjustment' ? 'bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300' : 'bg-background hover:bg-muted border'}`}
-                    >
-                        Ajustes/Ingresos
-                    </button>
-                    <button
-                        onClick={() => setFilterType('create_delete')}
-                        className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'create_delete' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300' : 'bg-background hover:bg-muted border'}`}
-                    >
-                        Altas/Bajas
-                    </button>
+
+                {/* 2. Outflow Card */}
+                <div className="bg-card p-5 rounded-2xl border shadow-sm flex items-center gap-4">
+                    <div className="p-3.5 bg-red-50 text-red-600 dark:bg-red-950/20 dark:text-red-400 rounded-xl">
+                        <TrendingDown size={24} />
+                    </div>
+                    <div>
+                        <span className="text-xs text-muted-foreground font-medium block">Total Egresos / Dispensas</span>
+                        <span className="text-2xl font-black text-red-600 dark:text-red-400 mt-1 block">-{totalOutflow} u.</span>
+                    </div>
+                </div>
+
+                {/* 3. Net Balance Card */}
+                <div className="bg-card p-5 rounded-2xl border shadow-sm flex items-center gap-4">
+                    <div className={`p-3.5 rounded-xl ${
+                        totalInflow - totalOutflow >= 0
+                            ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400'
+                            : 'bg-amber-50 text-amber-600 dark:bg-amber-950/20 dark:text-amber-400'
+                    }`}>
+                        <Scale size={24} />
+                    </div>
+                    <div>
+                        <span className="text-xs text-muted-foreground font-medium block">Balance Neto</span>
+                        <span className={`text-2xl font-black mt-1 block ${
+                            totalInflow - totalOutflow >= 0
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-amber-600 dark:text-amber-400'
+                        }`}>
+                            {totalInflow - totalOutflow >= 0 ? '+' : ''}{totalInflow - totalOutflow} u.
+                        </span>
+                    </div>
                 </div>
             </div>
 
-            {/* List */}
-            <div className="bg-card rounded-xl border overflow-hidden shadow-sm">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                        <thead>
-                            <tr className="border-b bg-muted/30 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                <th className="p-4">Fecha</th>
-                                <th className="p-4">Variedad</th>
-                                <th className="p-4">Usuario Responsable</th>
-                                <th className="p-4">Tipo de Movimiento</th>
-                                <th className="p-4 text-center">Stock Inicial</th>
-                                <th className="p-4 text-center">Ajuste</th>
-                                <th className="p-4 text-center">Stock Final</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border text-sm">
-                            {filteredLogs.length === 0 ? (
-                                <tr>
-                                    <td colSpan={7} className="p-12 text-center text-muted-foreground">
-                                        No se encontraron registros de modificaciones de stock.
-                                    </td>
-                                </tr>
-                            ) : (
-                                filteredLogs.map((log) => {
-                                    const { productName, oldStock, newStock, diff, changeType, note, orderId } = log.parsed;
-                                    const actorName = log.actor 
-                                        ? `${log.actor.nombre} ${log.actor.apellido}`
-                                        : 'Sistema / Proceso Automático';
-                                    
-                                    let diffColor = 'text-gray-600 dark:text-gray-400';
-                                    let diffBg = 'bg-gray-100 dark:bg-gray-800';
-                                    let diffText = `${diff}`;
-
-                                    if (diff > 0) {
-                                        diffColor = 'text-green-700 dark:text-green-400 font-bold';
-                                        diffBg = 'bg-green-50 dark:bg-green-950/30';
-                                        diffText = `+${diff}`;
-                                    } else if (diff < 0) {
-                                        diffColor = 'text-red-700 dark:text-red-400 font-bold';
-                                        diffBg = 'bg-red-50 dark:bg-red-950/30';
-                                        diffText = `${diff}`;
-                                    }
-
-                                    return (
-                                        <tr key={log.id} className="hover:bg-muted/10 transition-colors">
-                                            <td className="p-4 whitespace-nowrap text-muted-foreground">
-                                                <div className="flex items-center gap-2">
-                                                    <Calendar size={14} />
-                                                    {new Date(log.created_at).toLocaleString('es-AR', {
-                                                        day: '2-digit',
-                                                        month: '2-digit',
-                                                        year: 'numeric',
-                                                        hour: '2-digit',
-                                                        minute: '2-digit'
-                                                    })}
-                                                </div>
-                                            </td>
-                                            <td className="p-4 font-medium">
-                                                <div className="flex flex-col">
-                                                    <div className="flex items-center gap-2">
-                                                        <Package size={16} className="text-muted-foreground" />
-                                                        {productName}
-                                                    </div>
-                                                    {note && (
-                                                        <span className="text-xs text-muted-foreground mt-0.5 font-normal bg-muted/50 px-1.5 py-0.5 rounded max-w-max italic">
-                                                            Nota: {note}
-                                                        </span>
-                                                    )}
-                                                    {orderId && (
-                                                        <a 
-                                                            href={`/admin/orders/${orderId}`} 
-                                                            className="text-xs text-primary hover:underline mt-1 font-semibold flex items-center gap-1"
-                                                        >
-                                                            📋 Pedido #{orderId.substring(0, 8)}
-                                                        </a>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="p-4 text-muted-foreground">
-                                                <div className="flex items-center gap-2">
-                                                    <User size={14} />
-                                                    {actorName}
-                                                </div>
-                                            </td>
-                                            <td className="p-4">
-                                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                                    changeType.includes('Deducción') 
-                                                        ? 'bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300'
-                                                        : changeType.includes('Ajuste')
-                                                        ? 'bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300'
-                                                        : changeType.includes('Inicial')
-                                                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
-                                                        : 'bg-muted text-muted-foreground'
-                                                }`}>
-                                                    {changeType}
-                                                </span>
-                                            </td>
-                                            <td className="p-4 text-center font-mono text-muted-foreground">
-                                                {oldStock} u.
-                                            </td>
-                                            <td className="p-4 text-center">
-                                                <span className={`px-2.5 py-1 rounded-md text-xs ${diffBg} ${diffColor}`}>
-                                                    {diffText} u.
-                                                </span>
-                                            </td>
-                                            <td className="p-4 text-center font-mono font-semibold">
-                                                {newStock} u.
+            {/* TAB: RECONCILIATION SUMMARY */}
+            {activeTab === 'reconciliation' && (
+                <div className="space-y-6">
+                    <div className="bg-card rounded-xl border overflow-hidden shadow-sm print-report-container">
+                        <div className="p-5 border-b bg-muted/20">
+                            <h3 className="font-bold text-foreground">Desglose de Conciliación por Variedad</h3>
+                            <p className="text-xs text-muted-foreground mt-1">Suma acumulada de entradas y salidas registradas en la auditoría de cada genética.</p>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="border-b bg-muted/30 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                        <th className="p-4">Variedad / Genética</th>
+                                        <th className="p-4 text-center">Total Ingresado (+)</th>
+                                        <th className="p-4 text-center">Total Egresado (-)</th>
+                                        <th className="p-4 text-center">Variación Neta</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border text-sm">
+                                    {productSummaries.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={4} className="p-12 text-center text-muted-foreground">
+                                                No se encontraron registros de conciliación de stock.
                                             </td>
                                         </tr>
-                                    );
-                                })
-                            )}
-                        </tbody>
-                    </table>
+                                    ) : (
+                                        productSummaries.map((summary) => (
+                                            <tr key={summary.name} className="hover:bg-muted/10 transition-colors">
+                                                <td className="p-4 font-bold text-foreground">
+                                                    <div className="flex items-center gap-2">
+                                                        <Package size={16} className="text-muted-foreground" />
+                                                        {summary.name}
+                                                    </div>
+                                                </td>
+                                                <td className="p-4 text-center text-green-600 dark:text-green-400 font-mono font-bold">
+                                                    +{summary.inflow} u.
+                                                </td>
+                                                <td className="p-4 text-center text-red-600 dark:text-red-400 font-mono font-bold">
+                                                    -{summary.outflow} u.
+                                                </td>
+                                                <td className="p-4 text-center font-mono font-black">
+                                                    <span className={`px-2 py-0.5 rounded ${
+                                                        summary.net > 0 
+                                                            ? 'bg-green-50 text-green-700 dark:bg-green-950/20 dark:text-green-400' 
+                                                            : summary.net < 0 
+                                                            ? 'bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400' 
+                                                            : 'bg-muted text-muted-foreground'
+                                                    }`}>
+                                                        {summary.net > 0 ? '+' : ''}{summary.net} u.
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            )}
+
+            {/* TAB: HISTORY LOGS */}
+            {activeTab === 'history' && (
+                <div className="space-y-6">
+                    {/* Filters */}
+                    <div className="flex flex-col sm:flex-row gap-4 bg-card p-4 rounded-xl border print:hidden">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+                            <input
+                                type="text"
+                                placeholder="Filtrar por variedad..."
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                className="pl-10 p-2.5 border rounded-lg w-full bg-background text-foreground text-sm focus:ring-2 focus:ring-primary focus:outline-none"
+                            />
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                onClick={() => setFilterType('all')}
+                                className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'all' ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted border'}`}
+                            >
+                                Todos
+                            </button>
+                            <button
+                                onClick={() => setFilterType('deduction')}
+                                className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'deduction' ? 'bg-orange-50 text-orange-700 border-orange-200 border hover:bg-orange-100/50' : 'bg-background hover:bg-muted border'}`}
+                            >
+                                Salidas / Deducciones
+                            </button>
+                            <button
+                                onClick={() => setFilterType('adjustment')}
+                                className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'adjustment' ? 'bg-green-50 text-green-700 border-green-200 border hover:bg-green-100/50' : 'bg-background hover:bg-muted border'}`}
+                            >
+                                Ajustes / Entradas
+                            </button>
+                            <button
+                                onClick={() => setFilterType('create_delete')}
+                                className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${filterType === 'create_delete' ? 'bg-blue-50 text-blue-700 border-blue-200 border hover:bg-blue-100/50' : 'bg-background hover:bg-muted border'}`}
+                            >
+                                Altas / Bajas
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* List */}
+                    <div className="bg-card rounded-xl border overflow-hidden shadow-sm print-report-container">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="border-b bg-muted/30 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                        <th className="p-4">Fecha</th>
+                                        <th className="p-4">Variedad</th>
+                                        <th className="p-4">Usuario Responsable</th>
+                                        <th className="p-4">Tipo de Movimiento</th>
+                                        <th className="p-4 text-center">Stock Anterior</th>
+                                        <th className="p-4 text-center">Ajuste</th>
+                                        <th className="p-4 text-center">Stock Nuevo</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border text-sm">
+                                    {filteredLogs.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={7} className="p-12 text-center text-muted-foreground">
+                                                No se encontraron registros de modificaciones de stock para los filtros aplicados.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        filteredLogs.map((log) => {
+                                            const { productName, oldStock, newStock, diff, changeType, note, orderId } = log.parsed;
+                                            const actorName = log.actor 
+                                                ? `${log.actor.nombre} ${log.actor.apellido}`
+                                                : 'Sistema / Proceso Automático';
+                                            
+                                            let diffColor = 'text-gray-600 dark:text-gray-400';
+                                            let diffBg = 'bg-gray-100 dark:bg-gray-800';
+                                            let diffText = `${diff}`;
+
+                                            if (diff > 0) {
+                                                diffColor = 'text-green-700 dark:text-green-400 font-bold';
+                                                diffBg = 'bg-green-50 dark:bg-green-950/30';
+                                                diffText = `+${diff}`;
+                                            } else if (diff < 0) {
+                                                diffColor = 'text-red-700 dark:text-red-400 font-bold';
+                                                diffBg = 'bg-red-50 dark:bg-red-950/30';
+                                                diffText = `${diff}`;
+                                            }
+
+                                            return (
+                                                <tr key={log.id} className="hover:bg-muted/10 transition-colors">
+                                                    <td className="p-4 whitespace-nowrap text-muted-foreground">
+                                                        <div className="flex items-center gap-2">
+                                                            <Calendar size={14} />
+                                                            {new Date(log.created_at).toLocaleString('es-AR', {
+                                                                day: '2-digit',
+                                                                month: '2-digit',
+                                                                year: 'numeric',
+                                                                hour: '2-digit',
+                                                                minute: '2-digit'
+                                                            })}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4 font-medium">
+                                                        <div className="flex flex-col">
+                                                            <div className="flex items-center gap-2 text-foreground font-semibold">
+                                                                <Package size={16} className="text-muted-foreground" />
+                                                                {productName}
+                                                            </div>
+                                                            {note && (
+                                                                <span className="text-xs text-muted-foreground mt-0.5 font-normal bg-muted/50 px-1.5 py-0.5 rounded max-w-max italic">
+                                                                    Nota: {note}
+                                                                </span>
+                                                            )}
+                                                            {orderId && (
+                                                                <a 
+                                                                    href={`/admin/orders/${orderId}`} 
+                                                                    className="text-xs text-primary hover:underline mt-1 font-semibold flex items-center gap-1 print:hidden"
+                                                                >
+                                                                    📋 Pedido #{orderId.substring(0, 8)}
+                                                                </a>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4 text-muted-foreground">
+                                                        <div className="flex items-center gap-2">
+                                                            <User size={14} />
+                                                            {actorName}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                                            changeType.includes('Deducción') 
+                                                                ? 'bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-300'
+                                                                : changeType.includes('Ajuste')
+                                                                ? 'bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300'
+                                                                : changeType.includes('Inicial')
+                                                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
+                                                                : 'bg-muted text-muted-foreground'
+                                                        }`}>
+                                                            {changeType}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4 text-center font-mono text-muted-foreground">
+                                                        {oldStock} u.
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <span className={`px-2.5 py-1 rounded-md text-xs ${diffBg} ${diffColor}`}>
+                                                            {diffText} u.
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-4 text-center font-mono font-semibold">
+                                                        {newStock} u.
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
