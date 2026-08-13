@@ -16,12 +16,27 @@ export default function StockAuditPage() {
     const [endDate, setEndDate] = useState('');
     const [filterType, setFilterType] = useState<'all' | 'deduction' | 'adjustment' | 'create_delete'>('all');
     const [activeTab, setActiveTab] = useState<'reconciliation' | 'history'>('reconciliation');
+    const [ordersMap, setOrdersMap] = useState<Record<string, string>>({});
 
     const fetchLogs = async () => {
         setLoading(true);
         try {
-            const data = await StoreService.getProductAuditLogs();
-            setLogs(data);
+            const [logsData, pedidosData, sociosData] = await Promise.all([
+                StoreService.getProductAuditLogs(),
+                StoreService.getAllPedidos(true),
+                StoreService.getAllSocios()
+            ]);
+
+            const map: Record<string, string> = {};
+            pedidosData.forEach((order: any) => {
+                const socio = sociosData.find((s: any) => s.id === order.socioId);
+                if (socio) {
+                    map[order.id] = `${socio.nombre} ${socio.apellido}`;
+                }
+            });
+
+            setOrdersMap(map);
+            setLogs(logsData);
         } catch (e) {
             console.error("Failed to fetch audit logs", e);
         } finally {
@@ -552,12 +567,17 @@ export default function StockAuditPage() {
                                                                 </span>
                                                             )}
                                                             {orderId && (
-                                                                <a 
-                                                                    href={`/admin/orders/${orderId}`} 
-                                                                    className="text-xs text-primary hover:underline mt-1 font-semibold flex items-center gap-1 print:hidden"
-                                                                >
-                                                                    📋 Pedido #{orderId.substring(0, 8)}
-                                                                </a>
+                                                                <>
+                                                                    <a 
+                                                                        href={`/admin/orders/${orderId}`} 
+                                                                        className="text-xs text-primary hover:underline mt-1 font-semibold flex items-center gap-1 print:hidden"
+                                                                    >
+                                                                        👤 Socio: {ordersMap[orderId] || `Pedido #${orderId.substring(0, 8)}`}
+                                                                    </a>
+                                                                    <span className="hidden print:inline text-xs text-muted-foreground mt-0.5">
+                                                                        Socio: {ordersMap[orderId] || `Pedido #${orderId.substring(0, 8)}`}
+                                                                    </span>
+                                                                </>
                                                             )}
                                                         </div>
                                                     </td>
