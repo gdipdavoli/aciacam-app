@@ -140,24 +140,26 @@ export default function StockAuditPage() {
         }
     });
 
-    // Group changes by entity_id based on FILTERED logs (Prevent duplicates when name changes)
+    // Group changes by normalized product name based on FILTERED logs (Prevent duplicates when recreated or name edited)
     const productSummaryMap: Record<string, {
-        id: string;
         name: string;
+        displayName: string;
         inflow: number;
         outflow: number;
         net: number;
     }> = {};
 
     filteredLogs.forEach(log => {
-        const entityId = log.entity_id;
         const parsed = log.parsed;
         const diff = parsed.diff;
+        
+        // Normalize name: trim spaces, lowercase, replace multiple spaces with single space
+        const normName = parsed.productName.trim().replace(/\s+/g, ' ').toLowerCase();
 
-        if (!productSummaryMap[entityId]) {
-            productSummaryMap[entityId] = {
-                id: entityId,
-                name: parsed.productName, // Since logs is DESC (latest first), this captures the most recent name
+        if (!productSummaryMap[normName]) {
+            productSummaryMap[normName] = {
+                name: normName,
+                displayName: parsed.productName, // Since logs is DESC (latest first), this captures the most recent name
                 inflow: 0,
                 outflow: 0,
                 net: 0
@@ -165,11 +167,11 @@ export default function StockAuditPage() {
         }
 
         if (diff > 0) {
-            productSummaryMap[entityId].inflow += diff;
+            productSummaryMap[normName].inflow += diff;
         } else if (diff < 0) {
-            productSummaryMap[entityId].outflow += Math.abs(diff);
+            productSummaryMap[normName].outflow += Math.abs(diff);
         }
-        productSummaryMap[entityId].net += diff;
+        productSummaryMap[normName].net += diff;
     });
 
     const productSummaries = Object.values(productSummaryMap).sort((a, b) => b.inflow + b.outflow - (a.inflow + a.outflow));
@@ -416,11 +418,11 @@ export default function StockAuditPage() {
                                         </tr>
                                     ) : (
                                         productSummaries.map((summary) => (
-                                            <tr key={summary.id} className="hover:bg-muted/10 transition-colors">
+                                            <tr key={summary.name} className="hover:bg-muted/10 transition-colors">
                                                 <td className="p-4 font-bold text-foreground">
                                                     <div className="flex items-center gap-2">
                                                         <Package size={16} className="text-muted-foreground" />
-                                                        {summary.name}
+                                                        {summary.displayName}
                                                     </div>
                                                 </td>
                                                 <td className="p-4 text-center text-green-600 dark:text-green-400 font-mono font-bold">
