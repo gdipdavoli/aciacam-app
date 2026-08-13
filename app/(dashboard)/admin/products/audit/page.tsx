@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { ArrowLeft, Search, Calendar, User, Package, ChevronDown, RefreshCw, TrendingUp, TrendingDown, Scale, Printer, FileText } from 'lucide-react';
 
 export default function StockAuditPage() {
@@ -16,7 +17,7 @@ export default function StockAuditPage() {
     const [endDate, setEndDate] = useState('');
     const [filterType, setFilterType] = useState<'all' | 'deduction' | 'adjustment' | 'create_delete'>('all');
     const [activeTab, setActiveTab] = useState<'reconciliation' | 'history'>('reconciliation');
-    const [ordersMap, setOrdersMap] = useState<Record<string, string>>({});
+    const [ordersMap, setOrdersMap] = useState<Record<string, { socioName: string; status: string }>>({});
 
     const fetchLogs = async () => {
         setLoading(true);
@@ -27,12 +28,13 @@ export default function StockAuditPage() {
                 StoreService.getAllSocios()
             ]);
 
-            const map: Record<string, string> = {};
+            const map: Record<string, { socioName: string; status: string }> = {};
             pedidosData.forEach((order: any) => {
                 const socio = sociosData.find((s: any) => s.id === order.socioId);
-                if (socio) {
-                    map[order.id] = `${socio.nombre} ${socio.apellido}`;
-                }
+                map[order.id] = {
+                    socioName: socio ? `${socio.nombre} ${socio.apellido}` : 'Socio Desconocido',
+                    status: order.estado
+                };
             });
 
             setOrdersMap(map);
@@ -568,14 +570,20 @@ export default function StockAuditPage() {
                                                             )}
                                                             {orderId && (
                                                                 <>
-                                                                    <a 
+                                                                    <Link 
                                                                         href={`/admin/orders/${orderId}`} 
                                                                         className="text-xs text-primary hover:underline mt-1 font-semibold flex items-center gap-1 print:hidden"
                                                                     >
-                                                                        👤 Socio: {ordersMap[orderId] || `Pedido #${orderId.substring(0, 8)}`}
-                                                                    </a>
+                                                                        👤 Socio: {ordersMap[orderId]?.socioName || `Pedido #${orderId.substring(0, 8)}`}
+                                                                        {ordersMap[orderId]?.status === 'cancelado' && (
+                                                                            <span className="text-red-500 font-bold ml-1.5 text-[10px] bg-red-50 px-1 py-0.5 rounded border border-red-200 uppercase">
+                                                                                (Cancelado)
+                                                                            </span>
+                                                                        )}
+                                                                    </Link>
                                                                     <span className="hidden print:inline text-xs text-muted-foreground mt-0.5">
-                                                                        Socio: {ordersMap[orderId] || `Pedido #${orderId.substring(0, 8)}`}
+                                                                        Socio: {ordersMap[orderId]?.socioName || `Pedido #${orderId.substring(0, 8)}`}
+                                                                        {ordersMap[orderId]?.status === 'cancelado' && ' (Cancelado)'}
                                                                     </span>
                                                                 </>
                                                             )}

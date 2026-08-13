@@ -604,6 +604,9 @@ export const StoreService = {
         if (updates.peso_gramos !== undefined) dbUpdates.peso_gramos = updates.peso_gramos;
         if (updates.last_audit_note !== undefined) dbUpdates.last_audit_note = updates.last_audit_note;
 
+        // Clear last_audit_order_id on manual updates to prevent carrying over previous order associations
+        dbUpdates.last_audit_order_id = null;
+
         const { error } = await supabase
             .from('products')
             .update(dbUpdates)
