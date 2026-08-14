@@ -102,29 +102,34 @@ export default function EditProductPage() {
                 }
             }
 
-            const finalStock = adjustmentType === 'add' 
-                ? (originalStock ?? 0) + adjustmentQty 
-                : adjustmentType === 'subtract' 
-                    ? (originalStock ?? 0) - adjustmentQty 
-                    : (originalStock ?? 0);
-
-            if (finalStock < 0) {
-                alert("No podés reducir el stock por debajo de cero.");
-                setSaving(false);
-                return;
-            }
-
-            await StoreService.updateProduct(formData.id, {
+            const updates: any = {
                 nombre: formData.nombre,
                 tipo: formData.tipo,
                 descripcion: formData.descripcion,
                 categoria: formData.categoria,
-                stockDisponible: finalStock,
                 activo: formData.activo,
                 imagen: imagePath,
-                peso_gramos: Number(formData.peso_gramos),
-                last_audit_note: adjustmentType !== 'none' && adjustmentQty > 0 ? auditNote : undefined
-            }, user!.id);
+                peso_gramos: Number(formData.peso_gramos)
+            };
+
+            if (adjustmentType !== 'none' && adjustmentQty > 0) {
+                const finalStock = adjustmentType === 'add' 
+                    ? (originalStock ?? 0) + adjustmentQty 
+                    : Math.max(0, (originalStock ?? 0) - adjustmentQty);
+
+                if (finalStock < 0) {
+                    alert("No podés reducir el stock por debajo de cero.");
+                    setSaving(false);
+                    return;
+                }
+
+                // Calculate new available stock (physical stock - reserved stock)
+                const newAvailable = Math.max(0, finalStock - (formData.stockReservado ?? 0));
+                updates.stockDisponible = newAvailable;
+                updates.last_audit_note = auditNote;
+            }
+
+            await StoreService.updateProduct(formData.id, updates, user!.id);
 
             router.push('/admin/products');
             router.refresh();
