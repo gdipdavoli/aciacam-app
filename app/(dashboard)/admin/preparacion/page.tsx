@@ -48,6 +48,7 @@ export default function PickingPage() {
     // States for Payment Modal
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [paymentModalOrder, setPaymentModalOrder] = useState<Pedido | null>(null);
+    const [paymentModalTargetStatus, setPaymentModalTargetStatus] = useState<'entregado' | 'retirado' | null>(null);
     
     // Add product state
     const [showAddProduct, setShowAddProduct] = useState(false);
@@ -103,7 +104,7 @@ export default function PickingPage() {
             // Filter by section
             const matchesSection = listSection === 'preparar' 
                 ? (o.estado === 'pendiente' || o.estado === 'confirmado' || o.estado === 'en_preparacion')
-                : ((o.estado === 'listo_para_retiro' && o.tipoPedido === 'delivery') || o.estado === 'en_camino');
+                : (o.estado === 'listo_para_retiro' || o.estado === 'en_camino');
 
             if (!matchesSection) return false;
 
@@ -233,13 +234,14 @@ export default function PickingPage() {
         }
     };
 
-    const handleUpdateStatus = async (newStatus: 'en_camino' | 'entregado') => {
+    const handleUpdateStatus = async (newStatus: 'en_camino' | 'entregado' | 'retirado') => {
         if (!selectedOrderId || isSubmitting) return;
 
-        if (newStatus === 'entregado') {
+        if (newStatus === 'entregado' || newStatus === 'retirado') {
             const order = orders.find(o => o.id === selectedOrderId);
             if (order) {
                 setPaymentModalOrder(order);
+                setPaymentModalTargetStatus(newStatus);
                 setShowPaymentModal(true);
                 return;
             }
@@ -248,10 +250,10 @@ export default function PickingPage() {
         setIsSubmitting(true);
         try {
             await StoreService.updatePedidoStatus(selectedOrderId, newStatus);
-            alert(`Pedido marcado como: ${newStatus === 'en_camino' ? 'En reparto' : 'Entregado con éxito'}`);
+            alert(`Pedido marcado como: ${newStatus === 'en_camino' ? 'En reparto' : newStatus === 'entregado' ? 'Entregado con éxito' : 'Retirado con éxito'}`);
             
-            // If delivered, deselect and switch view
-            if (newStatus === 'entregado') {
+            // If delivered/retirado, deselect and switch view
+            if (newStatus === 'entregado' || newStatus === 'retirado') {
                 setSelectedOrderId(null);
                 setActiveTab('lista');
             }
@@ -270,13 +272,13 @@ export default function PickingPage() {
         isDonation: boolean,
         donationReason?: string
     ) => {
-        if (!paymentModalOrder || !user) return;
+        if (!paymentModalOrder || !paymentModalTargetStatus || !user) return;
 
         const orderId = paymentModalOrder.id;
         const socioId = paymentModalOrder.socioId;
 
         // 1. Update order status
-        await StoreService.updatePedidoStatus(orderId, 'entregado');
+        await StoreService.updatePedidoStatus(orderId, paymentModalTargetStatus);
 
         // 2. Register payments
         if (isDonation) {
@@ -311,6 +313,7 @@ export default function PickingPage() {
         setActiveTab('lista');
         setShowPaymentModal(false);
         setPaymentModalOrder(null);
+        setPaymentModalTargetStatus(null);
         await fetchData();
     };
 
@@ -790,21 +793,36 @@ export default function PickingPage() {
                                         </div>
                                     </div>
 
-                                    {/* Action button for Drivers */}
+                                    {/* Action button for Drivers / Staff */}
                                     <div className="pt-4 border-t">
                                         {selectedOrder.estado === 'listo_para_retiro' ? (
-                                            <button
-                                                onClick={() => handleUpdateStatus('en_camino')}
-                                                disabled={isSubmitting}
-                                                className="w-full py-4 rounded-xl text-sm font-bold bg-amber-500 hover:bg-amber-600 text-white transition-all flex items-center justify-center gap-2 shadow-md disabled:opacity-50"
-                                            >
-                                                {isSubmitting ? (
-                                                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                                ) : (
-                                                    <Truck size={18} />
-                                                )}
-                                                <span>Iniciar Entrega (En Camino)</span>
-                                            </button>
+                                            selectedOrder.tipoPedido === 'delivery' ? (
+                                                <button
+                                                    onClick={() => handleUpdateStatus('en_camino')}
+                                                    disabled={isSubmitting}
+                                                    className="w-full py-4 rounded-xl text-sm font-bold bg-amber-500 hover:bg-amber-600 text-white transition-all flex items-center justify-center gap-2 shadow-md disabled:opacity-50"
+                                                >
+                                                    {isSubmitting ? (
+                                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                    ) : (
+                                                        <Truck size={18} />
+                                                    )}
+                                                    <span>Iniciar Entrega (En Camino)</span>
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => handleUpdateStatus('retirado')}
+                                                    disabled={isSubmitting}
+                                                    className="w-full py-4 rounded-xl text-sm font-bold bg-green-600 hover:bg-green-700 text-white transition-all flex items-center justify-center gap-2 shadow-md disabled:opacity-50 animate-in fade-in"
+                                                >
+                                                    {isSubmitting ? (
+                                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                    ) : (
+                                                        <CheckCircle size={18} />
+                                                    )}
+                                                    <span>Entregar (Marcar como Retirado en Sede)</span>
+                                                </button>
+                                            )
                                         ) : selectedOrder.estado === 'en_camino' ? (
                                             <button
                                                 onClick={() => handleUpdateStatus('entregado')}
