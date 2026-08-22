@@ -10,19 +10,18 @@ const supabase = createClient(
 );
 
 async function checkSchema() {
-  const { data, error } = await supabase.rpc('get_column_info', { table_name: 'pedidos' });
+  const { data, error } = await supabase.rpc('get_column_info', { table_name: 'products' });
   
   if (error) {
-    // Si la función RPC no existe (común), intentamos una consulta directa a information_schema
     const { data: info, error: infoError } = await supabase
-      .from('_information_schema_columns') // Esto a veces falla por permisos, pero probamos
+      .from('_information_schema_columns')
       .select('column_name, data_type')
-      .eq('table_name', 'pedidos');
+      .eq('table_name', 'products');
       
     if (infoError) {
         console.log("No se pudo obtener el schema vía RPC. Intentando consulta simple de un registro.");
-        const { data: sample } = await supabase.from('pedidos').select('*').limit(1);
-        console.log("Muestra de un pedido:", sample);
+        const { data: sample } = await supabase.from('products').select('*').limit(1);
+        console.log("Muestra de un producto:", sample);
     } else {
         console.log("Info Schema:", info);
     }

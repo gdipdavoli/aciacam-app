@@ -1,4 +1,4 @@
-import { Producto, Pedido, OrderType, OrderItem, Socio, Pago, ProductoWithStockInfo } from '@/types';
+import { Producto, Pedido, OrderType, OrderItem, Socio, Pago, ProductoWithStockInfo, CierreMensual } from '@/types';
 import { MOCK_PRODUCTOS, MOCK_SOCIOS } from './mockData';
 import { supabase } from './supabaseClient';
 import * as DocService from './documentacionService';
@@ -13,7 +13,9 @@ const mapPagoFromDB = (row: any): Pago => ({
     fecha: row.fecha,
     concepto: row.concepto,
     monto: parseFloat(row.monto),
-    medioDePago: row.medio_de_pago
+    medioDePago: row.medio_de_pago,
+    pedidoId: row.pedido_id,
+    referencia: row.referencia
 });
 
 // Helper to map DB row to Socio type
@@ -420,7 +422,7 @@ export const StoreService = {
     createPago: async (pago: Omit<Pago, 'id'>, actorId: string): Promise<Pago> => {
         if (!supabase) throw new Error("Supabase client not initialized");
 
-        const dbRow = {
+        const dbRow: any = {
             socio_id: pago.socioId,
             fecha: pago.fecha,
             concepto: pago.concepto,
@@ -428,6 +430,9 @@ export const StoreService = {
             medio_de_pago: pago.medioDePago,
             created_by: actorId
         };
+
+        if (pago.pedidoId) dbRow.pedido_id = pago.pedidoId;
+        if (pago.referencia) dbRow.referencia = pago.referencia;
 
         const { data, error } = await supabase
             .from('pagos')
@@ -469,6 +474,55 @@ export const StoreService = {
 
     updatePedidoStatus: async (pedidoId: string, status: Pedido['estado']): Promise<void> => {
         if (!supabase) return;
+
+        // Validation for legal transport limits (Resolution 800/2021)
+        if (status === 'entregado' || status === 'retirado') {
+            const { data: orderData, error: fetchError } = await supabase
+                .from('pedidos')
+                .select('*')
+                .eq('id', pedidoId)
+                .single();
+
+            if (fetchError || !orderData) {
+                throw new Error("No se pudo cargar la información del pedido para validación.");
+            }
+
+            const items = orderData.items as any[];
+            if (Array.isArray(items) && items.length > 0) {
+                const productIds = items.map(i => i.productoId);
+                const { data: products, error: prodError } = await supabase
+                    .from('products')
+                    .select('id, tipo, nombre, peso_gramos')
+                    .in('id', productIds);
+
+                if (prodError || !products) {
+                    throw new Error("No se pudo cargar la información de los productos para validación legal.");
+                }
+
+                let totalFlores = 0;
+                let totalGoteros = 0;
+
+                items.forEach(item => {
+                    const product = products.find(p => p.id === item.productoId);
+                    if (product) {
+                        if (product.tipo === 'flor') {
+                            const pesoUnitario = product.peso_gramos || 1;
+                            totalFlores += item.cantidad * pesoUnitario;
+                        } else if (product.tipo === 'gotero') {
+                            totalGoteros += item.cantidad;
+                        }
+                    }
+                });
+
+                if (totalFlores > 40) {
+                    throw new Error(`Límite legal de transporte excedido. El pedido contiene ${totalFlores}g de flores secas (máximo permitido por remito: 40g). Por favor, divida la entrega en remitos independientes.`);
+                }
+
+                if (totalGoteros > 6) {
+                    throw new Error(`Límite de transporte excedido. El pedido contiene ${totalGoteros} goteros (máximo permitido por remito: 6 unidades). Por favor, divida la entrega en remitos independientes.`);
+                }
+            }
+        }
 
         // If status is "Entregado", use RPC to deduct stock safely
         if (status === 'entregado') {
@@ -1105,5 +1159,161 @@ export const StoreService = {
             productos: productos.map(mapProductFromDB),
             pagos
         };
+    },
+
+    getPagosBySocioAndMonth: async (socioId: string, month: string): Promise<Pago[]> => {
+        if (!supabase) return [];
+        const start = `${month}-01T00:00:00.000Z`;
+        const [yearStr, monthStr] = month.split('-');
+        const year = parseInt(yearStr);
+        const monthNum = parseInt(monthStr);
+        const lastDay = new Date(year, monthNum, 0).getDate();
+        const end = `${month}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
+
+        const { data, error } = await supabase
+            .from('pagos')
+            .select('*')
+            .eq('socio_id', socioId)
+            .gte('fecha', start)
+            .lte('fecha', end)
+            .order('fecha', { ascending: true });
+
+        if (error) {
+            console.error("StoreService: getPagosBySocioAndMonth failed", error);
+            return [];
+        }
+
+        return (data || []).map(mapPagoFromDB);
+    },
+
+    getPedidosBySocioAndMonth: async (socioId: string, month: string): Promise<Pedido[]> => {
+        if (!supabase) return [];
+        const start = `${month}-01T00:00:00.000Z`;
+        const [yearStr, monthStr] = month.split('-');
+        const year = parseInt(yearStr);
+        const monthNum = parseInt(monthStr);
+        const lastDay = new Date(year, monthNum, 0).getDate();
+        const end = `${month}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
+
+        const { data, error } = await supabase
+            .from('pedidos')
+            .select('*')
+            .eq('socio_id', socioId)
+            .in('estado', ['entregado', 'retirado'])
+            .gte('created_at', start)
+            .lte('created_at', end)
+            .order('created_at', { ascending: true });
+
+        if (error) {
+            console.error("StoreService: getPedidosBySocioAndMonth failed", error);
+            return [];
+        }
+
+        return (data || []).map(mapPedidoFromDB);
+    },
+
+    getCierreMensual: async (socioId: string, periodo: string): Promise<CierreMensual | null> => {
+        if (!supabase) return null;
+        const { data, error } = await supabase
+            .from('cierres_mensuales')
+            .select('*')
+            .eq('socio_id', socioId)
+            .eq('periodo', periodo)
+            .maybeSingle();
+
+        if (error) {
+            console.error("StoreService: getCierreMensual failed", error);
+            return null;
+        }
+
+        if (!data) return null;
+
+        return {
+            id: data.id,
+            socioId: data.socio_id,
+            periodo: data.periodo,
+            numeroConstancia: data.numero_constancia,
+            fechaGeneracion: data.fecha_generacion,
+            generadoPor: data.generado_por,
+            datos: data.datos,
+            hashSha256: data.hash_sha256,
+            estado: data.estado,
+            fechaAnulacion: data.fecha_anulacion,
+            motivoAnulacion: data.motivo_anulacion,
+            anuladoPor: data.anulado_por
+        };
+    },
+
+    createCierreMensual: async (socioId: string, periodo: string, datos: any, actorId: string): Promise<CierreMensual> => {
+        if (!supabase) throw new Error("Supabase client not initialized");
+
+        // Helper function for SHA-256 in browser
+        const encoder = new TextEncoder();
+        const msgBuffer = encoder.encode(JSON.stringify(datos));
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        const dbRow = {
+            socio_id: socioId,
+            periodo,
+            generado_por: actorId,
+            datos,
+            hash_sha256: hashHex,
+            estado: 'emitido'
+        };
+
+        const { data, error } = await supabase
+            .from('cierres_mensuales')
+            .insert(dbRow)
+            .select()
+            .single();
+
+        if (error) {
+            console.error("StoreService: createCierreMensual failed", error);
+            throw error;
+        }
+
+        await StoreService.createAuditLog(actorId, 'CREATE', 'CIERRE_MENSUAL', data.id, {
+            periodo,
+            numero_constancia: data.numero_constancia,
+            hash_sha256: hashHex
+        });
+
+        return {
+            id: data.id,
+            socioId: data.socio_id,
+            periodo: data.periodo,
+            numeroConstancia: data.numero_constancia,
+            fechaGeneracion: data.fecha_generacion,
+            generadoPor: data.generado_por,
+            datos: data.datos,
+            hashSha256: data.hash_sha256,
+            estado: data.estado
+        };
+    },
+
+    anularCierreMensual: async (cierreId: string, motivo: string, actorId: string): Promise<void> => {
+        if (!supabase) return;
+
+        const { error } = await supabase
+            .from('cierres_mensuales')
+            .update({
+                estado: 'anulado',
+                fecha_anulacion: new Date().toISOString(),
+                motivo_anulacion: motivo,
+                anulado_por: actorId
+            })
+            .eq('id', cierreId);
+
+        if (error) {
+            console.error("StoreService: anularCierreMensual failed", error);
+            throw error;
+        }
+
+        await StoreService.createAuditLog(actorId, 'UPDATE', 'CIERRE_MENSUAL', cierreId, {
+            status_change: 'ANULADO',
+            motivo
+        });
     }
 };

@@ -165,6 +165,8 @@ export interface Pedido {
     archivado?: boolean;
 }
 
+export type PagoConcepto = 'aporte_sostenimiento' | 'cuota_social' | 'donacion' | 'otro';
+
 export interface Pago {
     id: string;
     socioId: string;
@@ -172,6 +174,40 @@ export interface Pago {
     concepto: string;
     monto: number;
     medioDePago: string;
+    pedidoId?: string;
+    referencia?: string;
+}
+
+export interface CierreMensual {
+    id: string;
+    socioId: string;
+    periodo: string;
+    numeroConstancia: string;
+    fechaGeneracion: string;
+    generadoPor?: string;
+    datos: {
+        socio: Socio;
+        dispensas: Array<{
+            pedidoId: string;
+            fecha: string;
+            items: OrderItem[];
+            operador?: string;
+        }>;
+        aportes: Array<{
+            fecha: string;
+            concepto: string;
+            medioDePago: string;
+            referencia?: string;
+            monto: number;
+        }>;
+        version_pie_legal: number;
+        pie_legal: string;
+    };
+    hashSha256: string;
+    estado: 'emitido' | 'anulado';
+    fechaAnulacion?: string;
+    motivoAnulacion?: string;
+    anuladoPor?: string;
 }
 
 export type EstadoTicket = 'abierto' | 'pendiente' | 'cerrado';

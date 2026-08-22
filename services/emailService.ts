@@ -21,5 +21,29 @@ export const EmailService = {
 
         console.warn('Email provider not configured for production yet. Logged instead.');
         return { success: false, error: 'Provider not configured' };
+    },
+
+    sendCierreEmail: async (to: string, socioName: string, periodo: string, datosCierre: any) => {
+        try {
+            const res = await fetch('/api/admin/cierres/send-email', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    to,
+                    socioName,
+                    periodo,
+                    datosCierre
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to send email');
+            return data;
+        } catch (error: any) {
+            console.error("EmailService: sendCierreEmail failed", error);
+            throw error;
+        }
     }
 };

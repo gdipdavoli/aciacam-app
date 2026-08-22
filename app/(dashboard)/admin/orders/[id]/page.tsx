@@ -9,6 +9,7 @@ import { ArrowLeft, CheckCircle, Clock, Package, ExternalLink, Send, Calendar, B
 
 import { getStatusLabel, getNextStatusOptions } from '@/helpers/orderHelpers';
 import { NotificationService } from '@/services/notificationService';
+import PaymentRegistrationModal from '@/app/components/admin/PaymentRegistrationModal';
 
 export default function OrderDetailsPage() {
     const { user, loading: authLoading } = useAuth();
@@ -31,6 +32,7 @@ export default function OrderDetailsPage() {
     const [pendingStatus, setPendingStatus] = useState<string | null>(searchParams?.get('pendingStatus') || null);
     const [showStatusConfirm, setShowStatusConfirm] = useState(searchParams?.get('statusConfirm') === 'true');
     const [showSaveConfirm, setShowSaveConfirm] = useState(searchParams?.get('saveConfirm') === 'true');
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
 
     // Delivery Assignment State
     const [isUpdatingDelivery, setIsUpdatingDelivery] = useState(false);
@@ -97,14 +99,75 @@ export default function OrderDetailsPage() {
 
     const confirmStatusChange = async () => {
         if (order && pendingStatus) {
-            await StoreService.updatePedidoStatus(order.id, pendingStatus as any);
-            // No need to setOrder locally if we are redirecting
-            // setOrder({ ...order, estado: pendingStatus as any });
-            setShowStatusConfirm(false);
-            setPendingStatus(null);
-            updateUrl({ statusConfirm: null, pendingStatus: null });
-            router.push('/admin'); // Redirect to list
+            if (pendingStatus === 'entregado' || pendingStatus === 'retirado') {
+                setShowPaymentModal(true);
+                setShowStatusConfirm(false);
+                updateUrl({ statusConfirm: null });
+                return;
+            }
+
+            try {
+                await StoreService.updatePedidoStatus(order.id, pendingStatus as any);
+                setShowStatusConfirm(false);
+                setPendingStatus(null);
+                updateUrl({ statusConfirm: null, pendingStatus: null });
+                router.push('/admin'); // Redirect to list
+            } catch (error: any) {
+                console.error("Error updating order status:", error);
+                alert(error.message || "Hubo un error al cambiar el estado.");
+                setShowStatusConfirm(false);
+                setPendingStatus(null);
+                updateUrl({ statusConfirm: null, pendingStatus: null });
+            }
         }
+    };
+
+    const handlePaymentConfirm = async (
+        payments: Array<{ amount: number, method: string, reference?: string, concepto: string }>,
+        isDonation: boolean,
+        donationReason?: string
+    ) => {
+        if (!order || !pendingStatus || !user) return;
+
+        const orderId = order.id;
+        const socioId = order.socioId;
+
+        // 1. Update the order status
+        await StoreService.updatePedidoStatus(orderId, pendingStatus as any);
+
+        // 2. Register payments
+        if (isDonation) {
+            await StoreService.createPago({
+                socioId,
+                fecha: new Date().toISOString(),
+                concepto: `Aporte institucional bonificado: ${donationReason}`,
+                monto: 0,
+                medioDePago: 'efectivo',
+                pedidoId: orderId
+            }, user.id);
+        } else {
+            for (const p of payments) {
+                let conceptoStr = 'Aporte social de sostenimiento de cultivo solidario - No Cancelatorio de precio de venta';
+                if (p.concepto === 'cuota_social') conceptoStr = 'Cuota social';
+                else if (p.concepto === 'donacion') conceptoStr = 'Donación extraordinaria';
+                else if (p.concepto === 'otro') conceptoStr = 'Otro aporte';
+
+                await StoreService.createPago({
+                    socioId,
+                    fecha: new Date().toISOString(),
+                    concepto: conceptoStr,
+                    monto: p.amount,
+                    medioDePago: p.method,
+                    pedidoId: orderId,
+                    referencia: p.reference
+                }, user.id);
+            }
+        }
+
+        setShowPaymentModal(false);
+        setPendingStatus(null);
+        updateUrl({ statusConfirm: null, pendingStatus: null });
+        router.push('/admin'); // Redirect to list
     };
 
     // Edit Logic
@@ -594,6 +657,19 @@ export default function OrderDetailsPage() {
                             </div>
                         </div>
                     </div>
+                )}
+
+                {showPaymentModal && order && (
+                    <PaymentRegistrationModal
+                        isOpen={showPaymentModal}
+                        onClose={() => {
+                            setShowPaymentModal(false);
+                            setPendingStatus(null);
+                        }}
+                        onConfirm={handlePaymentConfirm}
+                        orderItems={order.items}
+                        socioName={socio ? `${socio.nombre} ${socio.apellido}` : 'Socio'}
+                    />
                 )}
 
             </div>

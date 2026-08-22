@@ -7,6 +7,7 @@ import { Pedido } from '@/types';
 import { useRouter } from 'next/navigation';
 import { getStatusLabel, getNextStatusOptions, shouldShowInDefaultList, isFinalStatus } from '@/helpers/orderHelpers';
 import { MoreVertical, Navigation } from 'lucide-react'; // Added for Mobile Menu
+import PaymentRegistrationModal from '@/app/components/admin/PaymentRegistrationModal';
 
 export default function AdminPage() {
     const { user, loading: authLoading } = useAuth();
@@ -53,6 +54,11 @@ export default function AdminPage() {
     // State for Confirm Modal
     const [pendingChange, setPendingChange] = useState<{ id: string, newStatus: string, currentStatus: string } | null>(null);
 
+    // States for Payment Modal
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [paymentModalOrder, setPaymentModalOrder] = useState<Pedido | null>(null);
+    const [paymentModalTargetStatus, setPaymentModalTargetStatus] = useState<'entregado' | 'retirado' | null>(null);
+
     const handleStatusChangeRequest = (pedidoId: string, newStatus: string) => {
         const order = orders.find(o => o.id === pedidoId);
         if (order) {
@@ -69,11 +75,75 @@ export default function AdminPage() {
 
         const { id, newStatus } = pendingChange;
 
-        await StoreService.updatePedidoStatus(id, newStatus as any);
-        // Refresh local state
-        setOrders(prev => prev.map(o => o.id === id ? { ...o, estado: newStatus as any } : o));
+        if (newStatus === 'entregado' || newStatus === 'retirado') {
+            const order = orders.find(o => o.id === id);
+            if (order) {
+                setPaymentModalOrder(order);
+                setPaymentModalTargetStatus(newStatus as any);
+                setShowPaymentModal(true);
+                setPendingChange(null);
+                return;
+            }
+        }
+
+        try {
+            await StoreService.updatePedidoStatus(id, newStatus as any);
+            setOrders(prev => prev.map(o => o.id === id ? { ...o, estado: newStatus as any } : o));
+        } catch (error: any) {
+            console.error("Error updating status:", error);
+            alert(error.message || "Error al actualizar el estado.");
+        }
 
         setPendingChange(null);
+    };
+
+    const handlePaymentConfirm = async (
+        payments: Array<{ amount: number, method: string, reference?: string, concepto: string }>,
+        isDonation: boolean,
+        donationReason?: string
+    ) => {
+        if (!paymentModalOrder || !paymentModalTargetStatus || !user) return;
+
+        const orderId = paymentModalOrder.id;
+        const socioId = paymentModalOrder.socioId;
+
+        // 1. Update the order status
+        await StoreService.updatePedidoStatus(orderId, paymentModalTargetStatus);
+
+        // 2. Register payments
+        if (isDonation) {
+            await StoreService.createPago({
+                socioId,
+                fecha: new Date().toISOString(),
+                concepto: `Aporte institucional bonificado: ${donationReason}`,
+                monto: 0,
+                medioDePago: 'efectivo',
+                pedidoId: orderId
+            }, user.id);
+        } else {
+            for (const p of payments) {
+                let conceptoStr = 'Aporte social de sostenimiento de cultivo solidario - No Cancelatorio de precio de venta';
+                if (p.concepto === 'cuota_social') conceptoStr = 'Cuota social';
+                else if (p.concepto === 'donacion') conceptoStr = 'Donación extraordinaria';
+                else if (p.concepto === 'otro') conceptoStr = 'Otro aporte';
+
+                await StoreService.createPago({
+                    socioId,
+                    fecha: new Date().toISOString(),
+                    concepto: conceptoStr,
+                    monto: p.amount,
+                    medioDePago: p.method,
+                    pedidoId: orderId,
+                    referencia: p.reference
+                }, user.id);
+            }
+        }
+
+        // Refresh state
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, estado: paymentModalTargetStatus } : o));
+        setShowPaymentModal(false);
+        setPaymentModalOrder(null);
+        setPaymentModalTargetStatus(null);
     };
 
     const cancelStatusChange = () => {
@@ -416,6 +486,21 @@ export default function AdminPage() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Payment Modal */}
+            {showPaymentModal && paymentModalOrder && (
+                <PaymentRegistrationModal
+                    isOpen={showPaymentModal}
+                    onClose={() => {
+                        setShowPaymentModal(false);
+                        setPaymentModalOrder(null);
+                        setPaymentModalTargetStatus(null);
+                    }}
+                    onConfirm={handlePaymentConfirm}
+                    orderItems={paymentModalOrder.items}
+                    socioName={socios[paymentModalOrder.socioId] || 'Socio'}
+                />
             )}
 
         </div>

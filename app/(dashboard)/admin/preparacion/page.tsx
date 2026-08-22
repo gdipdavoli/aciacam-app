@@ -23,8 +23,11 @@ import {
     Trash2,
     Truck,
     CheckCircle,
-    PlusCircle
+    PlusCircle,
+    X,
+    ArrowLeft
 } from 'lucide-react';
+import PaymentRegistrationModal from '@/app/components/admin/PaymentRegistrationModal';
 
 export default function PickingPage() {
     const { user, loading: authLoading } = useAuth();
@@ -41,6 +44,10 @@ export default function PickingPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // States for Payment Modal
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [paymentModalOrder, setPaymentModalOrder] = useState<Pedido | null>(null);
     
     // Add product state
     const [showAddProduct, setShowAddProduct] = useState(false);
@@ -229,6 +236,15 @@ export default function PickingPage() {
     const handleUpdateStatus = async (newStatus: 'en_camino' | 'entregado') => {
         if (!selectedOrderId || isSubmitting) return;
 
+        if (newStatus === 'entregado') {
+            const order = orders.find(o => o.id === selectedOrderId);
+            if (order) {
+                setPaymentModalOrder(order);
+                setShowPaymentModal(true);
+                return;
+            }
+        }
+
         setIsSubmitting(true);
         try {
             await StoreService.updatePedidoStatus(selectedOrderId, newStatus);
@@ -241,12 +257,61 @@ export default function PickingPage() {
             }
             
             await fetchData();
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error updating order status:", error);
-            alert("Hubo un error al cambiar el estado del envío.");
+            alert(error.message || "Hubo un error al cambiar el estado del envío.");
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    const handlePaymentConfirm = async (
+        payments: Array<{ amount: number, method: string, reference?: string, concepto: string }>,
+        isDonation: boolean,
+        donationReason?: string
+    ) => {
+        if (!paymentModalOrder || !user) return;
+
+        const orderId = paymentModalOrder.id;
+        const socioId = paymentModalOrder.socioId;
+
+        // 1. Update order status
+        await StoreService.updatePedidoStatus(orderId, 'entregado');
+
+        // 2. Register payments
+        if (isDonation) {
+            await StoreService.createPago({
+                socioId,
+                fecha: new Date().toISOString(),
+                concepto: `Aporte institucional bonificado: ${donationReason}`,
+                monto: 0,
+                medioDePago: 'efectivo',
+                pedidoId: orderId
+            }, user.id);
+        } else {
+            for (const p of payments) {
+                let conceptoStr = 'Aporte social de sostenimiento de cultivo solidario - No Cancelatorio de precio de venta';
+                if (p.concepto === 'cuota_social') conceptoStr = 'Cuota social';
+                else if (p.concepto === 'donacion') conceptoStr = 'Donación extraordinaria';
+                else if (p.concepto === 'otro') conceptoStr = 'Otro aporte';
+
+                await StoreService.createPago({
+                    socioId,
+                    fecha: new Date().toISOString(),
+                    concepto: conceptoStr,
+                    monto: p.amount,
+                    medioDePago: p.method,
+                    pedidoId: orderId,
+                    referencia: p.reference
+                }, user.id);
+            }
+        }
+
+        setSelectedOrderId(null);
+        setActiveTab('lista');
+        setShowPaymentModal(false);
+        setPaymentModalOrder(null);
+        await fetchData();
     };
 
     const selectedOrder = orders.find(o => o.id === selectedOrderId);
@@ -774,6 +839,23 @@ export default function PickingPage() {
                 </div>
 
             </div>
+
+            {/* Payment Modal */}
+            {showPaymentModal && paymentModalOrder && (
+                <PaymentRegistrationModal
+                    isOpen={showPaymentModal}
+                    onClose={() => {
+                        setShowPaymentModal(false);
+                        setPaymentModalOrder(null);
+                    }}
+                    onConfirm={handlePaymentConfirm}
+                    orderItems={paymentModalOrder.items}
+                    socioName={(() => {
+                        const s = socios.find(soc => soc.id === paymentModalOrder.socioId);
+                        return s ? `${s.nombre} ${s.apellido}` : 'Socio';
+                    })()}
+                />
+            )}
         </div>
     );
 }
