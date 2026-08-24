@@ -12,7 +12,7 @@ import { NotificationService } from '@/services/notificationService';
 import PaymentRegistrationModal from '@/app/components/admin/PaymentRegistrationModal';
 
 export default function OrderDetailsPage() {
-    const { user, loading: authLoading } = useAuth();
+    const { user, session, loading: authLoading } = useAuth();
     const router = useRouter();
     const params = useParams();
     const id = params?.id as string;
@@ -131,6 +131,7 @@ export default function OrderDetailsPage() {
 
         const orderId = order.id;
         const socioId = order.socioId;
+        const actorId = session?.user?.id || user.auth_user_id || user.id;
 
         // 1. Update the order status
         await StoreService.updatePedidoStatus(orderId, pendingStatus as any);
@@ -144,7 +145,7 @@ export default function OrderDetailsPage() {
                 monto: 0,
                 medioDePago: 'efectivo',
                 pedidoId: orderId
-            }, user.id);
+            }, actorId);
         } else {
             for (const p of payments) {
                 let conceptoStr = 'Aporte social de sostenimiento de cultivo solidario - No Cancelatorio de precio de venta';
@@ -160,7 +161,7 @@ export default function OrderDetailsPage() {
                     medioDePago: p.method,
                     pedidoId: orderId,
                     referencia: p.reference
-                }, user.id);
+                }, actorId);
             }
         }
 

@@ -10,7 +10,7 @@ import { MoreVertical, Navigation } from 'lucide-react'; // Added for Mobile Men
 import PaymentRegistrationModal from '@/app/components/admin/PaymentRegistrationModal';
 
 export default function AdminPage() {
-    const { user, loading: authLoading } = useAuth();
+    const { user, session, loading: authLoading } = useAuth();
     const router = useRouter();
     const [orders, setOrders] = useState<Pedido[]>([]);
     const [socios, setSocios] = useState<Record<string, string>>({});
@@ -106,6 +106,7 @@ export default function AdminPage() {
 
         const orderId = paymentModalOrder.id;
         const socioId = paymentModalOrder.socioId;
+        const actorId = session?.user?.id || user.auth_user_id || user.id;
 
         // 1. Update the order status
         await StoreService.updatePedidoStatus(orderId, paymentModalTargetStatus);
@@ -119,7 +120,7 @@ export default function AdminPage() {
                 monto: 0,
                 medioDePago: 'efectivo',
                 pedidoId: orderId
-            }, user.id);
+            }, actorId);
         } else {
             for (const p of payments) {
                 let conceptoStr = 'Aporte social de sostenimiento de cultivo solidario - No Cancelatorio de precio de venta';
@@ -135,7 +136,7 @@ export default function AdminPage() {
                     medioDePago: p.method,
                     pedidoId: orderId,
                     referencia: p.reference
-                }, user.id);
+                }, actorId);
             }
         }
 
