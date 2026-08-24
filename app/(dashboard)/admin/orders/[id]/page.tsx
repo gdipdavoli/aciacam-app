@@ -133,15 +133,12 @@ export default function OrderDetailsPage() {
         const socioId = order.socioId;
         const actorId = session?.user?.id || user.auth_user_id || user.id;
 
-        // 1. Update the order status
-        await StoreService.updatePedidoStatus(orderId, pendingStatus as any);
-
-        // 2. Register payments
+        // 1. Register payments first
         if (isDonation) {
             await StoreService.createPago({
                 socioId,
                 fecha: new Date().toISOString(),
-                concepto: `Aporte institucional bonificado: ${donationReason}`,
+                concepto: `Aporte institutional bonificado: ${donationReason}`,
                 monto: 0,
                 medioDePago: 'efectivo',
                 pedidoId: orderId
@@ -164,6 +161,9 @@ export default function OrderDetailsPage() {
                 }, actorId);
             }
         }
+
+        // 2. Then update the order status
+        await StoreService.updatePedidoStatus(orderId, pendingStatus as any);
 
         setShowPaymentModal(false);
         setPendingStatus(null);

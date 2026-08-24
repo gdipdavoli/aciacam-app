@@ -108,10 +108,7 @@ export default function AdminPage() {
         const socioId = paymentModalOrder.socioId;
         const actorId = session?.user?.id || user.auth_user_id || user.id;
 
-        // 1. Update the order status
-        await StoreService.updatePedidoStatus(orderId, paymentModalTargetStatus);
-
-        // 2. Register payments
+        // 1. Register payments first
         if (isDonation) {
             await StoreService.createPago({
                 socioId,
@@ -139,6 +136,9 @@ export default function AdminPage() {
                 }, actorId);
             }
         }
+
+        // 2. Then update the order status
+        await StoreService.updatePedidoStatus(orderId, paymentModalTargetStatus);
 
         // Refresh state
         setOrders(prev => prev.map(o => o.id === orderId ? { ...o, estado: paymentModalTargetStatus } : o));

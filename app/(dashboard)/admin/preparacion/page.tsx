@@ -278,10 +278,7 @@ export default function PickingPage() {
         const socioId = paymentModalOrder.socioId;
         const actorId = session?.user?.id || user.auth_user_id || user.id;
 
-        // 1. Update order status
-        await StoreService.updatePedidoStatus(orderId, paymentModalTargetStatus);
-
-        // 2. Register payments
+        // 1. Register payments first
         if (isDonation) {
             await StoreService.createPago({
                 socioId,
@@ -309,6 +306,9 @@ export default function PickingPage() {
                 }, actorId);
             }
         }
+
+        // 2. Then update order status
+        await StoreService.updatePedidoStatus(orderId, paymentModalTargetStatus);
 
         setSelectedOrderId(null);
         setActiveTab('lista');
