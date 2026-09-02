@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/services/supabaseClient';
-import { AlertCircle, KeyRound, LogIn, RefreshCw, Home } from 'lucide-react';
+import { AlertCircle, LogIn, RefreshCw, Home } from 'lucide-react';
 
 interface ErrorState {
     code: string;
@@ -14,12 +14,11 @@ export default function InviteCallbackPage() {
     const router = useRouter();
     const [status, setStatus] = useState('Procesando invitación...');
     const [errorState, setErrorState] = useState<ErrorState | null>(null);
-    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
 
-        // 1. Parse Hash and Query Parameters for Supabase Auth Errors
+        // 1. Parse Hash and Query Parameters
         const hash = window.location.hash.substring(1);
         const search = window.location.search.substring(1);
         const hashParams = new URLSearchParams(hash);
@@ -29,6 +28,7 @@ export default function InviteCallbackPage() {
         const errorDesc = hashParams.get('error_description') || searchParams.get('error_description');
         const error = hashParams.get('error') || searchParams.get('error');
 
+        // Check for Explicit Errors in URL
         if (errorCode || error || errorDesc) {
             const friendlyDesc = errorCode === 'otp_expired'
                 ? 'El enlace de invitación ha expirado o ya fue utilizado previamente.'
@@ -38,7 +38,6 @@ export default function InviteCallbackPage() {
                 code: errorCode || error || 'link_invalid',
                 description: friendlyDesc
             });
-            setLoading(false);
             return;
         }
 
@@ -47,42 +46,79 @@ export default function InviteCallbackPage() {
                 code: 'client_error',
                 description: 'No se pudo conectar con el servicio de autenticación.'
             });
-            setLoading(false);
             return;
         }
 
-        // 2. Listen to Auth state changes
+        // 2. Check for Hash Tokens (Implicit Flow: #access_token=...&refresh_token=...)
+        const accessToken = hashParams.get('access_token') || searchParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token') || searchParams.get('refresh_token');
+
+        if (accessToken) {
+            setStatus('Iniciando sesión con tu invitación...');
+            supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken || ''
+            }).then(({ data, error: setSessionError }) => {
+                if (setSessionError || !data.session) {
+                    console.error("InviteCallback SetSession Error:", setSessionError);
+                    setErrorState({
+                        code: 'token_expired',
+                        description: 'El token de acceso ha expirado o fue consumido previamente.'
+                    });
+                } else {
+                    setStatus('Sesión confirmada. Redirigiendo a creación de contraseña...');
+                    router.replace('/auth/set-password');
+                }
+            });
+            return;
+        }
+
+        // 3. Check for PKCE Code (?code=...)
+        const code = searchParams.get('code');
+        if (code) {
+            setStatus('Validando código de invitación...');
+            supabase.auth.exchangeCodeForSession(code).then(({ data, error: exchangeError }) => {
+                if (exchangeError || !data.session) {
+                    console.error("InviteCallback Exchange Error:", exchangeError);
+                    setErrorState({
+                        code: 'code_expired',
+                        description: 'El código de autorización expiró o no es válido.'
+                    });
+                } else {
+                    setStatus('Sesión confirmada. Redirigiendo...');
+                    router.replace('/auth/set-password');
+                }
+            });
+            return;
+        }
+
+        // 4. Fallback: Listen to Auth state changes or check active session
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             console.log("InviteCallback: Auth Event:", event, session?.user?.email);
-
             if (event === 'SIGNED_IN' || (event === 'INITIAL_SESSION' && session)) {
-                setStatus('Sesión autenticada. Redirigiendo a creación de contraseña...');
-                setLoading(false);
+                setStatus('Sesión detectada. Redirigiendo...');
                 router.replace('/auth/set-password');
             }
         });
 
-        // 3. Fallback: Check existing session
         supabase.auth.getSession().then(({ data: { session } }) => {
             if (session) {
-                setStatus('Sesión detectada. Redirigiendo...');
-                setLoading(false);
+                setStatus('Sesión activa. Redirigiendo...');
                 router.replace('/auth/set-password');
             }
         });
 
-        // 4. Safety Timeout: If after 4 seconds no session is found and no error was parsed
+        // 5. Safety Timeout: If no session/tokens resolved after 3.5s
         const timer = setTimeout(() => {
             supabase.auth.getSession().then(({ data: { session } }) => {
                 if (!session) {
                     setErrorState({
                         code: 'timeout',
-                        description: 'El enlace de invitación ha expicado o ya fue procesado.'
+                        description: 'El enlace de invitación ha expirado o ya fue procesado.'
                     });
-                    setLoading(false);
                 }
             });
-        }, 4000);
+        }, 3500);
 
         return () => {
             subscription.unsubscribe();
