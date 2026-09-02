@@ -6,8 +6,8 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { OrderType } from '@/types';
 import { useRouter } from 'next/navigation';
-import { Trash2, Plus, Minus, MapPin, CheckCircle, ExternalLink, Navigation, ShieldCheck } from 'lucide-react';
-import { SlotSelector } from '@/app/components/SlotSelector'; // Import Component
+import { Trash2, Plus, Minus, MapPin, CheckCircle, Navigation } from 'lucide-react';
+import { SlotSelector } from '@/app/components/SlotSelector';
 import { toast } from 'sonner';
 
 export default function CheckoutPage() {
@@ -26,7 +26,6 @@ export default function CheckoutPage() {
         }
     }, [user, router]);
 
-    const [step, setStep] = useState<1 | 2>(1);
     const [orderType, setOrderType] = useState<OrderType>('delivery');
     const [observaciones, setObservaciones] = useState('');
 
@@ -37,14 +36,13 @@ export default function CheckoutPage() {
     const [guardarPerfil, setGuardarPerfil] = useState(false);
     const [isFetchingLocation, setIsFetchingLocation] = useState(false);
 
-    // Retiro fields -- REPLACED manual fields with Slot State
+    // Retiro fields
     const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
     const [slotLabel, setSlotLabel] = useState('');
     const [slotDate, setSlotDate] = useState('');
     const [coordinarConAdmin, setCoordinarConAdmin] = useState(false);
 
     const [isSubmitting, setIsSubmitting] = useState(false);
-
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [finalAporte, setFinalAporte] = useState(0);
 
@@ -55,27 +53,6 @@ export default function CheckoutPage() {
         limite_gramos_min: 5
     });
 
-    // Res. 800/2021 Legal Limit Calculations
-    const totalFloresGramos = items.reduce((acc, item) => {
-        const tipo = item.producto?.tipo?.toLowerCase();
-        if (tipo === 'flor' || !tipo) {
-            return acc + (item.cantidad * (item.producto?.peso_gramos || 1));
-        }
-        return acc;
-    }, 0);
-
-    const totalGoterosUnits = items.reduce((acc, item) => {
-        const tipo = item.producto?.tipo?.toLowerCase();
-        if (tipo === 'gotero' || tipo === 'aceite') {
-            return acc + item.cantidad;
-        }
-        return acc;
-    }, 0);
-
-    const exceedsFlowersLimit = totalFloresGramos > globalConfigs.limite_gramos_max;
-    const exceedsGoterosLimit = totalGoterosUnits > 6;
-    const exceedsLegalLimits = exceedsFlowersLimit || exceedsGoterosLimit;
-
     useEffect(() => {
         StoreService.getGlobalConfigs().then(data => {
             if (Object.keys(data).length > 0) {
@@ -84,7 +61,7 @@ export default function CheckoutPage() {
         });
     }, []);
 
-    // Sync address fields with profile when it loads (one-time sync on load)
+    // Sync address fields with profile when it loads
     React.useEffect(() => {
         if (user && !direccion && !localidad) {
             if (user.direccion) setDireccion(user.direccion);
@@ -133,11 +110,6 @@ export default function CheckoutPage() {
     const handleCheckout = async () => {
         if (!user) return;
 
-        if (exceedsLegalLimits) {
-            toast.error("Tu pedido excede los límites legales permitidos por la Res. 800/2021.");
-            return;
-        }
-
         // 1. FRESH STOCK CHECK (To prevent race conditions)
         setIsSubmitting(true);
         try {
@@ -153,18 +125,6 @@ export default function CheckoutPage() {
         } catch (stockErr) {
             console.error("Stock pre-check failed", stockErr);
             toast.error("No se pudo verificar el stock disponible en este momento. Por favor, reintente en unos instantes.");
-            setIsSubmitting(false);
-            return;
-        }
-
-        // 2. CONTINUE WITH VALIDATION
-        if (pesoTotal < globalConfigs.limite_gramos_min) {
-            toast.warning(`El mínimo para solicitar provisión es de ${globalConfigs.limite_gramos_min}g.`);
-            setIsSubmitting(false);
-            return;
-        }
-        if (pesoTotal > globalConfigs.limite_gramos_max) {
-            toast.warning(`El máximo mensual permitido es de ${globalConfigs.limite_gramos_max}g.`);
             setIsSubmitting(false);
             return;
         }
@@ -192,22 +152,19 @@ export default function CheckoutPage() {
                 direccionEntrega: orderType === 'delivery' ? direccion : undefined,
                 localidad: orderType === 'delivery' ? localidad : undefined,
                 ubicacion_gps: orderType === 'delivery' ? ubicacionGps : undefined,
-                // Pass ISO Date for database compatibility
                 fechaRetiroPreferida: orderType === 'retiro_sede' ? (coordinarConAdmin ? undefined : slotDate) : undefined,
                 slotId: orderType === 'retiro_sede' ? (coordinarConAdmin ? undefined : selectedSlotId!) : undefined
             });
 
-            // 2. Persistent Profile Update (Optional)
             if (orderType === 'delivery' && guardarPerfil) {
                 try {
                     await StoreService.updateSocio(user.id, {
                         direccion,
                         localidad
                     });
-                    await refreshUser(); // Sync local AuthContext
+                    await refreshUser();
                 } catch (profileError) {
                     console.error("Failed to update profile", profileError);
-                    // Don't block the success flow if profile update fails
                 }
             }
 
@@ -293,296 +250,229 @@ export default function CheckoutPage() {
 
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_350px] gap-8 items-start">
 
-                {/* Left Column: Form */}
-                <div className="min-w-0">
-                    {step === 1 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                            <section style={{ backgroundColor: 'hsl(var(--card))', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
-                                <h3 style={{ marginBottom: '1rem' }}>Modalidad de Entrega</h3>
-                                <div className="flex flex-col sm:flex-row gap-4">
-                                    <label style={{
-                                        flex: 1,
-                                        padding: '1rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: `2px solid ${orderType === 'retiro_sede' ? 'hsl(var(--primary))' : 'hsl(var(--border))'}`,
-                                        cursor: 'pointer',
-                                        backgroundColor: orderType === 'retiro_sede' ? 'hsl(var(--primary) / 0.05)' : 'transparent'
-                                    }}>
-                                        <input
-                                            type="radio"
-                                            name="orderType"
-                                            value="retiro_sede"
-                                            checked={orderType === 'retiro_sede'}
-                                            onChange={() => setOrderType('retiro_sede')}
-                                            style={{ marginRight: '0.5rem' }}
-                                        />
-                                        Retiro en Sede
-                                    </label>
+                {/* Form Column */}
+                <div className="min-w-0 flex flex-col gap-6">
+                    <section style={{ backgroundColor: 'hsl(var(--card))', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
+                        <h3 style={{ marginBottom: '1rem' }}>Modalidad de Entrega</h3>
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <label style={{
+                                flex: 1,
+                                padding: '1rem',
+                                borderRadius: 'var(--radius)',
+                                border: `2px solid ${orderType === 'retiro_sede' ? 'hsl(var(--primary))' : 'hsl(var(--border))'}`,
+                                cursor: 'pointer',
+                                backgroundColor: orderType === 'retiro_sede' ? 'hsl(var(--primary) / 0.05)' : 'transparent'
+                            }}>
+                                <input
+                                    type="radio"
+                                    name="orderType"
+                                    value="retiro_sede"
+                                    checked={orderType === 'retiro_sede'}
+                                    onChange={() => setOrderType('retiro_sede')}
+                                    style={{ marginRight: '0.5rem' }}
+                                />
+                                Retiro en Sede
+                            </label>
 
-                                    <label style={{
-                                        flex: 1,
-                                        padding: '1rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: `2px solid ${!user?.envios_habilitados ? 'hsl(var(--muted))' : (orderType === 'delivery' ? 'hsl(var(--primary))' : 'hsl(var(--border))')}`,
-                                        cursor: 'pointer',
-                                        backgroundColor: orderType === 'delivery' ? 'hsl(var(--primary) / 0.05)' : 'transparent',
-                                        opacity: 1,
-                                        position: 'relative'
+                            <label style={{
+                                flex: 1,
+                                padding: '1rem',
+                                borderRadius: 'var(--radius)',
+                                border: `2px solid ${!user?.envios_habilitados ? 'hsl(var(--muted))' : (orderType === 'delivery' ? 'hsl(var(--primary))' : 'hsl(var(--border))')}`,
+                                cursor: 'pointer',
+                                backgroundColor: orderType === 'delivery' ? 'hsl(var(--primary) / 0.05)' : 'transparent',
+                                opacity: 1,
+                                position: 'relative'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                    <input
+                                        type="radio"
+                                        name="orderType"
+                                        value="delivery"
+                                        checked={orderType === 'delivery'}
+                                        onChange={() => setOrderType('delivery')}
+                                        style={{ marginRight: '0.5rem' }}
+                                    />
+                                    <div>
+                                        <span style={{ display: 'block', fontWeight: 500 }}>Envío a Domicilio</span>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    </section>
+
+                    <section style={{ backgroundColor: 'hsl(var(--card))', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
+                        <h3 style={{ marginBottom: '1rem' }}>Detalles</h3>
+
+                        {orderType === 'retiro_sede' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Seleccionar Turno de Retiro</label>
+                                    <SlotSelector
+                                        selectedSlotId={selectedSlotId}
+                                        onSelect={(id, label, date) => {
+                                            setSelectedSlotId(id);
+                                            setSlotLabel(label);
+                                            setSlotDate(date);
+                                            setCoordinarConAdmin(false);
+                                        }}
+                                    />
+
+                                    <div style={{ 
+                                        marginTop: '1.5rem', 
+                                        padding: '1rem', 
+                                        borderRadius: 'var(--radius)', 
+                                        border: `1px dashed ${coordinarConAdmin ? 'hsl(var(--primary))' : 'hsl(var(--border))'}`,
+                                        backgroundColor: coordinarConAdmin ? 'hsl(var(--primary) / 0.05)' : 'transparent',
+                                        transition: 'all 0.2s ease'
                                     }}>
-                                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                                            <input
-                                                type="radio"
-                                                name="orderType"
-                                                value="delivery"
-                                                checked={orderType === 'delivery'}
-                                                onChange={() => setOrderType('delivery')}
-                                                style={{ marginRight: '0.5rem' }}
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={coordinarConAdmin}
+                                                onChange={(e) => {
+                                                    setCoordinarConAdmin(e.target.checked);
+                                                    if (e.target.checked) {
+                                                        setSelectedSlotId(null);
+                                                        setSlotLabel('');
+                                                        setSlotDate('');
+                                                    }
+                                                }}
+                                                style={{ width: '18px', height: '18px', accentColor: 'hsl(var(--primary))' }}
                                             />
                                             <div>
-                                                <span style={{ display: 'block', fontWeight: 500 }}>Envío a Domicilio</span>
+                                                <span style={{ display: 'block', fontWeight: 600, fontSize: '0.9rem' }}>Coordinar con administración</span>
+                                                <span style={{ display: 'block', fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>Elegí esta opción si no encontrás un turno conveniente.</span>
                                             </div>
-                                        </div>
-                                    </label>
+                                        </label>
+                                    </div>
                                 </div>
-                            </section>
-
-                            <section style={{ backgroundColor: 'hsl(var(--card))', padding: '1.5rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
-                                <h3 style={{ marginBottom: '1rem' }}>Detalles</h3>
-
-                                {orderType === 'retiro_sede' ? (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                        <div>
-                                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Seleccionar Turno de Retiro</label>
-                                            <SlotSelector
-                                                selectedSlotId={selectedSlotId}
-                                                onSelect={(id, label, date) => {
-                                                    setSelectedSlotId(id);
-                                                    setSlotLabel(label);
-                                                    setSlotDate(date);
-                                                    setCoordinarConAdmin(false); // Reset coordination if slot selected
-                                                }}
-                                            />
-
-                                            <div style={{ 
-                                                marginTop: '1.5rem', 
-                                                padding: '1rem', 
-                                                borderRadius: 'var(--radius)', 
-                                                border: `1px dashed ${coordinarConAdmin ? 'hsl(var(--primary))' : 'hsl(var(--border))'}`,
-                                                backgroundColor: coordinarConAdmin ? 'hsl(var(--primary) / 0.05)' : 'transparent',
-                                                transition: 'all 0.2s ease'
-                                            }}>
-                                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={coordinarConAdmin}
-                                                        onChange={(e) => {
-                                                            setCoordinarConAdmin(e.target.checked);
-                                                            if (e.target.checked) {
-                                                                setSelectedSlotId(null);
-                                                                setSlotLabel('');
-                                                                setSlotDate('');
-                                                            }
-                                                        }}
-                                                        style={{ width: '18px', height: '18px', accentColor: 'hsl(var(--primary))' }}
-                                                    />
-                                                    <div>
-                                                        <span style={{ display: 'block', fontWeight: 600, fontSize: '0.9rem' }}>Coordinar con administración</span>
-                                                        <span style={{ display: 'block', fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>Elegí esta opción si no encontrás un turno conveniente.</span>
-                                                    </div>
-                                                </label>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="flex flex-col gap-4">
-                                        <div>
-                                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Dirección de Entrega</label>
-                                            <input
-                                                type="text"
-                                                value={direccion}
-                                                onChange={(e) => setDireccion(e.target.value)}
-                                                placeholder="Calle 123, Depto 4B"
-                                                className="w-full p-3 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                            />
-                                        </div>
-                                        <div>
-                                            <div className="flex justify-between items-end mb-2">
-                                                <label style={{ display: 'block', fontSize: '0.9rem' }}>Localidad / Barrio</label>
-                                                {hasStoredAddress && isDifferentFromStored && (
-                                                    <button 
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setDireccion(user.direccion || '');
-                                                            setLocalidad(user.localidad || '');
-                                                        }}
-                                                        className="text-xs text-primary font-semibold hover:underline flex items-center gap-1"
-                                                    >
-                                                        🏠 Usar mi domicilio guardado
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <input
-                                                type="text"
-                                                value={localidad}
-                                                onChange={(e) => setLocalidad(e.target.value)}
-                                                placeholder="Palermo, CABA"
-                                                className="w-full p-3 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                                            />
-                                        </div>
-
-                                        <div className="pt-2 border-t border-border mt-2">
-                                            <div className="flex flex-col gap-3">
-                                                <button
-                                                    type="button"
-                                                    onClick={handleGetLocation}
-                                                    disabled={isFetchingLocation}
-                                                    className={`flex items-center justify-center gap-2 w-full p-2.5 rounded-md border text-sm font-medium transition-all ${
-                                                        ubicacionGps 
-                                                        ? 'bg-green-50 border-green-200 text-green-700' 
-                                                        : 'bg-secondary/50 border-border text-foreground hover:bg-secondary'
-                                                    }`}
-                                                >
-                                                    {isFetchingLocation ? (
-                                                        <>Capturando...</>
-                                                    ) : ubicacionGps ? (
-                                                        <>
-                                                            <ShieldCheck size={18} />
-                                                            Ubicación GPS capturada
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Navigation size={18} className="rotate-45" />
-                                                            Compartir mi ubicación GPS (Opcional)
-                                                        </>
-                                                    )}
-                                                </button>
-
-                                                <label className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={guardarPerfil}
-                                                        onChange={(e) => setGuardarPerfil(e.target.checked)}
-                                                        className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                                    />
-                                                    <div className="flex flex-col">
-                                                        <span className="text-sm font-semibold">Guardar domicilio</span>
-                                                        <span className="text-xs text-muted-foreground">Usar esta dirección para mis futuros pedidos</span>
-                                                    </div>
-                                                </label>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div style={{ marginTop: '1rem' }}>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Disponibilidad Horaria / Observaciones</label>
-                                    <textarea
-                                        value={observaciones}
-                                        onChange={(e) => setObservaciones(e.target.value)}
-                                        rows={3}
-                                        placeholder="Ej: Disponible de lunes a viernes después de las 17hs..."
-                                        className="w-full p-3 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-4">
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Dirección de Entrega</label>
+                                    <input
+                                        type="text"
+                                        value={direccion}
+                                        onChange={(e) => setDireccion(e.target.value)}
+                                        placeholder="Calle 123, Depto 4B"
+                                        className="w-full p-3 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                                     />
                                 </div>
-                            </section>
-
-                            {/* Res. 800/2021 Preventative Legal Limits Progress Bar */}
-                            <div className="bg-card border rounded-xl p-4 my-4 shadow-sm space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <h4 className="text-xs font-bold flex items-center gap-1.5 text-foreground uppercase tracking-wider">
-                                        <ShieldCheck size={16} className="text-primary" />
-                                        Cupo Legal Res. 800/2021
-                                    </h4>
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-muted text-muted-foreground uppercase">
-                                        Límite Mensual
-                                    </span>
+                                <div>
+                                    <div className="flex justify-between items-end mb-2">
+                                        <label style={{ display: 'block', fontSize: '0.9rem' }}>Localidad / Barrio</label>
+                                        {hasStoredAddress && isDifferentFromStored && (
+                                            <button 
+                                                type="button"
+                                                onClick={() => {
+                                                    setDireccion(user.direccion || '');
+                                                    setLocalidad(user.localidad || '');
+                                                }}
+                                                className="text-xs text-primary font-semibold hover:underline flex items-center gap-1"
+                                            >
+                                                🏠 Usar mi domicilio guardado
+                                            </button>
+                                        )}
+                                    </div>
+                                    <input
+                                        type="text"
+                                        value={localidad}
+                                        onChange={(e) => setLocalidad(e.target.value)}
+                                        placeholder="Palermo, CABA"
+                                        className="w-full p-3 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                                    />
                                 </div>
 
-                                <div className="space-y-2.5">
-                                    {/* Flores Bar */}
-                                    <div>
-                                        <div className="flex justify-between text-xs font-medium mb-1">
-                                            <span>Flores Secas</span>
-                                            <span className={exceedsFlowersLimit ? "text-destructive font-bold" : "text-muted-foreground"}>
-                                                {totalFloresGramos}g / {globalConfigs.limite_gramos_max}g
-                                            </span>
-                                        </div>
-                                        <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-                                            <div
-                                                className={`h-full transition-all duration-300 ${
-                                                    exceedsFlowersLimit ? 'bg-destructive' : totalFloresGramos >= 30 ? 'bg-amber-500' : 'bg-primary'
-                                                }`}
-                                                style={{ width: `${Math.min(100, (totalFloresGramos / globalConfigs.limite_gramos_max) * 100)}%` }}
-                                            />
-                                        </div>
-                                    </div>
+                                <div className="pt-2 border-t border-border mt-2">
+                                    <div className="flex flex-col gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={handleGetLocation}
+                                            disabled={isFetchingLocation}
+                                            className={`flex items-center justify-center gap-2 w-full p-2.5 rounded-md border text-sm font-medium transition-all ${
+                                                ubicacionGps 
+                                                ? 'bg-green-50 border-green-200 text-green-700' 
+                                                : 'bg-secondary/50 border-border text-foreground hover:bg-secondary'
+                                            }`}
+                                        >
+                                            {isFetchingLocation ? (
+                                                <>Capturando...</>
+                                            ) : ubicacionGps ? (
+                                                <>Ubicación GPS capturada</>
+                                            ) : (
+                                                <>
+                                                    <Navigation size={18} className="rotate-45" />
+                                                    Compartir mi ubicación GPS (Opcional)
+                                                </>
+                                            )}
+                                        </button>
 
-                                    {/* Goteros Bar */}
-                                    <div>
-                                        <div className="flex justify-between text-xs font-medium mb-1">
-                                            <span>Goteros / Aceites</span>
-                                            <span className={exceedsGoterosLimit ? "text-destructive font-bold" : "text-muted-foreground"}>
-                                                {totalGoterosUnits} / 6 unidades
-                                            </span>
-                                        </div>
-                                        <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
-                                            <div
-                                                className={`h-full transition-all duration-300 ${
-                                                    exceedsGoterosLimit ? 'bg-destructive' : totalGoterosUnits >= 4 ? 'bg-amber-500' : 'bg-primary'
-                                                }`}
-                                                style={{ width: `${Math.min(100, (totalGoterosUnits / 6) * 100)}%` }}
+                                        <label className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors">
+                                            <input
+                                                type="checkbox"
+                                                checked={guardarPerfil}
+                                                onChange={(e) => setGuardarPerfil(e.target.checked)}
+                                                className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
                                             />
-                                        </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-semibold">Guardar domicilio</span>
+                                                <span className="text-xs text-muted-foreground">Usar esta dirección para mis futuros pedidos</span>
+                                            </div>
+                                        </label>
                                     </div>
                                 </div>
-
-                                {exceedsLegalLimits && (
-                                    <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-2.5 font-medium flex items-start gap-1.5 mt-2">
-                                        <ShieldCheck size={14} className="shrink-0 mt-0.5" />
-                                        <span>Supera el límite legal permitido por la Res. 800/2021 (Máx. 40g de flor o 6 goteros). Ajustá las cantidades.</span>
-                                    </div>
-                                )}
                             </div>
+                        )}
 
-                            <button
-                                onClick={handleCheckout}
-                                disabled={isSubmitting || exceedsLegalLimits}
-                                style={{
-                                    width: '100%',
-                                    padding: '1rem',
-                                    backgroundColor: (isSubmitting || exceedsLegalLimits) ? 'hsl(var(--muted))' : 'hsl(var(--primary))',
-                                    color: (isSubmitting || exceedsLegalLimits) ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary-foreground))',
-                                    border: 'none',
-                                    borderRadius: 'var(--radius)',
-                                    fontWeight: 600,
-                                    fontSize: '1rem',
-                                    cursor: (isSubmitting || exceedsLegalLimits) ? 'not-allowed' : 'pointer',
-                                    opacity: (isSubmitting || exceedsLegalLimits) ? 0.7 : 1
-                                }}
-                            >
-                                {isSubmitting ? 'Procesando...' : exceedsLegalLimits ? 'Límite Excedido' : 'Confirmar Solicitud'}
-                            </button>
-
-                            <div className="mt-6 text-xs text-muted-foreground p-4 bg-muted/50 rounded-lg border border-border">
-                                <p className="mb-2 text-justify">
-                                    "Las opciones aquí presentadas corresponden a variedades disponibles dentro del servicio de cultivo solidario brindado por la asociación. La selección realizada constituye una solicitud de provisión para tratamiento médico y no implica en ningún caso una operación de compra o comercialización de productos.
-                                </p>
-                                <p className="text-justify">
-                                    El aporte indicado corresponde exclusivamente a los costos operativos del servicio de cultivo, incluyendo insumos, mantenimiento y procesos asociados, en el marco de una actividad sin fines de lucro."
-                                </p>
-                            </div>
+                        <div style={{ marginTop: '1rem' }}>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Disponibilidad Horaria / Observaciones</label>
+                            <textarea
+                                value={observaciones}
+                                onChange={(e) => setObservaciones(e.target.value)}
+                                rows={3}
+                                placeholder="Ej: Disponible de lunes a viernes después de las 17hs..."
+                                className="w-full p-3 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                            />
                         </div>
-                    )}
+                    </section>
+
+                    <button
+                        onClick={handleCheckout}
+                        disabled={isSubmitting}
+                        style={{
+                            width: '100%',
+                            padding: '1rem',
+                            backgroundColor: isSubmitting ? 'hsl(var(--muted))' : 'hsl(var(--primary))',
+                            color: isSubmitting ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary-foreground))',
+                            border: 'none',
+                            borderRadius: 'var(--radius)',
+                            fontWeight: 600,
+                            fontSize: '1rem',
+                            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            opacity: isSubmitting ? 0.7 : 1
+                        }}
+                    >
+                        {isSubmitting ? 'Procesando...' : 'Confirmar Solicitud'}
+                    </button>
+
+                    <div className="text-xs text-muted-foreground p-4 bg-muted/50 rounded-lg border border-border">
+                        <p className="mb-2 text-justify">
+                            "Las opciones aquí presentadas corresponden a variedades disponibles dentro del servicio de cultivo solidario brindado por la asociación. La selección realizada constituye una solicitud de provisión para tratamiento médico y no implica en ningún caso una operación de compra o comercialización de productos.
+                        </p>
+                        <p className="text-justify">
+                            El aporte indicado corresponde exclusivamente a los costos operativos del servicio de cultivo, incluyendo insumos, mantenimiento y procesos asociados, en el marco de una actividad sin fines de lucro."
+                        </p>
+                    </div>
                 </div>
 
-                {/* Right Column: Order Summary (Shows first on Mobile) */}
-                <div className="order-first lg:order-last" style={{
+                {/* Right Column: Order Summary (Non-sticky, inline flow) */}
+                <div style={{
                     backgroundColor: 'hsl(var(--card))',
                     borderRadius: 'var(--radius)',
                     border: '1px solid hsl(var(--border))',
-                    padding: '1.5rem',
-                    position: 'sticky',
-                    top: '2rem'
+                    padding: '1.5rem'
                 }}>
                     <h3 style={{ marginBottom: '1rem' }}>Resumen de Solicitud</h3>
                     <ul style={{ listStyle: 'none', padding: 0, marginBottom: '1.5rem' }}>
@@ -590,7 +480,6 @@ export default function CheckoutPage() {
                             <li key={item.productoId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', fontSize: '0.95rem', borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.5rem' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                                     <span style={{ fontWeight: 500 }}>{item.productoNombre}</span>
-                                    {/* <span style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>$ Total calc if needed</span> */}
                                 </div>
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -626,22 +515,6 @@ export default function CheckoutPage() {
                                 <span>Total solicitado (gramos)</span>
                                 <span>{pesoTotal}g</span>
                             </div>
-                            
-                            {/* Validation limits */}
-                            <div style={{ fontSize: '0.85rem' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                                    <span className={pesoTotal > globalConfigs.limite_gramos_max || pesoTotal < globalConfigs.limite_gramos_min ? "text-destructive" : "text-muted-foreground"}>
-                                        {pesoTotal > globalConfigs.limite_gramos_max ? "Excede límite mensual" : pesoTotal < globalConfigs.limite_gramos_min ? `Mínimo ${globalConfigs.limite_gramos_min}g requerido` : "Dentro del máximo mensual permitido"}
-                                    </span>
-                                    <span className="text-muted-foreground">{globalConfigs.limite_gramos_max}g max</span>
-                                </div>
-                                <div className="w-full bg-muted rounded-full h-2">
-                                    <div 
-                                        className={`h-2 rounded-full ${pesoTotal > globalConfigs.limite_gramos_max ? 'bg-destructive' : 'bg-primary'}`} 
-                                        style={{ width: `${Math.min(100, (pesoTotal / globalConfigs.limite_gramos_max) * 100)}%` }}
-                                    ></div>
-                                </div>
-                            </div>
 
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '1.1rem', marginTop: '1rem', borderTop: '1px dashed hsl(var(--border))', paddingTop: '1rem' }}>
                                 <span>Aporte estimado</span>
@@ -649,7 +522,6 @@ export default function CheckoutPage() {
                             </div>
                         </div>
                     </div>
-
                 </div>
 
             </div>
