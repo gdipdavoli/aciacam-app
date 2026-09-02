@@ -118,15 +118,11 @@ export default function ProductCard({ product }: ProductCardProps) {
                     </div>
                 </div>
 
-                {/* Bottom / Right Section: Price & Action */}
+                {/* Bottom / Right Section: Status & Action */}
                 <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-border/40 md:mt-2">
-                    {/* Price or Stock indicator */}
+                    {/* Stock indicator (Generic for socios, numeric for admin) */}
                     <div className="flex flex-col">
-                        {product.precio && product.precio > 0 ? (
-                            <span className="text-sm sm:text-base font-extrabold text-foreground tracking-tight">
-                                ${product.precio.toLocaleString('es-AR')}
-                            </span>
-                        ) : isStaffOrAdmin ? (
+                        {isStaffOrAdmin ? (
                             <span className={`text-xs font-semibold ${product.stockDisponible > 0 ? "text-blue-600 dark:text-blue-400" : "text-destructive"}`}>
                                 Stock: {product.stockDisponible}
                             </span>
@@ -206,9 +202,11 @@ export default function ProductCard({ product }: ProductCardProps) {
                             </svg>
                         </button>
                         <div className="flex items-center gap-2 mb-3">
-                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-primary/10 text-primary uppercase tracking-wider">
-                                {product.categoria}
-                            </span>
+                            {product.categoria && (
+                                <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-primary/10 text-primary uppercase tracking-wider">
+                                    {product.categoria}
+                                </span>
+                            )}
                             <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-secondary text-secondary-foreground uppercase tracking-wider capitalize">
                                 {product.tipo}
                             </span>
@@ -218,13 +216,15 @@ export default function ProductCard({ product }: ProductCardProps) {
                             {product.descripcion || 'Sin descripción detallada.'}
                         </div>
                         <div className="flex items-center justify-between pt-2 border-t">
-                            <div className="text-sm font-semibold text-muted-foreground">
-                                {product.precio && product.precio > 0 ? (
-                                    <span className="text-lg font-bold text-foreground">
-                                        ${product.precio.toLocaleString('es-AR')}
+                            <div className="text-sm font-semibold">
+                                {isStaffOrAdmin ? (
+                                    <span className={product.stockDisponible > 0 ? "text-blue-600 dark:text-blue-400" : "text-destructive"}>
+                                        Stock: {product.stockDisponible}
                                     </span>
                                 ) : (
-                                    <span>Stock disponible: {product.stockDisponible}</span>
+                                    <span className={isOutOfStock ? "text-destructive" : "text-emerald-600 dark:text-emerald-400"}>
+                                        {isOutOfStock ? "Sin stock" : "Disponible"}
+                                    </span>
                                 )}
                             </div>
                             <button
