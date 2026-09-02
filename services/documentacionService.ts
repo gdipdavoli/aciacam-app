@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { compressImageFile } from '@/helpers/imageCompression';
 
 export type TipoDocumento = 'dni' | 'reprocann' | 'consentimiento' | 'declaracion_jurada' | 'contrato' | 'contrato_autocultivo' | 'contrato_madre' | string;
 export type EstadoVerificacion = 'pendiente' | 'en_revision' | 'aprobado' | 'rechazado';
@@ -265,13 +266,16 @@ export const uploadDocumento = async (
   uploadedBy: UploadedBy = 'socio_web',
   userId?: string
 ): Promise<DocumentoSocio | null> => {
+  // Compress image if applicable (JPEG/PNG/WEBP) before uploading
+  const fileToUpload = await compressImageFile(file);
+
   // 1. Subir al bucket 'documentos-socios'
-  const ext = file.name.split('.').pop();
+  const ext = fileToUpload.name.split('.').pop();
   const path = `${socioId}/${tipo}_${Date.now()}.${ext}`;
 
   const { error: storageError } = await supabase.storage
     .from('documentos-socios')
-    .upload(path, file, { upsert: true });
+    .upload(path, fileToUpload, { upsert: true });
 
   if (storageError) {
     console.error('uploadDocumento storage error:', storageError);

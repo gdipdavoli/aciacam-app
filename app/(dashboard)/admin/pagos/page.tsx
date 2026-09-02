@@ -84,7 +84,7 @@ export default function AdminPagosPage() {
 
     // Filter payments by search term (socio name, concept, or payment method)
     const filteredPagos = pagos.filter(p => {
-        const socio = socios.find(s => s.id === p.socioId);
+        const socio = p.socio || socios.find(s => s.id === p.socioId);
         const socioName = socio ? `${socio.nombre} ${socio.apellido}`.toLowerCase() : '';
         const searchLower = searchTerm.toLowerCase();
 

@@ -15,7 +15,8 @@ const mapPagoFromDB = (row: any): Pago => ({
     monto: parseFloat(row.monto),
     medioDePago: row.medio_de_pago,
     pedidoId: row.pedido_id,
-    referencia: row.referencia
+    referencia: row.referencia,
+    socio: row.socio ? mapSocioFromDB(row.socio) : undefined
 });
 
 // Helper to map DB row to Socio type
@@ -160,7 +161,8 @@ const mapPedidoFromDB = (row: any): Pedido => ({
     fechaRetiroPreferida: row.fecha_retiro_preferida,
     franjaHoraria: row.franja_horaria,
     entrega_estimada: row.entrega_estimada,
-    archivado: row.archivado
+    archivado: row.archivado,
+    socio: row.socio ? mapSocioFromDB(row.socio) : undefined
 });
 
 export const StoreService = {
@@ -408,7 +410,7 @@ export const StoreService = {
 
         const { data, error } = await supabase
             .from('pagos')
-            .select('*')
+            .select('*, socio:socios(*)')
             .order('fecha', { ascending: false });
 
         if (error) {
@@ -455,7 +457,7 @@ export const StoreService = {
 
         let query = supabase
             .from('pedidos')
-            .select('*')
+            .select('*, socio:socios(*)')
             .order('created_at', { ascending: false });
 
         if (!includeArchived) {
@@ -470,6 +472,53 @@ export const StoreService = {
         }
 
         return (data || []).map(mapPedidoFromDB);
+    },
+
+    confirmOrderAndPayments: async (
+        orderId: string,
+        targetStatus: string,
+        payments: Array<{ amount: number, method: string, reference?: string, concepto: string }>,
+        isDonation: boolean,
+        donationReason?: string,
+        actorId?: string
+    ): Promise<void> => {
+        if (!supabase) throw new Error("Supabase client not initialized");
+
+        const formattedPayments = isDonation ? [
+            {
+                monto: 0,
+                medio_de_pago: 'efectivo',
+                concepto: `Aporte institucional bonificado: ${donationReason}`
+            }
+        ] : payments.map(p => {
+            let conceptoStr = 'Aporte social de sostenimiento de cultivo solidario - No Cancelatorio de precio de venta';
+            if (p.concepto === 'cuota_social') conceptoStr = 'Cuota social';
+            else if (p.concepto === 'donacion') conceptoStr = 'Donación extraordinaria';
+            else if (p.concepto === 'otro') conceptoStr = 'Otro aporte';
+
+            return {
+                monto: p.amount,
+                medio_de_pago: p.method,
+                concepto: conceptoStr,
+                referencia: p.reference
+            };
+        });
+
+        const { data, error } = await supabase.rpc('confirm_order_and_payments', {
+            p_order_id: orderId,
+            p_target_status: targetStatus,
+            p_payments: formattedPayments,
+            p_actor_id: actorId || null
+        });
+
+        if (error) {
+            console.error("StoreService: confirmOrderAndPayments failed", error);
+            throw new Error(error.message || "Error al procesar el pago y confirmar pedido.");
+        }
+
+        if (data && data.success === false) {
+            throw new Error(data.error || "Error al procesar el pago.");
+        }
     },
 
     updatePedidoStatus: async (pedidoId: string, status: Pedido['estado']): Promise<void> => {

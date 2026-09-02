@@ -85,8 +85,46 @@ export default function DashboardLayout({
 
     if (loading) {
         return (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: '1rem' }}>
-                <p>Cargando sesión...</p>
+            <div className="min-h-screen flex flex-col md:flex-row bg-background text-foreground animate-pulse">
+                {/* Desktop Sidebar Skeleton */}
+                <aside className="hidden md:flex flex-col w-64 border-r border-border p-4 gap-6 bg-card">
+                    <div className="h-10 w-28 bg-muted rounded-md mb-2"></div>
+                    <div className="flex flex-col gap-3">
+                        <div className="h-9 w-full bg-muted rounded-md"></div>
+                        <div className="h-9 w-full bg-muted rounded-md"></div>
+                        <div className="h-9 w-full bg-muted rounded-md"></div>
+                        <div className="h-9 w-full bg-muted rounded-md"></div>
+                        <div className="h-9 w-full bg-muted rounded-md"></div>
+                    </div>
+                    <div className="mt-auto pt-4 border-t border-border flex flex-col gap-2">
+                        <div className="h-4 w-3/4 bg-muted rounded"></div>
+                        <div className="h-3 w-1/2 bg-muted rounded"></div>
+                        <div className="h-8 w-full bg-muted rounded-md mt-2"></div>
+                    </div>
+                </aside>
+
+                {/* Mobile Header Skeleton */}
+                <header className="md:hidden flex items-center justify-between p-4 border-b border-border bg-card">
+                    <div className="h-8 w-24 bg-muted rounded"></div>
+                    <div className="h-8 w-8 bg-muted rounded-full"></div>
+                </header>
+
+                {/* Main Content Area Skeleton */}
+                <main className="flex-1 p-6 md:p-8 space-y-6">
+                    <div className="flex justify-between items-center pb-4 border-b border-border">
+                        <div className="space-y-2">
+                            <div className="h-7 w-48 bg-muted rounded"></div>
+                            <div className="h-4 w-32 bg-muted rounded"></div>
+                        </div>
+                        <div className="h-9 w-24 bg-muted rounded-md"></div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="h-28 bg-muted rounded-xl"></div>
+                        <div className="h-28 bg-muted rounded-xl"></div>
+                        <div className="h-28 bg-muted rounded-xl"></div>
+                    </div>
+                    <div className="h-64 bg-muted rounded-xl w-full"></div>
+                </main>
             </div>
         );
     }
@@ -116,9 +154,20 @@ export default function DashboardLayout({
         }
 
         return (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: '1rem' }}>
-                <p>Redirigiendo al login...</p>
-                <Link href="/login" style={{ textDecoration: 'underline' }}>Si no redirige, click aquí</Link>
+            <div className="min-h-screen flex flex-col md:flex-row bg-background text-foreground animate-pulse">
+                {/* Desktop Sidebar Skeleton */}
+                <aside className="hidden md:flex flex-col w-64 border-r border-border p-4 gap-6 bg-card">
+                    <div className="h-10 w-28 bg-muted rounded-md mb-2"></div>
+                    <div className="flex flex-col gap-3">
+                        <div className="h-9 w-full bg-muted rounded-md"></div>
+                        <div className="h-9 w-full bg-muted rounded-md"></div>
+                        <div className="h-9 w-full bg-muted rounded-md"></div>
+                    </div>
+                </aside>
+                <main className="flex-1 p-6 md:p-8 space-y-6">
+                    <div className="h-8 w-48 bg-muted rounded"></div>
+                    <div className="h-64 bg-muted rounded-xl w-full"></div>
+                </main>
             </div>
         );
     }

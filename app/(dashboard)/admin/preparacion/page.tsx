@@ -275,40 +275,16 @@ export default function PickingPage() {
         if (!paymentModalOrder || !paymentModalTargetStatus || !user) return;
 
         const orderId = paymentModalOrder.id;
-        const socioId = paymentModalOrder.socioId;
         const actorId = session?.user?.id || user.auth_user_id || user.id;
 
-        // 1. Register payments first
-        if (isDonation) {
-            await StoreService.createPago({
-                socioId,
-                fecha: new Date().toISOString(),
-                concepto: `Aporte institucional bonificado: ${donationReason}`,
-                monto: 0,
-                medioDePago: 'efectivo',
-                pedidoId: orderId
-            }, actorId);
-        } else {
-            for (const p of payments) {
-                let conceptoStr = 'Aporte social de sostenimiento de cultivo solidario - No Cancelatorio de precio de venta';
-                if (p.concepto === 'cuota_social') conceptoStr = 'Cuota social';
-                else if (p.concepto === 'donacion') conceptoStr = 'Donación extraordinaria';
-                else if (p.concepto === 'otro') conceptoStr = 'Otro aporte';
-
-                await StoreService.createPago({
-                    socioId,
-                    fecha: new Date().toISOString(),
-                    concepto: conceptoStr,
-                    monto: p.amount,
-                    medioDePago: p.method,
-                    pedidoId: orderId,
-                    referencia: p.reference
-                }, actorId);
-            }
-        }
-
-        // 2. Then update order status
-        await StoreService.updatePedidoStatus(orderId, paymentModalTargetStatus);
+        await StoreService.confirmOrderAndPayments(
+            orderId,
+            paymentModalTargetStatus,
+            payments,
+            isDonation,
+            donationReason,
+            actorId
+        );
 
         setSelectedOrderId(null);
         setActiveTab('lista');

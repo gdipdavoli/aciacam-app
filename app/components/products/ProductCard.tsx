@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { Producto } from '@/types';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
@@ -28,12 +29,14 @@ export default function ProductCard({ product }: ProductCardProps) {
 
     return (
         <div className="bg-card rounded-xl border shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow">
-            <div className="h-48 bg-muted relative">
+            <div className="h-48 bg-muted relative overflow-hidden">
                 {product.imagen ? (
-                    <img
+                    <Image
                         src={product.imagen}
                         alt={product.nombre}
-                        className="w-full h-full object-cover"
+                        fill
+                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                        className="object-cover transition-transform duration-300 hover:scale-105"
                     />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center text-muted-foreground bg-gray-100">

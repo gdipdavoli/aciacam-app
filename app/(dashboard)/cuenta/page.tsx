@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { StorageService } from '@/services/storageService';
@@ -164,10 +165,10 @@ export default function CuentaPage() {
             const freshSocio = await StoreService.getSocioById(socio.id);
             if (freshSocio) setSocio(freshSocio);
             setUploadingDoc(null);
-            alert('Documento subido correctamente. Será revisado por administración.');
+            toast.success('Documento subido correctamente. Será revisado por administración.');
         } catch (err) {
             console.error(err);
-            alert('Error al subir el documento.');
+            toast.error('Error al subir el documento.');
         } finally {
             setIsUploading(false);
         }

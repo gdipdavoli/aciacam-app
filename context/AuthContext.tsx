@@ -259,15 +259,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [pathname, user, loading, router]);
 
     const logout = async () => {
-        if (supabase) {
-            await supabase.auth.signOut();
-        } else {
+        try {
+            if (supabase) {
+                await supabase.auth.signOut();
+            }
+        } catch (e) {
+            console.error("AuthContext: signOut error", e);
+        } finally {
             currentUserIdRef.current = null;
             setUser(null);
-            setSession(null); // Clear session state on manual logout
-            router.push('/login');
+            setSession(null);
+            setIsUnlinked(false);
+            try {
+                localStorage.removeItem('aciacam_user_profile');
+            } catch (e) {}
+            router.replace('/login');
         }
     };
+
 
     const refreshUser = async () => {
         if (!session?.user?.id) return;

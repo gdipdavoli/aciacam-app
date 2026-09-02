@@ -163,6 +163,7 @@ export interface Pedido {
 
     // Soft delete/Archive
     archivado?: boolean;
+    socio?: Socio;
 }
 
 export type PagoConcepto = 'aporte_sostenimiento' | 'cuota_social' | 'donacion' | 'otro';
@@ -176,6 +177,7 @@ export interface Pago {
     medioDePago: string;
     pedidoId?: string;
     referencia?: string;
+    socio?: Socio;
 }
 
 export interface CierreMensual {

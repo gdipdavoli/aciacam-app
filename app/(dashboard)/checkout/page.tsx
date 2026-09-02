@@ -8,6 +8,7 @@ import { OrderType } from '@/types';
 import { useRouter } from 'next/navigation';
 import { Trash2, Plus, Minus, MapPin, CheckCircle, ExternalLink, Navigation, ShieldCheck } from 'lucide-react';
 import { SlotSelector } from '@/app/components/SlotSelector'; // Import Component
+import { toast } from 'sonner';
 
 export default function CheckoutPage() {
     const { items, removeItem, itemCount, clearCart, updateQuantity, pesoTotal } = useCart();
@@ -54,6 +55,27 @@ export default function CheckoutPage() {
         limite_gramos_min: 5
     });
 
+    // Res. 800/2021 Legal Limit Calculations
+    const totalFloresGramos = items.reduce((acc, item) => {
+        const tipo = item.producto?.tipo?.toLowerCase();
+        if (tipo === 'flor' || !tipo) {
+            return acc + (item.cantidad * (item.producto?.peso_gramos || 1));
+        }
+        return acc;
+    }, 0);
+
+    const totalGoterosUnits = items.reduce((acc, item) => {
+        const tipo = item.producto?.tipo?.toLowerCase();
+        if (tipo === 'gotero' || tipo === 'aceite') {
+            return acc + item.cantidad;
+        }
+        return acc;
+    }, 0);
+
+    const exceedsFlowersLimit = totalFloresGramos > globalConfigs.limite_gramos_max;
+    const exceedsGoterosLimit = totalGoterosUnits > 6;
+    const exceedsLegalLimits = exceedsFlowersLimit || exceedsGoterosLimit;
+
     useEffect(() => {
         StoreService.getGlobalConfigs().then(data => {
             if (Object.keys(data).length > 0) {
@@ -75,7 +97,7 @@ export default function CheckoutPage() {
 
     const handleGetLocation = () => {
         if (!navigator.geolocation) {
-            alert("Tu navegador no soporta geolocalización");
+            toast.error("Tu navegador no soporta geolocalización");
             return;
         }
 
@@ -86,12 +108,12 @@ export default function CheckoutPage() {
                 const mapsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
                 setUbicacionGps(mapsLink);
                 setIsFetchingLocation(false);
-                alert("📍 Ubicación capturada con éxito. Se enviará junto a tu pedido.");
+                toast.success("📍 Ubicación capturada con éxito. Se enviará junto a tu pedido.");
             },
             (error) => {
                 console.error("Geolocation error:", error);
                 setIsFetchingLocation(false);
-                alert("No pudimos obtener tu ubicación. Por favor, asegúrate de dar permisos al navegador.");
+                toast.error("No pudimos obtener tu ubicación. Por favor, asegúrate de dar permisos al navegador.");
             },
             { enableHighAccuracy: true, timeout: 10000 }
         );
@@ -111,6 +133,11 @@ export default function CheckoutPage() {
     const handleCheckout = async () => {
         if (!user) return;
 
+        if (exceedsLegalLimits) {
+            toast.error("Tu pedido excede los límites legales permitidos por la Res. 800/2021.");
+            return;
+        }
+
         // 1. FRESH STOCK CHECK (To prevent race conditions)
         setIsSubmitting(true);
         try {
@@ -118,34 +145,38 @@ export default function CheckoutPage() {
             for (const item of items) {
                 const freshProd = freshProducts.find(p => p.id === item.productoId);
                 if (!freshProd || freshProd.stockDisponible < item.cantidad) {
-                    alert(`Lo sentimos, el stock de "${item.productoNombre}" ha cambiado y ya no hay unidades suficientes disponibles. Por favor ajusta tu carrito.`);
+                    toast.error(`Lo sentimos, el stock de "${item.productoNombre}" ha cambiado y ya no hay unidades suficientes disponibles.`);
                     setIsSubmitting(false);
                     return;
                 }
             }
         } catch (stockErr) {
             console.error("Stock pre-check failed", stockErr);
-            alert("No se pudo verificar el stock disponible en este momento. Por favor, reintente en unos instantes.");
+            toast.error("No se pudo verificar el stock disponible en este momento. Por favor, reintente en unos instantes.");
             setIsSubmitting(false);
             return;
         }
 
         // 2. CONTINUE WITH VALIDATION
         if (pesoTotal < globalConfigs.limite_gramos_min) {
-            alert(`El mínimo para solicitar provisión es de ${globalConfigs.limite_gramos_min}g.`);
+            toast.warning(`El mínimo para solicitar provisión es de ${globalConfigs.limite_gramos_min}g.`);
+            setIsSubmitting(false);
             return;
         }
         if (pesoTotal > globalConfigs.limite_gramos_max) {
-            alert(`El máximo mensual permitido es de ${globalConfigs.limite_gramos_max}g.`);
+            toast.warning(`El máximo mensual permitido es de ${globalConfigs.limite_gramos_max}g.`);
+            setIsSubmitting(false);
             return;
         }
 
         if (orderType === 'retiro_sede' && !selectedSlotId && !coordinarConAdmin) {
-            alert("Por favor selecciona un turno para retirar o marca la opción para coordinar con administración.");
+            toast.warning("Por favor selecciona un turno para retirar o marca la opción para coordinar con administración.");
+            setIsSubmitting(false);
             return;
         }
         if (orderType === 'delivery' && (!direccion || !localidad)) {
-            alert("Por favor completa los datos de envío.");
+            toast.warning("Por favor completa los datos de envío.");
+            setIsSubmitting(false);
             return;
         }
 
@@ -185,7 +216,7 @@ export default function CheckoutPage() {
             clearCart();
         } catch (error) {
             console.error("Failed to create order", error);
-            alert("Hubo un error al crear el pedido");
+            toast.error("Hubo un error al crear el pedido");
         } finally {
             setIsSubmitting(false);
         }
@@ -455,23 +486,81 @@ export default function CheckoutPage() {
                                 </div>
                             </section>
 
+                            {/* Res. 800/2021 Preventative Legal Limits Progress Bar */}
+                            <div className="bg-card border rounded-xl p-4 my-4 shadow-sm space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-xs font-bold flex items-center gap-1.5 text-foreground uppercase tracking-wider">
+                                        <ShieldCheck size={16} className="text-primary" />
+                                        Cupo Legal Res. 800/2021
+                                    </h4>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-muted text-muted-foreground uppercase">
+                                        Límite Mensual
+                                    </span>
+                                </div>
+
+                                <div className="space-y-2.5">
+                                    {/* Flores Bar */}
+                                    <div>
+                                        <div className="flex justify-between text-xs font-medium mb-1">
+                                            <span>Flores Secas</span>
+                                            <span className={exceedsFlowersLimit ? "text-destructive font-bold" : "text-muted-foreground"}>
+                                                {totalFloresGramos}g / {globalConfigs.limite_gramos_max}g
+                                            </span>
+                                        </div>
+                                        <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+                                            <div
+                                                className={`h-full transition-all duration-300 ${
+                                                    exceedsFlowersLimit ? 'bg-destructive' : totalFloresGramos >= 30 ? 'bg-amber-500' : 'bg-primary'
+                                                }`}
+                                                style={{ width: `${Math.min(100, (totalFloresGramos / globalConfigs.limite_gramos_max) * 100)}%` }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Goteros Bar */}
+                                    <div>
+                                        <div className="flex justify-between text-xs font-medium mb-1">
+                                            <span>Goteros / Aceites</span>
+                                            <span className={exceedsGoterosLimit ? "text-destructive font-bold" : "text-muted-foreground"}>
+                                                {totalGoterosUnits} / 6 unidades
+                                            </span>
+                                        </div>
+                                        <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+                                            <div
+                                                className={`h-full transition-all duration-300 ${
+                                                    exceedsGoterosLimit ? 'bg-destructive' : totalGoterosUnits >= 4 ? 'bg-amber-500' : 'bg-primary'
+                                                }`}
+                                                style={{ width: `${Math.min(100, (totalGoterosUnits / 6) * 100)}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {exceedsLegalLimits && (
+                                    <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-2.5 font-medium flex items-start gap-1.5 mt-2">
+                                        <ShieldCheck size={14} className="shrink-0 mt-0.5" />
+                                        <span>Supera el límite legal permitido por la Res. 800/2021 (Máx. 40g de flor o 6 goteros). Ajustá las cantidades.</span>
+                                    </div>
+                                )}
+                            </div>
+
                             <button
                                 onClick={handleCheckout}
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || exceedsLegalLimits}
                                 style={{
                                     width: '100%',
                                     padding: '1rem',
-                                    backgroundColor: 'hsl(var(--primary))',
-                                    color: 'hsl(var(--primary-foreground))',
+                                    backgroundColor: (isSubmitting || exceedsLegalLimits) ? 'hsl(var(--muted))' : 'hsl(var(--primary))',
+                                    color: (isSubmitting || exceedsLegalLimits) ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary-foreground))',
                                     border: 'none',
                                     borderRadius: 'var(--radius)',
                                     fontWeight: 600,
                                     fontSize: '1rem',
-                                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                                    opacity: isSubmitting ? 0.7 : 1
+                                    cursor: (isSubmitting || exceedsLegalLimits) ? 'not-allowed' : 'pointer',
+                                    opacity: (isSubmitting || exceedsLegalLimits) ? 0.7 : 1
                                 }}
                             >
-                                {isSubmitting ? 'Procesando...' : 'Confirmar Solicitud'}
+                                {isSubmitting ? 'Procesando...' : exceedsLegalLimits ? 'Límite Excedido' : 'Confirmar Solicitud'}
                             </button>
 
                             <div className="mt-6 text-xs text-muted-foreground p-4 bg-muted/50 rounded-lg border border-border">
