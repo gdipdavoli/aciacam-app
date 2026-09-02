@@ -5,6 +5,7 @@ import { StoreService } from '@/services/storeService';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Save, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function ConfiguracionPage() {
     const { user, loading: authLoading } = useAuth();
@@ -56,9 +57,12 @@ export default function ConfiguracionPage() {
                 )
             );
             setMessage({ type: 'success', text: 'Configuración guardada correctamente.' });
-        } catch (e) {
-            console.error(e);
-            setMessage({ type: 'error', text: 'Error al guardar la configuración.' });
+            toast.success('Configuración guardada correctamente.');
+        } catch (e: any) {
+            console.error("Error saving global configs:", e);
+            const errText = e.message || 'Error al guardar la configuración.';
+            setMessage({ type: 'error', text: errText });
+            toast.error(errText);
         } finally {
             setSaving(false);
         }
