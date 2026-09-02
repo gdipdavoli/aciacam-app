@@ -142,7 +142,10 @@ const mapProductFromDB = (row: any): Producto => ({
     stockDisponible: row.stock_disponible,
     activo: row.activo,
     imagen: row.imagen,
-    peso_gramos: row.peso_gramos || 1 // Fallback to 1 if not set
+    peso_gramos: row.peso_gramos || 1, // Fallback to 1 if not set
+    precio: row.precio !== undefined && row.precio !== null ? Number(row.precio) : undefined,
+    ratio: row.ratio,
+    concentracion: row.concentracion,
 });
 
 // Helper to map DB Order

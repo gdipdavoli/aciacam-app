@@ -119,6 +119,9 @@ export interface Producto {
     peso_gramos: number; // Peso por unidad (ej. 10 para flores)
     stockReal?: number;
     stockReservado?: number;
+    precio?: number;
+    ratio?: string;
+    concentracion?: string;
 }
 
 export interface ProductoWithStockInfo extends Producto {
