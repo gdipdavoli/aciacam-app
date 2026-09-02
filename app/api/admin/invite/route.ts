@@ -14,6 +14,9 @@ const supabaseAdmin = createClient(
 );
 
 export async function POST(req: Request) {
+    let invitedUser: any = null;
+    let isAlreadyConfirmed = false;
+
     try {
         const { socioId, redirectTo: providedOrigin } = await req.json();
 
@@ -22,12 +25,6 @@ export async function POST(req: Request) {
         }
 
         // 1. Verify Caller (RBAC)
-        // We need to parse accessibility from headers OR use `req.cookies` to get the JWT if we want strict verification.
-        // However, standard Next.js API routes run server-side.
-        // Best practice: Validate Access Token passed in Headers Authorization: Bearer <token>
-        // OR rely on session cookie if passing from client component with credentials.
-
-        // For robustness in this implementation step, we'll extract the user from the 'Authorization' header.
         const authHeader = req.headers.get('Authorization');
         if (!authHeader) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -40,16 +37,10 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Invalid Token' }, { status: 401 });
         }
 
-        // Check Role: Must be 'admin' or 'staff'
-        // Strategy: 
-        // 1. Check app_metadata (Metadata assigned by Auth System/Triggers)
-        // 2. Check public.socios (Linked Account)
-
         const metadataRole = user.app_metadata?.role || user.user_metadata?.role;
         const isAdminOrStaff = metadataRole === 'admin' || metadataRole === 'staff';
 
         if (!isAdminOrStaff) {
-            // Fallback: Check public.socios (Single Source of Truth for migrated data)
             const { data: callerSocio, error: roleError } = await supabaseAdmin
                 .from('socios')
                 .select('id, rol')
@@ -88,7 +79,6 @@ export async function POST(req: Request) {
 
         // 4. Check status and handle confirmed/password state
         let targetAuthId = socio.auth_user_id;
-        let isAlreadyConfirmed = false;
         let existingAuthUser = null;
 
         if (targetAuthId) {
@@ -125,7 +115,6 @@ export async function POST(req: Request) {
         
         const latestInvite = invites && invites.length > 0 ? invites[0] : null;
 
-        let invitedUser = null;
         let customToken = crypto.randomUUID();
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + 72); // 3 days
@@ -176,7 +165,16 @@ export async function POST(req: Request) {
             .eq('id', socioId);
 
         if (updateError) {
-            throw updateError;
+            console.error("API Invite Error updating socio record:", updateError);
+            if (!isAlreadyConfirmed && invitedUser?.id) {
+                try {
+                    await supabaseAdmin.auth.admin.deleteUser(invitedUser.id);
+                    console.log(`API Invite Rollback: Deleted auth user ${invitedUser.id} due to socios update failure.`);
+                } catch (rollbackErr) {
+                    console.error("API Invite Rollback failed:", rollbackErr);
+                }
+            }
+            return NextResponse.json({ error: `Error vinculando el socio: ${updateError.message}` }, { status: 500 });
         }
 
         // 6. Create custom invite record for "Copy Link" support
@@ -215,6 +213,14 @@ export async function POST(req: Request) {
 
     } catch (e: any) {
         console.error("API Invite Error:", e);
+        if (invitedUser && !isAlreadyConfirmed && invitedUser.id) {
+            try {
+                await supabaseAdmin.auth.admin.deleteUser(invitedUser.id);
+                console.log(`API Invite Rollback: Cleaned orphan auth user ${invitedUser.id} on error.`);
+            } catch (rErr) {
+                console.error("API Invite Rollback error:", rErr);
+            }
+        }
         return NextResponse.json({ error: e.message || 'Internal Server Error' }, { status: 500 });
     }
 }

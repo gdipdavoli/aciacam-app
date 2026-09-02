@@ -23,6 +23,7 @@ export type EstadoContrato = 'sin_contrato' | 'activo' | 'vencido' | 'rescindido
 export type ReprocannInfo = {
     numeroTramite?: string;
     fechaAlta?: string;
+    fechaVencimiento?: string;
     estado?: 'pendiente' | 'vigente' | 'vencido' | 'rechazado';
 };
 

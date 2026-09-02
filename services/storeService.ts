@@ -48,6 +48,7 @@ const mapSocioFromDB = (row: any): Socio => {
         reprocann: {
             numeroTramite: row.reprocann_num_tramite,
             fechaAlta: row.reprocann_fecha_alta,
+            fechaVencimiento: row.reprocann_fecha_vencimiento || row.reprocann_vencimiento,
             estado: row.reprocann_estado || 'pendiente',
         },
         medicoNombre: row.medico_nombre,
