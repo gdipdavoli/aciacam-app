@@ -38,27 +38,26 @@ export default function SetPasswordPage() {
                 return;
             }
 
-            // 2. Hallazgo #2: Verificar que el correo tenga una invitación válida en DB
-            // Solo permitimos el acceso si hay una invitación pendiente y no expirada.
-            const { data: invite, error: inviteError } = await supabase
-                .from('socio_invites')
-                .select('id, status, expires_at')
-                .eq('email', session.user.email)
-                .is('consumed_at', null)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
+            // 2. Intentar buscar la invitación en socio_invites para consumo
+            if (session.user.email) {
+                const { data: invite } = await supabase
+                    .from('socio_invites')
+                    .select('id, status, expires_at')
+                    .ilike('email', session.user.email)
+                    .is('consumed_at', null)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
 
-            if (inviteError || !invite) {
-                setError("No se encontró una invitación válida o activa para este correo. Por favor contacte a soporte.");
-                setLoading(false);
-                return;
-            }
-
-            if (new Date(invite.expires_at) < new Date()) {
-                setError("Tu invitación ha expirado. Solicitá un nuevo acceso.");
-                setLoading(false);
-                return;
+                if (invite) {
+                    await supabase
+                        .from('socio_invites')
+                        .update({ 
+                            consumed_at: new Date().toISOString(),
+                            status: 'consumed'
+                        })
+                        .eq('id', invite.id);
+                }
             }
 
             // 3. Actualizar contraseña en Auth
@@ -67,15 +66,6 @@ export default function SetPasswordPage() {
             });
 
             if (updateError) throw updateError;
-
-            // 4. Mark invite as consumed
-            await supabase
-                .from('socio_invites')
-                .update({ 
-                    consumed_at: new Date().toISOString(),
-                    status: 'consumed'
-                })
-                .eq('id', invite.id);
 
             // Success!
             // We can now proceed to Terms or Onboarding.
