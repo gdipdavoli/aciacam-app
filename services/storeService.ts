@@ -1,5 +1,4 @@
 import { Producto, Pedido, OrderType, OrderItem, Socio, Pago, ProductoWithStockInfo, CierreMensual } from '@/types';
-import { MOCK_PRODUCTOS, MOCK_SOCIOS } from './mockData';
 import { supabase } from './supabaseClient';
 import * as DocService from './documentacionService';
 
@@ -129,9 +128,6 @@ const saveStoredPedidos = (pedidos: Pedido[]) => {
         localStorage.setItem(STORAGE_KEY_PEDIDOS, JSON.stringify(pedidos));
     }
 };
-
-// Make mutable for demo products
-let MOCK_PRODUCTOS_STORE = [...MOCK_PRODUCTOS];
 
 // Helper to map DB Product
 const mapProductFromDB = (row: any): Producto => ({
@@ -760,7 +756,7 @@ export const StoreService = {
             return (data || []).map(mapSocioFromDB);
         } catch (e) {
             console.error('StoreService: API Fetch failed, falling back to Client (Restricted by RLS)', e);
-            if (!supabase) return MOCK_SOCIOS;
+            if (!supabase) return [];
 
             let query = supabase
                 .from('socios_with_auth')
@@ -791,7 +787,7 @@ export const StoreService = {
             console.log("StoreService: API Fetch failed for detail", e);
         }
 
-        if (!supabase) return MOCK_SOCIOS.find(s => s.id === id);
+        if (!supabase) return undefined;
 
         // Fallback to Client (RLS restricted)
         const { data, error } = await supabase
@@ -917,7 +913,7 @@ export const StoreService = {
 
 
     getSocioByEmail: async (email: string): Promise<Socio | undefined> => {
-        if (!supabase) return MOCK_SOCIOS.find(s => s.email === email);
+        if (!supabase) return undefined;
 
         const { data, error } = await supabase
             .from('socios')
