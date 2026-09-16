@@ -8,6 +8,8 @@ import { useCart } from '@/context/CartContext';
 import styles from './dashboard.module.css';
 
 import { 
+    Bot,
+    Inbox, 
     Home, 
     Flower2, 
     ShoppingBag, 
@@ -177,6 +179,8 @@ export default function DashboardLayout({
 
     if (user?.rol === 'admin' || user?.rol === 'staff') {
         navItems = [
+            { href: '/admin/inbox', label: 'Bandeja', icon: Inbox },
+            { href: '/admin/asistente', label: 'Asistente', icon: Bot },
             { href: '/admin/preparacion', label: 'Preparación', icon: Package },
             { href: '/admin', label: 'Pedidos', icon: ShoppingBag },
             { href: '/admin/products', label: 'Productos', icon: CheckCircle },

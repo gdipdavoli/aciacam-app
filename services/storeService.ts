@@ -342,7 +342,7 @@ export const StoreService = {
             items: items,
             tipo_pedido: tipo,
             origen: details.origen || 'app',
-            estado: 'pendiente',
+            estado: details.estado || 'pendiente',
             observaciones: details.observaciones,
             direccion_entrega: details.direccionEntrega,
             localidad: details.localidad,

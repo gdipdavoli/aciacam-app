@@ -241,3 +241,5 @@ export interface Notificacion {
 }
 
 
+
+export * from './chat';

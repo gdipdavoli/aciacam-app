@@ -1,16 +1,18 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useEffect, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { Socio, Producto, OrderType, OrderItem } from '@/types';
 import { ArrowLeft, User, ShoppingBag, Truck, Check } from 'lucide-react';
 import { SlotSelector } from '@/app/components/SlotSelector';
 
-export default function NewDispensePage() {
+function NewDispenseForm() {
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const paramSocioId = searchParams.get('socioId');
 
     const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -41,10 +43,20 @@ export default function NewDispensePage() {
                 router.push('/');
                 return;
             }
-            StoreService.getAllSocios().then(setSocios);
+            StoreService.getAllSocios().then(allSocios => {
+                setSocios(allSocios);
+                if (paramSocioId) {
+                    const match = allSocios.find(s => s.id === paramSocioId);
+                    if (match) {
+                        setSelectedSocio(match);
+                        setAddress(match.direccion || '');
+                        setStep(2);
+                    }
+                }
+            });
             StoreService.getProductos().then(setProducts);
         }
-    }, [user, authLoading, router]);
+    }, [user, authLoading, router, paramSocioId]);
 
     const filteredSocios = socios.filter(s =>
         (s.nombre + ' ' + s.apellido).toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -313,6 +325,14 @@ export default function NewDispensePage() {
                 </div>
             )}
         </div>
+    );
+}
+
+export default function NewDispensePage() {
+    return (
+        <Suspense fallback={<div style={{ padding: '2rem' }}>Cargando...</div>}>
+            <NewDispenseForm />
+        </Suspense>
     );
 }
 
