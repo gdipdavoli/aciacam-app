@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/services/supabaseClient';
+import { resolveInviteSession } from '@/services/inviteSession';
 import { AlertCircle, LogIn, RefreshCw, Home } from 'lucide-react';
 
 interface ErrorState {
@@ -16,114 +17,28 @@ export default function InviteCallbackPage() {
     const [errorState, setErrorState] = useState<ErrorState | null>(null);
 
     useEffect(() => {
-        if (typeof window === 'undefined') return;
-
-        // 1. Parse Hash and Query Parameters
-        const hash = window.location.hash.substring(1);
-        const search = window.location.search.substring(1);
-        const hashParams = new URLSearchParams(hash);
-        const searchParams = new URLSearchParams(search);
-
-        const errorCode = hashParams.get('error_code') || searchParams.get('error_code');
-        const errorDesc = hashParams.get('error_description') || searchParams.get('error_description');
-        const error = hashParams.get('error') || searchParams.get('error');
-
-        // Check for Explicit Errors in URL
-        if (errorCode || error || errorDesc) {
-            const friendlyDesc = errorCode === 'otp_expired'
-                ? 'El enlace de invitación ha expirado o ya fue utilizado previamente.'
-                : (errorDesc ? decodeURIComponent(errorDesc.replace(/\+/g, ' ')) : 'El enlace no es válido o ha expirado.');
-
-            setErrorState({
-                code: errorCode || error || 'link_invalid',
-                description: friendlyDesc
-            });
-            return;
-        }
-
-        if (!supabase) {
-            setErrorState({
-                code: 'client_error',
-                description: 'No se pudo conectar con el servicio de autenticación.'
-            });
-            return;
-        }
-
-        // 2. Check for Hash Tokens (Implicit Flow: #access_token=...&refresh_token=...)
-        const accessToken = hashParams.get('access_token') || searchParams.get('access_token');
-        const refreshToken = hashParams.get('refresh_token') || searchParams.get('refresh_token');
-
-        if (accessToken) {
-            setStatus('Iniciando sesión con tu invitación...');
-            supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: refreshToken || ''
-            }).then(({ data, error: setSessionError }) => {
-                if (setSessionError || !data.session) {
-                    console.error("InviteCallback SetSession Error:", setSessionError);
-                    setErrorState({
-                        code: 'token_expired',
-                        description: 'El token de acceso ha expirado o fue consumido previamente.'
-                    });
-                } else {
-                    setStatus('Sesión confirmada. Redirigiendo a creación de contraseña...');
-                    router.replace('/auth/set-password');
-                }
-            });
-            return;
-        }
-
-        // 3. Check for PKCE Code (?code=...)
-        const code = searchParams.get('code');
-        if (code) {
-            setStatus('Validando código de invitación...');
-            supabase.auth.exchangeCodeForSession(code).then(({ data, error: exchangeError }) => {
-                if (exchangeError || !data.session) {
-                    console.error("InviteCallback Exchange Error:", exchangeError);
-                    setErrorState({
-                        code: 'code_expired',
-                        description: 'El código de autorización expiró o no es válido.'
-                    });
-                } else {
-                    setStatus('Sesión confirmada. Redirigiendo...');
-                    router.replace('/auth/set-password');
-                }
-            });
-            return;
-        }
-
-        // 4. Fallback: Listen to Auth state changes or check active session
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-            console.log("InviteCallback: Auth Event:", event, session?.user?.email);
-            if (event === 'SIGNED_IN' || (event === 'INITIAL_SESSION' && session)) {
-                setStatus('Sesión detectada. Redirigiendo...');
-                router.replace('/auth/set-password');
-            }
-        });
-
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            if (session) {
-                setStatus('Sesión activa. Redirigiendo...');
-                router.replace('/auth/set-password');
-            }
-        });
-
-        // 5. Safety Timeout: If no session/tokens resolved after 3.5s
+        let cancelled = false;
         const timer = setTimeout(() => {
-            supabase.auth.getSession().then(({ data: { session } }) => {
-                if (!session) {
-                    setErrorState({
-                        code: 'timeout',
-                        description: 'El enlace de invitación ha expirado o ya fue procesado.'
-                    });
-                }
-            });
-        }, 3500);
-
-        return () => {
-            subscription.unsubscribe();
+            if (!cancelled) setErrorState({ code: 'connection_timeout', description: 'La conexión está tardando demasiado. Volvé a intentarlo cuando tengas conexión.' });
+        }, 15000);
+        resolveInviteSession(supabase, window.location.href).then(() => {
+            if (cancelled) return;
             clearTimeout(timer);
-        };
+            setErrorState(null);
+            window.history.replaceState(window.history.state, '', window.location.pathname);
+            setStatus('Sesión confirmada. Redirigiendo a creación de contraseña...');
+            router.replace('/auth/set-password');
+        }).catch((error: unknown) => {
+            if (cancelled) return;
+            clearTimeout(timer);
+            setErrorState({
+                code: 'session_error',
+                description: error instanceof Error && error.message !== 'SESSION_EXPIRED'
+                    ? error.message
+                    : 'No encontramos una sesión de invitación. Abrí el enlace del correo en este navegador o recuperá tu contraseña.'
+            });
+        });
+        return () => { cancelled = true; clearTimeout(timer); };
     }, [router]);
 
     if (errorState) {
@@ -135,7 +50,7 @@ export default function InviteCallbackPage() {
                     </div>
 
                     <div className="space-y-2">
-                        <h2 className="text-xl font-bold text-foreground">Enlace Expirado o Ya Utilizado</h2>
+                        <h2 className="text-xl font-bold text-foreground">No pudimos completar el acceso</h2>
                         <p className="text-sm text-muted-foreground leading-relaxed">
                             {errorState.description}
                         </p>
@@ -152,11 +67,11 @@ export default function InviteCallbackPage() {
 
                     <div className="space-y-3 pt-2">
                         <button
-                            onClick={() => router.push('/login')}
+                            onClick={() => router.push('/forgot-password')}
                             className="w-full py-3 px-4 bg-primary text-primary-foreground font-bold rounded-xl hover:bg-primary/90 transition-all flex items-center justify-center gap-2 text-sm shadow-xs"
                         >
                             <LogIn size={18} />
-                            Iniciar Sesión / Recuperar Clave
+                            Solicitar enlace para crear mi contraseña
                         </button>
 
                         <button

@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Socio } from '@/types';
 import { supabase } from '@/services/supabaseClient'; // Singleton
 import { StoreService } from '@/services/storeService';
+import { onDeferredAuthStateChange } from '@/services/deferredAuth';
 import { useRouter, usePathname } from 'next/navigation';
 
 interface AuthContextType {
@@ -128,14 +129,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
 
         // 1. SETUP LISTENER
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+        const unsubscribe = onDeferredAuthStateChange(supabase.auth, async (event, currentSession) => {
             console.log(`[AuthDebug] ${new Date().toISOString()} Auth Event: ${event}`);
 
             if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && currentSession?.user) {
                 if (currentUserIdRef.current !== currentSession.user.id) {
                     // Only show loader if we don't have this user in cache already
                     const cached = localStorage.getItem(CACHE_KEY);
-                    if (!cached || JSON.parse(cached).auth_user_id !== currentSession.user.id) {
+                    let cachedUserId: string | undefined;
+                    try { cachedUserId = cached ? JSON.parse(cached).auth_user_id : undefined; } catch { /* Ignore a corrupt cache. */ }
+                    if (cachedUserId !== currentSession.user.id) {
                         setLoading(true);
                     }
                 }
@@ -164,6 +167,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     console.warn("[AuthDebug] SIGNED_OUT event ignored: Session still exists.");
                 }
             }
+        }, () => {
+            setAuthError('No pudimos cargar tu sesión. Volvé a intentarlo.');
+            setLoading(false);
+            setInitialized(true);
         });
 
         // 2. INITIALIZE SESSION
@@ -227,7 +234,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         return () => {
             clearTimeout(safetyTimer);
-            subscription.unsubscribe();
+            unsubscribe();
+            initRef.current = false;
         };
     }, [router]);
 

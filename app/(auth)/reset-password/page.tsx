@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '@/services/supabaseClient';
+import { resolveInviteSession } from '@/services/inviteSession';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 export default function ResetPasswordPage() {
@@ -11,9 +13,26 @@ export default function ResetPasswordPage() {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
     const router = useRouter();
+    const [checkingSession, setCheckingSession] = useState(true);
+    const [sessionReady, setSessionReady] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        resolveInviteSession(supabase, window.location.href).then(() => {
+            if (cancelled) return;
+            window.history.replaceState(window.history.state, '', window.location.pathname);
+            setSessionReady(true);
+        }).catch(() => {
+            if (!cancelled) setError('No pudimos validar tu sesión. Solicitá un nuevo enlace y abrilo en el navegador donde lo pediste.');
+        }).finally(() => {
+            if (!cancelled) setCheckingSession(false);
+        });
+        return () => { cancelled = true; };
+    }, []);
 
     const handleUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (loading || !sessionReady) return;
 
         if (password !== confirm) {
             setError('Las contraseñas no coinciden');
@@ -47,6 +66,14 @@ export default function ResetPasswordPage() {
             }, 2000);
         }
     };
+
+    if (checkingSession) return <p role="status" className="p-10 text-center">Validando tu enlace...</p>;
+    if (!sessionReady) return (
+        <div className="p-10 text-center space-y-4">
+            <p role="alert">{error}</p>
+            <Link href="/forgot-password" className="underline">Solicitar un nuevo enlace</Link>
+        </div>
+    );
 
     if (success) {
         return (

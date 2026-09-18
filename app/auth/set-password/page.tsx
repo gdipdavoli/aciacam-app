@@ -1,18 +1,37 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/services/supabaseClient';
+import { resolveInviteSession } from '@/services/inviteSession';
 
 export default function SetPasswordPage() {
     const router = useRouter();
     const [password, setPassword] = useState('');
     const [confirm, setConfirm] = useState('');
     const [loading, setLoading] = useState(false);
+    const [checkingSession, setCheckingSession] = useState(true);
+    const [sessionReady, setSessionReady] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        // Email templates can redirect here directly with credentials in the URL.
+        resolveInviteSession(supabase, window.location.href).then(() => {
+            if (cancelled) return;
+            window.history.replaceState(window.history.state, '', window.location.pathname);
+            setSessionReady(true);
+        }).catch((err: unknown) => {
+            if (!cancelled) setError(err instanceof Error ? err.message : 'No pudimos validar tu sesión.');
+        }).finally(() => {
+            if (!cancelled) setCheckingSession(false);
+        });
+        return () => { cancelled = true; };
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (loading || !sessionReady) return;
         setError(null);
 
         if (password !== confirm) {
@@ -38,12 +57,19 @@ export default function SetPasswordPage() {
                 return;
             }
 
-            // 2. Intentar buscar la invitación en socio_invites para consumo
+            // Save the password before consuming any invitation.
+            const { error: updateError } = await supabase.auth.updateUser({
+                password: password
+            });
+
+            if (updateError) throw updateError;
+
+            // Invitation tracking must never prevent the password from being saved.
             if (session.user.email) {
                 const { data: invite } = await supabase
                     .from('socio_invites')
                     .select('id, status, expires_at')
-                    .ilike('email', session.user.email)
+                    .eq('email', session.user.email)
                     .is('consumed_at', null)
                     .order('created_at', { ascending: false })
                     .limit(1)
@@ -60,30 +86,7 @@ export default function SetPasswordPage() {
                 }
             }
 
-            // 3. Actualizar contraseña en Auth
-            const { error: updateError } = await supabase.auth.updateUser({
-                password: password
-            });
-
-            if (updateError) throw updateError;
-
-            // Success!
-            // We can now proceed to Terms or Onboarding.
-
-            // 5. Fetch Role to Decide Redirect
-            // If Session is active, we can get the user.
             const { data: { user } } = await supabase.auth.getUser();
-            const userRole = user?.user_metadata?.role || user?.app_metadata?.role;
-
-            // Simple Check: If staff/admin, go to dashboard directly.
-            // If role is not in metadata yet (might need DB fetch?), we default to terms/onboarding.
-
-            // To be robust: Fetch socio from API or DB?
-            // Actually, metadata 'role' should be there if our Inviter put it there? 
-            // Inviter puts it in public.socios table... triggers sync it to auth metadata? 
-            // In our current setup, we might NOT rely on metadatasync if not implemented.
-            // Let's safe bet: Query public.socios by user_id
-
             let targetRoute = '/terms';
 
             if (user) {
@@ -105,23 +108,24 @@ export default function SetPasswordPage() {
             const errorMessage = err instanceof Error ? err.message : "Error al guardar la contraseña.";
             setError(errorMessage);
         } finally {
-            // Only stop loading if we didn't return early
-            if (loading) setLoading(false);
+            setLoading(false);
         }
     };
 
-    if (error === "SESSION_EXPIRED") {
+    if (checkingSession) return <p role="status" className="p-10 text-center">Validando tu invitación...</p>;
+
+    if (!sessionReady || error === "SESSION_EXPIRED") {
         return (
             <div style={{ maxWidth: '400px', margin: '4rem auto', padding: '2rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', textAlign: 'center' }}>
-                <h1 style={{ fontSize: '1.2rem', marginBottom: '1rem', color: 'hsl(var(--destructive))' }}>Enlace Expirado o Sesión Inválida</h1>
+                <h1 style={{ fontSize: '1.2rem', marginBottom: '1rem', color: 'hsl(var(--destructive))' }}>No pudimos validar tu sesión</h1>
                 <p style={{ marginBottom: '1.5rem', color: 'hsl(var(--muted-foreground))' }}>
-                    No pudimos detectar tu sesión de invitación. Esto puede pasar si el enlace ya fue usado o expiró.
+                    {error && error !== 'SESSION_EXPIRED' ? error : 'Abrí el botón del correo original en este navegador. Si el enlace ya fue utilizado, solicitá uno nuevo para crear tu contraseña.'}
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <button
-                        onClick={() => router.push('/login')}
+                        onClick={() => router.push('/forgot-password')}
                         style={{ padding: '0.75rem', backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--secondary-foreground))', border: 'none', borderRadius: 'var(--radius)', cursor: 'pointer' }}>
-                        Ir al Login / Recuperar cuenta
+                        Solicitar enlace para crear mi contraseña
                     </button>
                     {/* Optional: Mailto help */}
                     <a href="mailto:soporte@aciacam.org" style={{ fontSize: '0.9rem', color: 'hsl(var(--primary))' }}>Contactar Soporte</a>
@@ -139,9 +143,11 @@ export default function SetPasswordPage() {
 
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Nueva Contraseña</label>
+                    <label htmlFor="password" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Nueva Contraseña</label>
                     <input
+                        id="password"
                         type="password"
+                        autoComplete="new-password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         required
@@ -149,9 +155,11 @@ export default function SetPasswordPage() {
                     />
                 </div>
                 <div>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Confirmar Contraseña</label>
+                    <label htmlFor="confirm" style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Confirmar Contraseña</label>
                     <input
+                        id="confirm"
                         type="password"
+                        autoComplete="new-password"
                         value={confirm}
                         onChange={(e) => setConfirm(e.target.value)}
                         required
@@ -159,7 +167,7 @@ export default function SetPasswordPage() {
                     />
                 </div>
 
-                {error && <div style={{ color: 'red', fontSize: '0.9rem' }}>{error}</div>}
+                {error && <div role="alert" style={{ color: 'red', fontSize: '0.9rem' }}>{error}</div>}
 
                 <button
                     type="submit"
