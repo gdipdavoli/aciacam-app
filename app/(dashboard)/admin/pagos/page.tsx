@@ -159,7 +159,7 @@ export default function AdminPagosPage() {
     const handleGenerarCierre = async () => {
         if (!selectedSocioId || !selectedPeriod || !cierrePreviewData || !user) return;
 
-        const confirmMsg = "Al generar el cierre mensual, la información de aportes y dispensas del período quedará congelada de forma inmutable para auditoría legal. ¿Deseas proceder?";
+        const confirmMsg = "Al generar el cierre mensual, la información de aportes y dispensas del período se guardará como constancia del período con auditoría. ¿Deseas proceder?";
         if (!window.confirm(confirmMsg)) return;
 
         setCierreLoading(true);
@@ -490,7 +490,7 @@ export default function AdminPagosPage() {
                                     {renderedCierre.estado === 'anulado' ? (
                                         <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded font-black uppercase tracking-wider text-[10px]">ANULADO</span>
                                     ) : cierreExistente ? (
-                                        <span className="px-2 py-0.5 bg-green-100 text-green-800 rounded font-black uppercase tracking-wider text-[10px]">CONGELADO E INMUTABLE</span>
+                                        <span className="px-2 py-0.5 bg-green-100 text-green-800 rounded font-black uppercase tracking-wider text-[10px]">CONSTANCIA EMITIDA</span>
                                     ) : (
                                         <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded font-black uppercase tracking-wider text-[10px]">PRE-VISTA (No Generado)</span>
                                     )}

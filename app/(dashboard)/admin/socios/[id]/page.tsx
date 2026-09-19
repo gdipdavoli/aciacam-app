@@ -1,4 +1,5 @@
 "use client";
+import { DocumentHistory } from "@/components/DocumentHistory";
 
 import React, { useEffect, useState } from 'react';
 import { useRouter, useParams, useSearchParams, usePathname } from 'next/navigation';
@@ -354,7 +355,7 @@ const InviteStatusWidget = ({ socioId, socioEmail, mode = 'full' }: { socioId: s
 };
 
 // --- NEW COMPONENT: DocumentEditModal (Isolated State) ---
-const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onSave, uploading }: any) => {
+const DocumentEditModal = ({ socioId, docKey, docLabel, initialData, config, onClose, onSave, uploading }: any) => {
     // 1. Local State
     const [form, setForm] = useState<DocumentoSocio>(initialData || { verificacion_estado: 'pendiente' } as any);
     const [file, setFile] = useState<File | null>(null);
@@ -399,6 +400,13 @@ const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onS
     }, [file, form.archivoPath]);
 
     const handleSave = () => {
+        if (docKey === 'reprocann' && form.verificacion_estado === 'aprobado') {
+            if ((!file && !form.archivoPath) || !form.fechaEmision || !form.fechaVencimiento || form.fechaVencimiento < form.fechaEmision) {
+                alert('Revisá el archivo y completá fechas válidas antes de aprobar.');
+                return;
+            }
+            if (!window.confirm('¿Confirmás que revisaste el certificado y sus fechas? Se actualizará la ficha junto con la aprobación.')) return;
+        }
         onSave(form, file);
     };
 
@@ -441,6 +449,8 @@ const DocumentEditModal = ({ docKey, docLabel, initialData, config, onClose, onS
                     {docLabel}
                 </div>
 
+
+                <DocumentHistory socioId={socioId} tipo={docKey} />
 
                 {/* Verification Status */}
                 <div style={{ padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '0.5rem', marginBottom: '1.5rem', border: '1px solid #e2e8f0' }}>
@@ -898,37 +908,6 @@ export default function SocioDetailsPage() {
                 archivoPath: newPath
             };
 
-            // Update local state
-            const updatedSocio = {
-                ...socio,
-                documentacion: {
-                    ...socio.documentacion,
-                    [editingDocKey]: newDocData
-                }
-            };
-
-            // Sync Reprocann section if applicable
-            if (tipo === 'reprocann') {
-                 updatedSocio.reprocann = {
-                    ...socio.reprocann,
-                    fechaAlta: formData.fechaEmision,
-                    estado: (formData.verificacion_estado === 'aprobado' ? 'vigente' : 'pendiente') as any
-                 };
-            }
-
-            setSocio(updatedSocio);
-
-            // 1. Save Verification/Metadata to Real DB (Internal API)
-            // This is actually redundant if we use upsertDocumentoSocio correctly, but keeping for compatibility
-            await fetch(`/api/socios/${socio.id}/documents/${tipo}/verificacion`, {
-                method: 'PATCH',
-                body: JSON.stringify({
-                    verificacion_estado: formData.verificacion_estado,
-                    verificacion_obs: formData.verificacion_obs,
-                    verificado_por: user?.email || 'admin'
-                })
-            });
-
             // 2. Save to Store (DB Persistence via Service) - NOW PASSING ALL FIELDS
             await StoreService.upsertDocumentoSocio(
              socio.id,
@@ -948,16 +927,8 @@ export default function SocioDetailsPage() {
             setEditingDocKey(null);
             updateUrl({ doc: null });
             
-            // If it was reprocann, sync back to flat fields if needed
-            if (tipo === 'reprocann' && formData.fechaVencimiento) {
-                await StoreService.updateSocio(socio.id, {
-                    reprocann: {
-                        ...socio.reprocann,
-                        fechaAlta: formData.fechaEmision,
-                        estado: (formData.verificacion_estado === 'aprobado' ? 'vigente' : 'pendiente') as any
-                    }
-                });
-            }
+            const refreshed = await StoreService.getSocioById(socio.id);
+            if (refreshed) setSocio(refreshed);
 
             // Refresh compliance data
             fetch(`/api/socios/${id}/compliance`).then(res => res.ok ? res.json() : null).then(setCompliance);
@@ -1593,6 +1564,7 @@ export default function SocioDetailsPage() {
             {
                 editingDocKey && currentDocConfig && (
                     <DocumentEditModal
+                        socioId={socio.id}
                         docKey={editingDocKey}
                         docLabel={docDefinitions.find(d => d.key === editingDocKey)?.label}
                         initialData={socio.documentacion?.[editingDocKey]}

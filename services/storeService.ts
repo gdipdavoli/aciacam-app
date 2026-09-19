@@ -1,6 +1,7 @@
 import { Producto, Pedido, OrderType, OrderItem, Socio, Pago, ProductoWithStockInfo, CierreMensual } from '@/types';
 import { supabase } from './supabaseClient';
 import * as DocService from './documentacionService';
+import { fetchLinkedProfile } from './linkedProfile';
 
 const STORAGE_KEY_PEDIDOS = 'aciacam_pedidos';
 // const STORAGE_KEY_SOCIOS = 'aciacam_socios'; // No longer used for reading
@@ -83,6 +84,9 @@ const mapSocioFromDB = (row: any): Socio => {
                     docs[key] = {
                         estado,
                         archivoPath: d.archivo_path,
+                        fechaEmision: d.fecha_emision?.slice(0, 10),
+                        fechaVencimiento: d.fecha_vencimiento?.slice(0, 10),
+                        verificacion_obs: d.verificacion_obs,
                         verificacion_estado: d.verificacion_estado
                     };
                 });
@@ -725,13 +729,14 @@ export const StoreService = {
 
     createAuditLog: async (actorId: string, action: string, entityType: string, entityId: string, details: any) => {
         try {
-            await supabase.from('audit_logs').insert({
+            const { error } = await supabase.from('audit_logs').insert({
                 user_id: actorId,
                 action,
                 entity_type: entityType,
                 entity_id: entityId,
                 details
             });
+            if (error) throw error;
         } catch (e) {
             console.error('Failed to create audit log', e);
             // Don't block main flow if audit fails, but log it critical
@@ -809,96 +814,10 @@ export const StoreService = {
     },
 
     getSocioByUserId: async (userId: string): Promise<Socio | undefined> => {
-        if (!supabase) return undefined;
-
-        // 1. Race Client Logic vs Quick Timeout
-        // Logic: If Client RLS (Supabase) takes > 2.5s, it's likely a network or deadlock issue.
-        // We immediately fall back to the API (Service Role) which uses standard fetch and won't hang.
-
-        let clientResult: any = null;
-        let usedFallback = false;
-
-        const clientPromise = (async () => {
-            try {
-                const res = await supabase
-                    .from('socios')
-                    .select('*')
-                    .or(`auth_user_id.eq.${userId},user_id.eq.${userId}`)
-                    .maybeSingle();
-
-                if (res.data) {
-                    const { data: docs } = await supabase
-                        .from('documentos_socio')
-                        .select('*')
-                        .eq('socio_id', res.data.id);
-                    return { ...res, data: { ...res.data, documentos: docs || [] }, source: 'client' };
-                }
-                return { source: 'client', ...res };
-            } catch (err) {
-                return { source: 'client_error', error: err };
-            }
-        })();
-
-        const timeoutPromise = new Promise<{ source: 'timeout' }>((resolve) =>
-            setTimeout(() => resolve({ source: 'timeout' }), 1500)
-        );
-
-        console.time("getSocioRace");
-        const winner: any = await Promise.race([clientPromise, timeoutPromise]);
-        console.timeEnd("getSocioRace");
-
-        if (winner.source === 'client') {
-            const { data, error } = winner;
-            if (data) {
-                console.log(`StoreService: Socio found via Client RLS [${data.id}]`);
-                return mapSocioFromDB(data);
-            } else if (error) {
-                console.warn(`StoreService: Client query error: ${error.message}.`);
-                usedFallback = true;
-            } else {
-                // Null data (not found)
-                console.log("StoreService: Client returned null. Verifying with API.");
-                usedFallback = true;
-            }
-        } else if (winner.source === 'client_error') {
-            console.error("StoreService: Client query failed immediately.", winner.error);
-            usedFallback = true;
-        } else {
-            console.warn("StoreService: Client Query too slow (>2.5s). Switching to API Fallback.");
-            usedFallback = true;
-        }
-
-        if (usedFallback) {
-            try {
-                console.time("getSocioByUserId-API");
-                const res = await fetch(`/api/admin/socios/by-user?id=${userId}`, {
-                    cache: 'no-store',
-                    headers: { 'Cache-Control': 'no-cache' }
-                });
-                console.timeEnd("getSocioByUserId-API");
-
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data) {
-                        console.log(`StoreService: Socio found via API Fallback [${data.id}]`);
-                        // Documents are joined in API or fetched here
-                        const docs = await StoreService.getDocumentosBySocio(data.id);
-                        return mapSocioFromDB({ ...data, documentos: docs });
-                    }
-                } else if (res.status === 404) {
-                    console.log("StoreService: API confirmed no socio linked.");
-                    return undefined;
-                } else {
-                    console.log("StoreService: API returned error status", res.status);
-                }
-            } catch (e) {
-                console.error("StoreService: API Fetch Fallback failed", e);
-            }
-        }
-
-        return undefined;
+        const data = await fetchLinkedProfile(userId);
+        return data ? mapSocioFromDB(data) : undefined;
     },
-    
+
     getSocios: async (): Promise<Socio[]> => {
         if (!supabase) return [];
         const { data, error } = await supabase
@@ -1272,7 +1191,7 @@ export const StoreService = {
 
         if (error) {
             console.error("StoreService: getCierreMensual failed", error);
-            return null;
+            throw error;
         }
 
         if (!data) return null;
@@ -1296,21 +1215,8 @@ export const StoreService = {
     createCierreMensual: async (socioId: string, periodo: string, datos: any, actorId: string): Promise<CierreMensual> => {
         if (!supabase) throw new Error("Supabase client not initialized");
 
-        // Helper function for SHA-256 in browser
-        const encoder = new TextEncoder();
-        const msgBuffer = encoder.encode(JSON.stringify(datos));
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-        const dbRow = {
-            socio_id: socioId,
-            periodo,
-            generado_por: actorId,
-            datos,
-            hash_sha256: hashHex,
-            estado: 'emitido'
-        };
+        // PostgreSQL constructs the snapshot and hash and records the audit atomically.
+        const dbRow = { socio_id: socioId, periodo };
 
         const { data, error } = await supabase
             .from('cierres_mensuales')
@@ -1322,12 +1228,6 @@ export const StoreService = {
             console.error("StoreService: createCierreMensual failed", error);
             throw error;
         }
-
-        await StoreService.createAuditLog(actorId, 'CREATE', 'CIERRE_MENSUAL', data.id, {
-            periodo,
-            numero_constancia: data.numero_constancia,
-            hash_sha256: hashHex
-        });
 
         return {
             id: data.id,
@@ -1353,16 +1253,14 @@ export const StoreService = {
                 motivo_anulacion: motivo,
                 anulado_por: actorId
             })
-            .eq('id', cierreId);
+            .eq('id', cierreId)
+            .select('id')
+            .single();
 
         if (error) {
             console.error("StoreService: anularCierreMensual failed", error);
             throw error;
         }
 
-        await StoreService.createAuditLog(actorId, 'UPDATE', 'CIERRE_MENSUAL', cierreId, {
-            status_change: 'ANULADO',
-            motivo
-        });
-    }
+ }
 };

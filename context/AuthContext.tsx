@@ -74,16 +74,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsUnlinked(false);
 
             try {
-                // 1. Fetch Socio (With optimized Race in StoreService)
-                console.time("fetchSocio");
-                
-                const fetchPromise = StoreService.getSocioByUserId(userId);
-                const fetchTimeout = new Promise<null>((_, reject) =>
-                    setTimeout(() => reject(new Error('Fetch Socio Timeout')), 30000)
-                );
-
-                const socio = await Promise.race([fetchPromise, fetchTimeout]) as Socio | null;
-                console.timeEnd("fetchSocio");
+                // Documents are loaded by the account screen, after profile identification.
+                const socio = await StoreService.getSocioByUserId(userId);
 
                 if (socio) {
                     console.log("AuthContext: Socio found linked:", socio.id);
