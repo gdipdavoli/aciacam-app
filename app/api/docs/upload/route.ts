@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { authenticate, hasStaffRole } from '@/app/lib/api-auth';
 
 // 🔴 CRITICAL: Force Node.js runtime for Service Role compatibility
 export const runtime = "nodejs";
@@ -15,6 +16,16 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+        // Initialize Supabase with Service Role Key (Bypasses RLS)
+        const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+            auth: {
+                autoRefreshToken: false,
+                persistSession: false
+            }
+        });
+
+        const user = await authenticate(req, supabaseAdmin);
+        if (!user) return NextResponse.json({ error: 'Iniciá sesión para continuar' }, { status: 401 });
         const formData = await req.formData();
         const file = formData.get('file') as File;
         const socioId = formData.get('socioId') as string;
@@ -24,18 +35,20 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(socioId) || !/^[a-zA-Z0-9_-]+$/.test(docType)) {
+            return NextResponse.json({ error: 'Documento inválido' }, { status: 400 });
+        }
+        if (!await hasStaffRole(user, supabaseAdmin)) {
+            const { data: owner, error } = await supabaseAdmin.from('socios').select('auth_user_id,user_id').eq('id', socioId).maybeSingle();
+            if (error) throw error;
+            if (!owner || (owner.auth_user_id !== user.id && owner.user_id !== user.id)) {
+                return NextResponse.json({ error: 'No podés modificar documentos de otro socio' }, { status: 403 });
+            }
+        }
         // Basic validation
         if (file.size > 10 * 1024 * 1024) { // 10MB
             return NextResponse.json({ error: "File too large (max 10MB)" }, { status: 400 });
         }
-
-        // Initialize Supabase with Service Role Key (Bypasses RLS)
-        const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-            auth: {
-                autoRefreshToken: false,
-                persistSession: false
-            }
-        });
 
         const safeFilename = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
         const timestamp = Date.now();
@@ -64,6 +77,7 @@ export async function POST(req: NextRequest) {
             .upsert({
                 socio_id: socioId,
                 tipo: docType,
+                user_id: user.id,
                 archivo_path: path,
                 // verificacion_estado: 'pendiente' // OPTIONAL: Do we want to reset verification on new upload? 
                 // Let's assume YES, strict mode: New Document -> New Verification needed.

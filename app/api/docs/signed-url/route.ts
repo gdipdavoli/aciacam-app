@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { createClientServer } from '@/app/lib/supabase/server';
+import { requireStaff } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 
@@ -24,41 +24,8 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: "Missing required parameter 'path'" }, { status: 400 });
         }
 
-        // 1. Authenticate user from request header or cookie session
-        const authHeader = req.headers.get('Authorization');
-        const token = authHeader?.replace('Bearer ', '');
-
-        let user = null;
-
-        if (token) {
-            const { data: { user: authUser }, error: authError } = await supabaseAdmin.auth.getUser(token);
-            if (!authError && authUser) {
-                user = authUser;
-            }
-        }
-
-        if (!user) {
-            const supabase = await createClientServer();
-            const { data: { session }, error: authError } = await supabase.auth.getSession();
-            if (!authError && session?.user) {
-                user = session.user;
-            }
-        }
-
-        if (!user) {
-            return NextResponse.json({ error: 'No autorizado: Inicie sesión' }, { status: 401 });
-        }
-
-        // 2. Verify roles of caller is admin or staff
-        const { data: caller, error: roleError } = await supabaseAdmin
-            .from('socios')
-            .select('rol')
-            .or(`auth_user_id.eq.${user.id},user_id.eq.${user.id}`)
-            .single();
-
-        if (roleError || !caller || (caller.rol !== 'admin' && caller.rol !== 'staff')) {
-            return NextResponse.json({ error: 'Prohibido: Se requieren permisos administrativos' }, { status: 403 });
-        }
+        const access = await requireStaff(req, supabaseAdmin);
+        if (access.response) return access.response;
 
         // 3. Generate signed URL for BUCKET documentos-socios
         const bucket = 'documentos-socios';
@@ -71,7 +38,7 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
 
-        return NextResponse.json({ signedUrl: data.signedUrl });
+        return NextResponse.json({ signedUrl: data.signedUrl }, { headers: { 'Cache-Control': 'no-store' } });
 
     } catch (e: any) {
         console.error("Signed URL API Error:", e);

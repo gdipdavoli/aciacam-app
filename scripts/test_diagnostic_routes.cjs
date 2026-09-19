@@ -22,6 +22,21 @@ function mocks(db,user={id:uid},staff=true) {return {
  '@supabase/supabase-js':{createClient:()=>db},'next/server':{NextResponse:response},
  '@/app/lib/api-auth':{authenticate:async()=>user,hasStaffRole:async()=>staff,requireStaff:async()=>user&&staff?{user,response:null}:{user:null,response:response.json({error:'denied'},{status:user?403:401})}},
 };}
+test('document upload rejects anonymous before reading body, and other members before storage',async()=>{
+ for(const user of [null,{id:uid}]) {
+  const {db}=database([{data:{auth_user_id:other,user_id:other},error:null}]);
+  let bodyReads=0;
+  const route=load('app/api/docs/upload/route.ts',mocks(db,user,false));
+  const result=await route.POST({formData:async()=>{
+   bodyReads++;return new Map([['file',{size:10,name:'test.pdf'}],['socioId',other],['docType','dni']]);
+  }});
+  assert.equal(result.status,user?403:401);assert.equal(bodyReads,user?1:0);
+ }
+});
+test('document upload rejects invalid path segments before storage access',async()=>{
+ const {db}=database([]);const route=load('app/api/docs/upload/route.ts',mocks(db));
+ assert.equal((await route.POST({formData:async()=>new Map([['file',{size:10,name:'test.pdf'}],['socioId',uid],['docType','../other']])})).status,400);
+});
 test('by-user denies anonymous and another member before privileged data reads',async()=>{
  for(const [user,staff,status] of [[null,false,401],[{id:uid},false,403]]) {
    const {db,calls}=database([]);const route=load('app/api/admin/socios/by-user/route.ts',mocks(db,user,staff));
