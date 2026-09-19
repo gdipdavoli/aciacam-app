@@ -22,6 +22,14 @@ function mocks(db,user={id:uid},staff=true) {return {
  '@supabase/supabase-js':{createClient:()=>db},'next/server':{NextResponse:response},
  '@/app/lib/api-auth':{authenticate:async()=>user,hasStaffRole:async()=>staff,requireStaff:async()=>user&&staff?{user,response:null}:{user:null,response:response.json({error:'denied'},{status:user?403:401})}},
 };}
+test('document verification requires staff before reading body or touching records',async()=>{
+ for(const user of [null,{id:uid}]) {
+  const {db,calls}=database([]);
+  const route=load('app/api/socios/[id]/documents/[docType]/verificacion/route.ts',mocks(db,user,false));
+  const result=await route.PATCH({json:async()=>{throw new Error('body should not be read')}},{params:Promise.resolve({id:other,docType:'dni'})});
+  assert.equal(result.status,user?403:401);assert.deepEqual(calls,[]);
+ }
+});
 test('document upload rejects anonymous before reading body, and other members before storage',async()=>{
  for(const user of [null,{id:uid}]) {
   const {db}=database([{data:{auth_user_id:other,user_id:other},error:null}]);

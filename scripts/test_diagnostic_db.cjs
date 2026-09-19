@@ -103,6 +103,7 @@ async function fail(sql, values, pattern) { await assert.rejects(db.query(sql,va
  });
  await db.exec('reset role;');
  await db.exec(privacy);
+ await require('./test_document_guards.cjs')(db,check,admin,member);
  console.log(count+' database checks passed. Isolated PostgreSQL; no production data.');
  await db.close();
 })().catch(async error=>{console.error(error);await db.close();process.exitCode=1;});

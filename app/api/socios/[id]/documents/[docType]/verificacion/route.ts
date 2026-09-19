@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { requireStaff } from '@/app/lib/api-auth';
 
 // Initialize Supabase Client (Service Role for admin access)
 const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -18,6 +19,8 @@ export async function PATCH(
     }
 
     try {
+        const access = await requireStaff(req, supabase);
+        if (access.response) return access.response;
         const { id, docType } = await context.params;
         const body = await req.json();
         const { verificacion_estado, verificacion_obs, verificado_por } = body;
@@ -34,7 +37,7 @@ export async function PATCH(
             verificacion_estado,
             verificacion_obs,
             verificado_at: new Date().toISOString(),
-            verificado_por: verificado_por || 'admin'
+            verificado_por: access.user!.id
         };
 
         const { data, error } = await supabase
