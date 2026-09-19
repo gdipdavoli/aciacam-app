@@ -31,10 +31,7 @@ export const EmailService = {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    to,
-                    socioName,
-                    periodo,
-                    datosCierre
+                    cierreId: datosCierre.id
                 })
             });
 

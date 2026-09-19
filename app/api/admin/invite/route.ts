@@ -1,3 +1,4 @@
+import { requireStaff } from '@/app/lib/api-auth';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
@@ -24,33 +25,9 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Missing socioId' }, { status: 400 });
         }
 
-        // 1. Verify Caller (RBAC)
-        const authHeader = req.headers.get('Authorization');
-        if (!authHeader) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-
-        const token = authHeader.replace('Bearer ', '');
-        const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-        if (authError || !user) {
-            return NextResponse.json({ error: 'Invalid Token' }, { status: 401 });
-        }
-
-        const metadataRole = user.app_metadata?.role || user.user_metadata?.role;
-        const isAdminOrStaff = metadataRole === 'admin' || metadataRole === 'staff';
-
-        if (!isAdminOrStaff) {
-            const { data: callerSocio, error: roleError } = await supabaseAdmin
-                .from('socios')
-                .select('id, rol')
-                .eq('auth_user_id', user.id)
-                .single();
-
-            if (roleError || !callerSocio || (callerSocio.rol !== 'admin' && callerSocio.rol !== 'staff')) {
-                return NextResponse.json({ error: 'Forbidden: Staff/Admin only' }, { status: 403 });
-            }
-        }
+        const access = await requireStaff(req, supabaseAdmin);
+        if (access.response) return access.response;
+        const user = access.user!;
 
         // 2. Fetch Target Socio
         const { data: socio, error: socioError } = await supabaseAdmin

@@ -1,12 +1,34 @@
+import { createClient } from '@supabase/supabase-js';
+import { requireStaff } from '@/app/lib/api-auth';
 import { NextResponse } from 'next/server';
+
+const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
+function escaped(value: any): any {
+    if (typeof value === 'string') return escapeHtml(value);
+    if (Array.isArray(value)) return value.map(escaped);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, escaped(item)]));
+    return value;
+}
 
 export async function POST(req: Request) {
     try {
-        const { to, socioName, periodo, datosCierre } = await req.json();
-
-        // 1. Check if RESEND_API_KEY is present
+        const access = await requireStaff(req, admin);
+        if (access.response) return access.response;
+        const { cierreId } = await req.json();
+        if (typeof cierreId !== 'string' || !/^[0-9a-f-]{36}$/i.test(cierreId)) return NextResponse.json({ error: 'Cierre inválido' }, { status: 400 });
+        const { data: cierre, error: cierreError } = await admin.from('cierres_mensuales').select('*').eq('id', cierreId).maybeSingle();
+        if (cierreError) return NextResponse.json({ error: 'No se pudo consultar el cierre' }, { status: 500 });
+        if (!cierre) return NextResponse.json({ error: 'Cierre no encontrado' }, { status: 404 });
+        if (cierre.estado !== 'emitido') return NextResponse.json({ error: 'No se puede enviar una constancia anulada' }, { status: 409 });
+        const { data: destinatario, error: socioError } = await admin.from('socios').select('email, nombre, apellido').eq('id', cierre.socio_id).single();
+        if (socioError || !destinatario?.email) return NextResponse.json({ error: 'El socio no tiene un correo disponible' }, { status: 400 });
+        const to = destinatario.email;
+        const socioName = escapeHtml(destinatario.nombre + ' ' + destinatario.apellido);
+        const periodo = cierre.periodo;
+        const datosCierre = escaped({ datos: cierre.datos, numeroConstancia: cierre.numero_constancia, hashSha256: cierre.hash_sha256 });
         const apiKey = process.env.RESEND_API_KEY;
-        const isDev = process.env.NODE_ENV === 'development' || process.env.EMAIL_DEBUG === 'true' || !apiKey;
+        if (!apiKey) return NextResponse.json({ success: false, error: 'El servicio de correo no está configurado. La constancia no fue enviada.' }, { status: 503 });
 
         const socio = datosCierre.datos?.socio || {};
         const dispensas = datosCierre.datos?.dispensas || [];
@@ -58,7 +80,7 @@ export async function POST(req: Request) {
                 <div style="padding: 24px; background-color: #ffffff;">
                     <h2 style="color: #0F3822; font-size: 16px; border-bottom: 2px solid #0F3822; padding-bottom: 8px; margin-top: 0;">Constancia Mensual de Aportes y Dispensas</h2>
                     <p style="font-size: 13px;">Estimado/a <strong>${socioName}</strong>,</p>
-                    <p style="font-size: 13px;">Le hacemos llegar la constancia oficial inmutable de su legajo correspondiente al período mensual <strong>${periodo}</strong>.</p>
+                    <p style="font-size: 13px;">Le hacemos llegar la constancia registrada de su legajo correspondiente al período mensual <strong>${periodo}</strong>.</p>
                     
                     <!-- Socio Info Box -->
                     <div style="background-color: #f7f9f8; border: 1px solid #e8edea; border-radius: 6px; padding: 15px; margin: 20px 0; font-size: 12px;">
@@ -130,15 +152,6 @@ export async function POST(req: Request) {
             </div>
         `;
 
-        if (isDev) {
-            console.log('=== NEXT.JS RESEND SIMULATION ===');
-            console.log(`To: ${to}`);
-            console.log(`Subject: Constancia Mensual de Aportes y Dispensas - ${periodo}`);
-            console.log(`HTML length: ${htmlContent.length} characters`);
-            console.log('=================================');
-            return NextResponse.json({ success: true, simulated: true });
-        }
-
         // Production: send using Resend API via raw HTTP Fetch
         const response = await fetch('https://api.resend.com/emails', {
             method: 'POST',
@@ -160,7 +173,8 @@ export async function POST(req: Request) {
             return NextResponse.json({ success: false, error: resData.message || 'Resend error' }, { status: response.status });
         }
 
-        return NextResponse.json({ success: true, resendId: resData.id });
+        if (!resData.id) return NextResponse.json({ success: false, error: 'El proveedor no confirmó el envío' }, { status: 502 });
+        return NextResponse.json({ success: true, resendId: resData.id, to });
     } catch (e: any) {
         console.error("send-email route error:", e);
         return NextResponse.json({ success: false, error: e.message || 'Server error' }, { status: 500 });

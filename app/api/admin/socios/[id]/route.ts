@@ -1,3 +1,4 @@
+import { authenticate, hasStaffRole, requireStaff } from '@/app/lib/api-auth';
 
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
@@ -14,6 +15,8 @@ export async function GET(
     // Let's use context generic.
 ) {
     try {
+        const caller = await authenticate(request, supabaseAdmin);
+        if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
         // Next.js 15 breaking change: params is a promise. 
         // We can await it.
         const { id } = await params;
@@ -32,7 +35,8 @@ export async function GET(
             return NextResponse.json({ error: error.message }, { status: 404 });
         }
 
-        return NextResponse.json(socio);
+        if (socio.auth_user_id !== caller.id && socio.user_id !== caller.id && !await hasStaffRole(caller, supabaseAdmin)) return NextResponse.json({ error: "No autorizado" }, { status: 403 });
+        return NextResponse.json(socio, { headers: { "Cache-Control": "private, no-store" } });
     } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
@@ -46,29 +50,9 @@ export async function DELETE(
     try {
         const { id } = await params;
 
-        // 1. RBAC Check
-        const authHeader = request.headers.get('Authorization');
-        if (!authHeader) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        const token = authHeader.replace('Bearer ', '');
-        const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-        if (authError || !user) return NextResponse.json({ error: 'Invalid Token' }, { status: 401 });
-
-        // Verify Admin Role
-        const metadataRole = user.app_metadata?.role || user.user_metadata?.role;
-        const isMetadataAdmin = metadataRole === 'admin';
-
-        if (!isMetadataAdmin) {
-            // Check DB
-            const { data: caller, error: roleError } = await supabaseAdmin
-                .from('socios')
-                .select('rol')
-                .or(`auth_user_id.eq.${user.id},user_id.eq.${user.id}`)
-                .single();
-            if (roleError || caller?.rol !== 'admin') {
-                return NextResponse.json({ error: 'Forbidden: Admins only' }, { status: 403 });
-            }
-        }
+        const access = await requireStaff(request, supabaseAdmin, true);
+        if (access.response) return access.response;
+        const user = access.user!;
 
         // 2. Fetch Target to get Auth ID
         const { data: targetSocio, error: fetchError } = await supabaseAdmin.from('socios').select('auth_user_id, email').eq('id', id).single();

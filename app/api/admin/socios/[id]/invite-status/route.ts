@@ -1,3 +1,4 @@
+import { requireStaff } from '@/app/lib/api-auth';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
@@ -9,20 +10,9 @@ const supabaseAdmin = createClient(
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
     try {
+        const access = await requireStaff(req, supabaseAdmin);
+        if (access.response) return access.response;
         const { id } = await params;
-
-        // 1. Auth Check
-        const authHeader = req.headers.get('Authorization');
-        // If coming from client side, we might rely on cookie or header. 
-        // For simplicity in this Admin context, we check if generic session cookie exists via helper or just bypass if likely protected by middleware?
-        // Better: require Authorization header like the invite route.
-        // BUT: the widget generic fetch might not pass it easily unless we use a wrapped fetcher.
-        // Let's assume for this "status" read, we can trust the caller if they have the ID, OR we try to extract token.
-        // Since it's read-only status of a socio, risk is lower, but let's be consistent.
-        // Use service role to read DB, but ideally validate user.
-
-        // For now, to keep it simple and working with the widget's simple fetch:
-        // We will read the socio. Data is not super sensitive (status dates).
 
         const { data: socio, error } = await supabaseAdmin
             .from('socios')

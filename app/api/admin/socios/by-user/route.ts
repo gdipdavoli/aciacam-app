@@ -1,6 +1,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { authenticate, hasStaffRole } from '@/app/lib/api-auth';
 
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,6 +17,14 @@ export async function GET(request: NextRequest) {
     }
 
     try {
+        const user = await authenticate(request, supabaseAdmin);
+        if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+            return NextResponse.json({ error: 'Identificador inválido' }, { status: 400 });
+        }
+        if (user.id !== userId && !await hasStaffRole(user, supabaseAdmin)) {
+            return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+        }
         const { data, error } = await supabaseAdmin
             .from('socios')
             .select('*')
@@ -33,7 +42,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json(null, { status: 404 });
         }
 
-        return NextResponse.json(data);
+        return NextResponse.json(data, { headers: { 'Cache-Control': 'private, no-store' } });
 
     } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });

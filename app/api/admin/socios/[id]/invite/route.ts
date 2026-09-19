@@ -1,3 +1,4 @@
+import { requireStaff } from '@/app/lib/api-auth';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { EmailService } from '@/services/emailService';
@@ -14,12 +15,9 @@ export async function POST(
     { params }: { params: Promise<{ id: string }> } // Params is a Promise in Next 15+
 ) {
     try {
+        const access = await requireStaff(req, supabaseAdmin);
+        if (access.response) return access.response;
         const { id } = await params;
-
-        // 1. Verify Admin Auth (Placeholder: In real app check session user role)
-        // For now assuming the route protection via Middleware handles general access, 
-        // but we should verify the "caller" is admin.
-        // Skipping strict auth check for "local dev speed" as per context, but adding TODO.
 
         // 2. Get Socio info
         const { data: socio, error: socioError } = await supabaseAdmin
