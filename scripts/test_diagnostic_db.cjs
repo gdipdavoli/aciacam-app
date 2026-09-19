@@ -24,7 +24,7 @@ async function fail(sql, values, pattern) { await assert.rejects(db.query(sql,va
  CREATE FUNCTION public.get_my_role() RETURNS text LANGUAGE sql SECURITY DEFINER AS $$ SELECT rol FROM public.socios WHERE auth_user_id=auth.uid() OR user_id=auth.uid() LIMIT 1 $$;
  CREATE TABLE products(id uuid PRIMARY KEY,nombre text,stock_disponible int,last_audit_note text,last_audit_order_id uuid);
  CREATE TABLE pedidos(id uuid PRIMARY KEY,socio_id uuid REFERENCES socios(id),items jsonb,estado text);
- CREATE TABLE pagos(id uuid DEFAULT gen_random_uuid(),socio_id uuid,fecha timestamptz,concepto text,monto numeric,medio_de_pago text,pedido_id uuid,referencia text,created_by uuid);
+ CREATE TABLE pagos(id uuid DEFAULT gen_random_uuid(),socio_id uuid,fecha date,concepto text,monto numeric,medio_de_pago text,pedido_id uuid,referencia text,created_by uuid);
  CREATE TABLE audit_logs(user_id uuid,action text,entity_type text,entity_id text,details jsonb,created_at timestamptz);
  GRANT SELECT,INSERT,UPDATE ON socios,pedidos,pagos,audit_logs TO authenticated;
  GRANT SELECT ON products TO authenticated;

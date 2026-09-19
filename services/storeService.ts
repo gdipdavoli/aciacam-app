@@ -1131,12 +1131,12 @@ export const StoreService = {
 
     getPagosBySocioAndMonth: async (socioId: string, month: string): Promise<Pago[]> => {
         if (!supabase) return [];
-        const start = `${month}-01T00:00:00.000Z`;
+        const start = `${month}-01`;
         const [yearStr, monthStr] = month.split('-');
         const year = parseInt(yearStr);
         const monthNum = parseInt(monthStr);
         const lastDay = new Date(year, monthNum, 0).getDate();
-        const end = `${month}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
+        const end = `${month}-${String(lastDay).padStart(2, '0')}`;
 
         const { data, error } = await supabase
             .from('pagos')
@@ -1148,7 +1148,7 @@ export const StoreService = {
 
         if (error) {
             console.error("StoreService: getPagosBySocioAndMonth failed", error);
-            return [];
+            throw error;
         }
 
         return (data || []).map(mapPagoFromDB);
@@ -1156,12 +1156,12 @@ export const StoreService = {
 
     getPedidosBySocioAndMonth: async (socioId: string, month: string): Promise<Pedido[]> => {
         if (!supabase) return [];
-        const start = `${month}-01T00:00:00.000Z`;
+        const start = `${month}-01T00:00:00-03:00`;
         const [yearStr, monthStr] = month.split('-');
         const year = parseInt(yearStr);
         const monthNum = parseInt(monthStr);
         const lastDay = new Date(year, monthNum, 0).getDate();
-        const end = `${month}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
+        const end = `${new Date(Date.UTC(year, monthNum, 1)).toISOString().slice(0, 10)}T00:00:00-03:00`;
 
         const { data, error } = await supabase
             .from('pedidos')
@@ -1169,12 +1169,12 @@ export const StoreService = {
             .eq('socio_id', socioId)
             .in('estado', ['entregado', 'retirado'])
             .gte('created_at', start)
-            .lte('created_at', end)
+            .lt('created_at', end)
             .order('created_at', { ascending: true });
 
         if (error) {
             console.error("StoreService: getPedidosBySocioAndMonth failed", error);
-            return [];
+            throw error;
         }
 
         return (data || []).map(mapPedidoFromDB);
@@ -1262,5 +1262,5 @@ export const StoreService = {
             throw error;
         }
 
- }
+    }
 };

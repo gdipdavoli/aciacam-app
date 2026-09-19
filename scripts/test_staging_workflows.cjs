@@ -10,8 +10,10 @@ module.exports=async function(db,check,admin,member) {
  numero_constancia text DEFAULT gen_random_uuid()::text,fecha_generacion timestamptz, generado_por uuid,
  datos jsonb,hash_sha256 text,estado text,fecha_anulacion timestamptz,motivo_anulacion text,anulado_por uuid,UNIQUE(socio_id,periodo));
  CREATE SEQUENCE cierres_correlativo_seq;
+ INSERT INTO documentos_socio(socio_id,tipo,archivo_path,verificacion_estado) VALUES('${member}','reprocann','legacy.pdf','aprobado');
  `);
  await db.exec(fs.readFileSync(path.join(__dirname,'../supabase/migrations/20260919073601_diagnostic_staging_workflows.sql'),'utf8'));
+ await db.exec(fs.readFileSync(path.join(__dirname,'../supabase/migrations/20260919213927_preserve_reprocann_on_metadata_edits.sql'),'utf8'));
  await db.exec(`set role authenticated;`);
  let close;
  await check('closure ignores forged snapshot, hash and actor',async()=>{
@@ -32,13 +34,18 @@ module.exports=async function(db,check,admin,member) {
   assert.equal((await db.query(`select id from cierres_mensuales where periodo='2026-08'`)).rows.length,0);
   await db.exec('reset role; GRANT INSERT ON audit_logs TO authenticated; set role authenticated;');
  });
- await check('month boundary uses Buenos Aires midnight and excludes next month',async()=>{
-  for(const date of ['2026-08-01T02:59:59Z','2026-08-01T03:00:00Z','2026-09-01T03:00:00Z'])
+ await check('payment dates include first and last day and exclude adjacent months',async()=>{
+  for(const date of ['2026-07-31','2026-08-01','2026-08-31','2026-09-01'])
    await db.query(`insert into pagos(socio_id,fecha,monto) values($1,$2,17)`,[member,date]);
   const c=(await db.query(`insert into cierres_mensuales(socio_id,periodo) values($1,'2026-08') returning datos`,[member])).rows[0];
-  assert.equal(c.datos.aportes.length,1);
+  assert.equal(c.datos.aportes.length,2);
  });
  let document;
+ await check('legacy incomplete approved certificate can receive unrelated metadata edits',async()=>{
+  await db.query(`update socios set reprocann_fecha_alta='2024-01-01',reprocann_fecha_vencimiento='2028-01-01' where id=$1`,[member]);
+  await db.query(`update documentos_socio set observaciones='Recordatorio' where archivo_path='legacy.pdf'`);
+  assert.equal((await db.query(`select reprocann_fecha_vencimiento::text d from socios where id=$1`,[member])).rows[0].d,'2028-01-01');
+ });
  await check('approving REPROCANN requires complete dates and synchronizes member atomically',async()=>{
   await assert.rejects(db.query(`insert into documentos_socio(socio_id,tipo,archivo_path,verificacion_estado) values($1,'reprocann','test.pdf','aprobado')`,[member]),/Confirmá archivo/);
   document=(await db.query(`insert into documentos_socio(socio_id,tipo,archivo_path,verificacion_estado,fecha_emision,fecha_vencimiento) values($1,'reprocann','test.pdf','aprobado','2026-01-01','2027-01-01T00:00:00Z') returning id`,[member])).rows[0].id;

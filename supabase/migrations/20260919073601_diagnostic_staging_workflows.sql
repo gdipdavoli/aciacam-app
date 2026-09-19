@@ -1,4 +1,4 @@
--- STAGING ONLY: validate against a separate database before production deployment.
+-- Validated with synthetic PostgreSQL fixtures and production schema inspection.
 BEGIN;
 
 ALTER TABLE public.cierres_mensuales ENABLE ROW LEVEL SECURITY;
@@ -43,7 +43,7 @@ BEGIN
        AND p.created_at>=v_start AND p.created_at<v_end),
     (SELECT coalesce(jsonb_agg(jsonb_build_object('fecha',p.fecha,'concepto',p.concepto,
        'medioDePago',p.medio_de_pago,'referencia',p.referencia,'monto',p.monto) ORDER BY p.fecha,p.id),'[]'::jsonb)
-     FROM public.pagos p WHERE p.socio_id=NEW.socio_id AND p.fecha>=v_start AND p.fecha<v_end)
+     FROM public.pagos p WHERE p.socio_id=NEW.socio_id AND p.fecha>=(NEW.periodo || '-01')::date AND p.fecha<((NEW.periodo || '-01')::date + interval '1 month')::date)
   INTO v_orders,v_payments;
   NEW.datos=jsonb_build_object('socio',jsonb_build_object('id',v_socio.id,
     'nombre',v_socio.nombre,'apellido',v_socio.apellido,'dni',v_socio.dni,'email',v_socio.email,
@@ -80,6 +80,7 @@ CREATE TABLE public.documentos_socio_versiones (
   archived_by uuid
 );
 ALTER TABLE public.documentos_socio_versiones ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.documentos_socio_versiones FROM PUBLIC,anon,authenticated;
 GRANT SELECT ON public.documentos_socio_versiones TO authenticated;
 CREATE POLICY document_history_read ON public.documentos_socio_versiones FOR SELECT TO authenticated
 USING (public.get_my_role() IN ('admin','staff') OR EXISTS (
@@ -89,7 +90,9 @@ USING (public.get_my_role() IN ('admin','staff') OR EXISTS (
 CREATE OR REPLACE FUNCTION app_private.validate_reprocann_approval() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path=public,pg_temp AS $$
 BEGIN
-  IF NEW.tipo='reprocann' AND NEW.verificacion_estado='aprobado' THEN
+  IF NEW.tipo='reprocann' AND NEW.verificacion_estado='aprobado' AND
+     (TG_OP='INSERT' OR (NEW.archivo_path,NEW.fecha_emision,NEW.fecha_vencimiento,NEW.verificacion_estado)
+       IS DISTINCT FROM (OLD.archivo_path,OLD.fecha_emision,OLD.fecha_vencimiento,OLD.verificacion_estado)) THEN
     IF NEW.archivo_path IS NULL OR NEW.fecha_emision IS NULL OR NEW.fecha_vencimiento IS NULL
        OR NEW.fecha_vencimiento::date<NEW.fecha_emision THEN
       RAISE EXCEPTION 'Confirmá archivo, fecha de emisión y vencimiento antes de aprobar';

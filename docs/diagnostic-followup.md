@@ -36,7 +36,7 @@ Correcciones críticas publicadas en main hasta 4b1f931. Vercel confirmó despli
 - PWA: únicamente assets versionados usan caché; páginas, API y documentos requieren red. Al activar el nuevo worker se eliminan las cachés privadas de la política anterior.
 - Auditoría genérica: se registra el error devuelto por Supabase; las operaciones heredadas distintas de cierres y confirmación de pagos todavía no tienen auditoría transaccional.
 
-La migración diagnostic_staging_workflows **no está aplicada en producción**. No fusionar esta rama hasta completar la revisión de los circuitos autenticados.
+Actualización autorizada por el usuario: diagnostic_staging_workflows y preserve_reprocann_on_metadata_edits aplicadas en la base productiva. Se revisaron esquema, tipos, permisos y triggers reales antes de integrar en main. No se crearon constancias ni documentos de prueba productivos.
 
 ## Entorno de prueba y evidencia
 
@@ -48,10 +48,12 @@ node scripts/test_diagnostic_db.cjs
 node --test scripts/test_linked_profile.cjs scripts/test_diagnostic_routes.cjs scripts/test_invitation_auth.cjs
 ```
 
-Resultado: 30 comprobaciones de base de datos y 22 pruebas de rutas/sesiones/perfil. Se verificaron rollback cuando falla auditoría, rechazo de constancia adulterada, límites mensuales, permisos y conservación del certificado anterior. TypeScript y build aprobados con valores ficticios.
+Resultado: 31 comprobaciones de base de datos y 22 pruebas de rutas/sesiones/perfil. Se verificaron rollback cuando falla auditoría, rechazo de constancia adulterada, límites mensuales, permisos y conservación del certificado anterior. TypeScript y build aprobados con valores ficticios.
 
 Revisión en Chrome local: ingreso en escritorio y a 390×844; campos visibles, sin errores reportados y navegación a recuperación de contraseña correcta. No representa una prueba completa con Auth/Storage/Resend reales ni una prueba concurrente de varias sesiones PostgreSQL.
 
-El script prebuild impide desplegar Vercel Preview con el proyecto productivo: requiere ACIACAM_PREVIEW_SUPABASE_REF y URLs del proyecto separado. No se creó un proyecto Supabase pago ni se copiaron datos productivos. Un enlace automático de Vercel no constituye todavía un entorno de pruebas autenticado.
+El despliegue de main usa la base productiva existente, por instrucción del usuario. El script prebuild impide desplegar Vercel Preview con el proyecto productivo: requiere ACIACAM_PREVIEW_SUPABASE_REF y URLs del proyecto separado. No se creó un proyecto Supabase pago ni se copiaron datos productivos. Un enlace automático de Vercel no constituye todavía un entorno de pruebas autenticado.
 
-Para la validación completa: provisionar Supabase de prueba, cargar esquema base y estas migraciones conciliando historial, configurar sus claves únicamente en Preview, crear socio/operador ficticios y probar invitación, constancia, reemplazo/aprobación de REPROCANN y cancelación concurrente. El correo de pruebas debe ir a un buzón de prueba o proveedor sandbox. Esta validación queda pendiente antes de pasar las mejoras a main.
+La verificación previa a publicación incluye 53 pruebas automáticas, compilación final y consultas de esquema/permisos en producción. Se corrigió una diferencia importante del fixture: pagos.fecha es date, por lo que sus límites son fechas del calendario; pedidos.created_at sí usa límites horarios de Buenos Aires. Cambios de metadatos en certificados antiguos no borran las fechas vigentes. La verificación posterior confirmó tres políticas de cierres, cuatro triggers del circuito y que el historial no permite lectura anónima ni inserción directa del navegador.
+
+No se ejecutaron operaciones reales de correo, cierre o aprobación en nombre de socios para probar. Sigue sin realizarse una prueba concurrente de múltiples conexiones ni la validación del extractor externo. El asesor conserva advertencias heredadas (6 tablas con RLS sin política, 15 funciones sin search_path fijo, funciones antiguas expuestas y protección de contraseñas filtradas desactivada); esta entrega no equivale a una auditoría de seguridad completa.
