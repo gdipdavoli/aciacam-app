@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+export const maxDuration = 25;
+export const dynamic = 'force-dynamic';
 import { createServerClient } from '@supabase/ssr';
 import { ChatResponseEnvelope } from '@/types/chat';
 
@@ -277,7 +280,7 @@ export async function POST(request: NextRequest) {
 
     // Timeout de 15 segundos sin reintentos automáticos
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 22000);
 
     let agentCoreResponse: Response;
     try {
