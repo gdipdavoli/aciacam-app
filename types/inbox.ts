@@ -99,7 +99,7 @@ export type InboxDetailDTO = AuditFindingInboxDetail | ProfileProposalInboxDetai
 export type InboxCategoryFilter = 'ALL' | 'AUDIT' | 'FINANCIAL' | 'DOCUMENT' | 'COMMUNICATION' | null;
 export type InboxPriorityFilter = 'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null;
 
-export type AuditActionType = 'in_review' | 'resolve' | 'dismiss';
+export type AuditActionType = 'in_review' | 'resolve' | 'dismiss' | 'create_communication_intent';
 export type ProposalActionType = 'approve' | 'reject' | 'cancel';
 export type CommunicationActionType = 'approve' | 'cancel';
 

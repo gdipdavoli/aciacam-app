@@ -88,7 +88,7 @@ export async function fetchInboxDetail(
 export async function markAuditFindingInReview(
   sourceId: string
 ): Promise<unknown> {
-  return bffFetch(`/api/agent/inbox/audit_findings/${sourceId}/in_review`, {
+  return bffFetch(`/api/agent/inbox/audit-findings/${sourceId}/mark-in-review`, {
     method: 'POST',
   });
 }
@@ -97,7 +97,7 @@ export async function resolveAuditFinding(
   sourceId: string,
   resolutionNote: string
 ): Promise<unknown> {
-  return bffFetch(`/api/agent/inbox/audit_findings/${sourceId}/resolve`, {
+  return bffFetch(`/api/agent/inbox/audit-findings/${sourceId}/resolve`, {
     method: 'POST',
     body: JSON.stringify({ resolution_note: resolutionNote }),
   });
@@ -107,9 +107,19 @@ export async function dismissAuditFinding(
   sourceId: string,
   dismissalNote?: string
 ): Promise<unknown> {
-  return bffFetch(`/api/agent/inbox/audit_findings/${sourceId}/dismiss`, {
+  return bffFetch(`/api/agent/inbox/audit-findings/${sourceId}/dismiss`, {
     method: 'POST',
-    body: JSON.stringify({ dismissal_note: dismissalNote }),
+    body: JSON.stringify({ resolution_note: dismissalNote }),
+  });
+}
+
+export async function createCommunicationIntentFromAuditFinding(
+  sourceId: string,
+  reviewNote?: string
+): Promise<unknown> {
+  return bffFetch(`/api/agent/inbox/audit-findings/${sourceId}/create-communication-intent`, {
+    method: 'POST',
+    body: JSON.stringify({ review_notes: reviewNote }),
   });
 }
 
@@ -117,9 +127,9 @@ export async function approveProfileProposal(
   sourceId: string,
   reviewNote?: string
 ): Promise<unknown> {
-  return bffFetch(`/api/agent/inbox/profile_update_proposals/${sourceId}/approve`, {
+  return bffFetch(`/api/agent/inbox/profile-proposals/${sourceId}/approve`, {
     method: 'POST',
-    body: JSON.stringify({ review_note: reviewNote }),
+    body: JSON.stringify({ review_notes: reviewNote }),
   });
 }
 
@@ -127,9 +137,9 @@ export async function rejectProfileProposal(
   sourceId: string,
   reviewNote?: string
 ): Promise<unknown> {
-  return bffFetch(`/api/agent/inbox/profile_update_proposals/${sourceId}/reject`, {
+  return bffFetch(`/api/agent/inbox/profile-proposals/${sourceId}/reject`, {
     method: 'POST',
-    body: JSON.stringify({ review_note: reviewNote }),
+    body: JSON.stringify({ review_notes: reviewNote }),
   });
 }
 
@@ -137,9 +147,9 @@ export async function cancelProfileProposal(
   sourceId: string,
   reviewNote?: string
 ): Promise<unknown> {
-  return bffFetch(`/api/agent/inbox/profile_update_proposals/${sourceId}/cancel`, {
+  return bffFetch(`/api/agent/inbox/profile-proposals/${sourceId}/cancel`, {
     method: 'POST',
-    body: JSON.stringify({ review_note: reviewNote }),
+    body: JSON.stringify({ review_notes: reviewNote }),
   });
 }
 
@@ -147,9 +157,9 @@ export async function approveCommunicationIntent(
   sourceId: string,
   reviewNote?: string
 ): Promise<unknown> {
-  return bffFetch(`/api/agent/inbox/communication_intents/${sourceId}/approve`, {
+  return bffFetch(`/api/agent/inbox/communication-intents/${sourceId}/approve`, {
     method: 'POST',
-    body: JSON.stringify({ review_note: reviewNote }),
+    body: JSON.stringify({ review_notes: reviewNote }),
   });
 }
 
@@ -157,9 +167,9 @@ export async function cancelCommunicationIntent(
   sourceId: string,
   reviewNote?: string
 ): Promise<unknown> {
-  return bffFetch(`/api/agent/inbox/communication_intents/${sourceId}/cancel`, {
+  return bffFetch(`/api/agent/inbox/communication-intents/${sourceId}/cancel`, {
     method: 'POST',
-    body: JSON.stringify({ review_note: reviewNote }),
+    body: JSON.stringify({ review_notes: reviewNote }),
   });
 }
 
@@ -174,6 +184,8 @@ export async function executeAuditFindingAction(
     return resolveAuditFinding(sourceId, note || '');
   } else if (action === 'dismiss') {
     return dismissAuditFinding(sourceId, note);
+  } else if (action === 'create_communication_intent') {
+    return createCommunicationIntentFromAuditFinding(sourceId, note);
   }
   throw new Error(`Acción desconocida para audit_findings: ${action}`);
 }

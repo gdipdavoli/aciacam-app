@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { AuditFindingInboxDetail } from '@/types/inbox';
-import { ShieldAlert, Calendar, Info, CheckCircle2, Eye, Trash2 } from 'lucide-react';
+import { ShieldAlert, Calendar, Info, CheckCircle2, Eye, Trash2, Send } from 'lucide-react';
 
 interface AuditFindingDetailProps {
   detail: AuditFindingInboxDetail;
@@ -10,6 +10,7 @@ interface AuditFindingDetailProps {
   onMarkInReview: () => void;
   onResolve: () => void;
   onDismiss: () => void;
+  onCreateCommunicationIntent: () => void;
 }
 
 function formatDateLocal(isoString?: string | null): string {
@@ -33,7 +34,10 @@ export function AuditFindingDetail({
   onMarkInReview,
   onResolve,
   onDismiss,
+  onCreateCommunicationIntent,
 }: AuditFindingDetailProps) {
+  const isComplianceFinding = String(detail.domain || '').toUpperCase() === 'COMPLIANCE';
+
   return (
     <div className="space-y-6">
       {/* Header Info */}
@@ -128,6 +132,16 @@ export function AuditFindingDetail({
               <CheckCircle2 className="w-4 h-4" />
               <span>Resolver</span>
             </button>
+
+            {isComplianceFinding && (
+              <button
+                onClick={onCreateCommunicationIntent}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500 transition-colors shadow-sm min-h-[44px]"
+              >
+                <Send className="w-4 h-4" />
+                <span>Derivar a comunicación</span>
+              </button>
+            )}
 
             <button
               onClick={onDismiss}

@@ -304,6 +304,15 @@ export default function AdminInboxPage() {
           requiresNote: false,
           noteMinLength: 0,
         };
+      case 'create_communication_intent':
+        return {
+          title: 'Derivar a comunicación',
+          description: 'Esta acción crea una intención de comunicación para revisión humana y resuelve el hallazgo como derivado. No envía mensajes.',
+          confirmLabel: 'Crear intención',
+          confirmVariant: 'primary' as const,
+          requiresNote: false,
+          noteMinLength: 0,
+        };
       case 'approve':
         return {
           title: 'Aprobar elemento',

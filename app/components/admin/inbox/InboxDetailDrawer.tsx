@@ -138,13 +138,16 @@ export function InboxDetailDrawer({
                   detail={detail as AuditFindingInboxDetail}
                   isAdmin={isAdmin}
                   onMarkInReview={() =>
-                    onRequestAction('audit_mark_in_review', item, detail)
+                    onRequestAction('in_review', item, detail)
                   }
                   onResolve={() =>
-                    onRequestAction('audit_resolve', item, detail)
+                    onRequestAction('resolve', item, detail)
                   }
                   onDismiss={() =>
-                    onRequestAction('audit_dismiss', item, detail)
+                    onRequestAction('dismiss', item, detail)
+                  }
+                  onCreateCommunicationIntent={() =>
+                    onRequestAction('create_communication_intent', item, detail)
                   }
                 />
               )}
@@ -154,13 +157,13 @@ export function InboxDetailDrawer({
                   detail={detail as ProfileProposalInboxDetail}
                   isAdmin={isAdmin}
                   onApprove={() =>
-                    onRequestAction('proposal_approve', item, detail)
+                    onRequestAction('approve', item, detail)
                   }
                   onReject={() =>
-                    onRequestAction('proposal_reject', item, detail)
+                    onRequestAction('reject', item, detail)
                   }
                   onCancel={() =>
-                    onRequestAction('proposal_cancel', item, detail)
+                    onRequestAction('cancel', item, detail)
                   }
                 />
               )}
@@ -170,10 +173,10 @@ export function InboxDetailDrawer({
                   detail={detail as CommunicationIntentInboxDetail}
                   isAdmin={isAdmin}
                   onApprove={() =>
-                    onRequestAction('communication_approve', item, detail)
+                    onRequestAction('approve', item, detail)
                   }
                   onCancel={() =>
-                    onRequestAction('communication_cancel', item, detail)
+                    onRequestAction('cancel', item, detail)
                   }
                 />
               )}
