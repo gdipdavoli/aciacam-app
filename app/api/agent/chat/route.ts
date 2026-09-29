@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
+import { ChatResponseEnvelope } from '@/types/chat';
 
 export const maxDuration = 25;
 export const dynamic = 'force-dynamic';
-import { createServerClient } from '@supabase/ssr';
-import { ChatResponseEnvelope } from '@/types/chat';
 
 /**
  * app/api/agent/chat/route.ts
@@ -278,7 +278,7 @@ export async function POST(request: NextRequest) {
     if (message) payloadToSend.message = message;
     if (confirmationToken) payloadToSend.confirmation_token = confirmationToken;
 
-    // Timeout de 15 segundos sin reintentos automáticos
+    // Timeout interno menor al maxDuration de Vercel para devolver error controlado.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 22000);
 
