@@ -1,8 +1,9 @@
-﻿'use client';
+'use client';
 
 import React from 'react';
-import { AdminInboxItem, AdminInboxPriority, AdminInboxCategory, AdminInboxStatus } from '@/types/inbox';
-import { ShieldAlert, AlertTriangle, Info, Clock, ChevronRight } from 'lucide-react';
+import { AdminInboxItem, AdminInboxPriority, AdminInboxCategory } from '@/types/inbox';
+import { formatSocioDisplay, getStatusLabel } from '@/app/lib/socio-format';
+import { ShieldAlert, AlertTriangle, Info, Clock, ChevronRight, User } from 'lucide-react';
 
 interface InboxItemCardProps {
   item: AdminInboxItem;
@@ -70,18 +71,29 @@ export function InboxItemCard({ item, isSelected, onSelect }: InboxItemCardProps
     }
   };
 
-  const getStatusLabel = (status: AdminInboxStatus): string => {
-    switch (status) {
+  const getStatusBadgeStyle = (status?: string): string => {
+    if (!status) return 'bg-muted text-muted-foreground';
+    const s = status.toUpperCase();
+    switch (s) {
       case 'IN_REVIEW':
-        return 'En revisión';
+        return 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20';
+      case 'APPROVED':
+      case 'SENT':
+        return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20';
+      case 'DELIVERING':
+        return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20';
+      case 'FAILED':
+        return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20';
+      case 'AWAITING_APPROVAL':
       case 'PENDING':
       default:
-        return 'Pendiente';
+        return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20';
     }
   };
 
   const prio = getPriorityConfig(item.priority);
   const PrioIcon = prio.icon;
+  const socioDisplay = formatSocioDisplay(item.socio);
 
   return (
     <div
@@ -108,11 +120,9 @@ export function InboxItemCard({ item, isSelected, onSelect }: InboxItemCardProps
           </span>
 
           {/* Status Indicator */}
-          {item.status === 'IN_REVIEW' && (
-            <span className="px-2 py-0.5 text-[11px] font-semibold rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-              {getStatusLabel(item.status)}
-            </span>
-          )}
+          <span className={`px-2 py-0.5 text-[11px] font-semibold rounded-md ${getStatusBadgeStyle(item.status)}`}>
+            {getStatusLabel(item.status)}
+          </span>
 
           {/* Timestamp */}
           <span className="text-[11px] text-muted-foreground ml-auto">
@@ -124,6 +134,14 @@ export function InboxItemCard({ item, isSelected, onSelect }: InboxItemCardProps
         <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
           {item.title}
         </h3>
+
+        {/* Socio Badge (if present) */}
+        {socioDisplay && (
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-md w-fit">
+            <User className="w-3.5 h-3.5 shrink-0" />
+            <span>{socioDisplay}</span>
+          </div>
+        )}
 
         {/* Summary (if present) */}
         {item.summary && (
@@ -139,3 +157,4 @@ export function InboxItemCard({ item, isSelected, onSelect }: InboxItemCardProps
     </div>
   );
 }
+

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useEffect, useState } from 'react';
 import {
@@ -8,6 +8,7 @@ import {
   CommunicationIntentInboxDetail,
 } from '@/types/inbox';
 import { fetchInboxDetail } from '@/app/lib/inbox-client';
+import { SocioDetailSection } from './SocioDetailSection';
 import { AuditFindingDetail } from './details/AuditFindingDetail';
 import { ProfileProposalDetail } from './details/ProfileProposalDetail';
 import { CommunicationIntentDetail } from './details/CommunicationIntentDetail';
@@ -133,6 +134,9 @@ export function InboxDetailDrawer({
             </div>
           ) : detail ? (
             <>
+              {/* Differentiated SOCIO section */}
+              <SocioDetailSection socio={detail.socio || item.socio} />
+
               {(item.source_type === 'audit_finding' || item.source_type === 'audit_findings') && (
                 <AuditFindingDetail
                   detail={detail as AuditFindingInboxDetail}
@@ -187,3 +191,4 @@ export function InboxDetailDrawer({
     </div>
   );
 }
+

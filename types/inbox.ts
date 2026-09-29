@@ -1,7 +1,14 @@
-﻿export type AdminInboxSourceType = 'audit_findings' | 'profile_update_proposals' | 'communication_intents' | 'audit_finding' | 'profile_proposal' | 'communication_intent';
+export type AdminInboxSourceType = 'audit_findings' | 'profile_update_proposals' | 'communication_intents' | 'audit_finding' | 'profile_proposal' | 'communication_intent';
 export type AdminInboxCategory = 'AUDIT' | 'FINANCIAL' | 'DOCUMENT' | 'COMMUNICATION';
 export type AdminInboxPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-export type AdminInboxStatus = 'PENDING' | 'IN_REVIEW';
+export type AdminInboxStatus = 'PENDING' | 'IN_REVIEW' | 'AWAITING_APPROVAL' | 'APPROVED' | 'DELIVERING' | 'SENT' | 'FAILED';
+
+export interface SocioSummaryDTO {
+  id: string;
+  nombre?: string | null;
+  apellido?: string | null;
+  dni_masked?: string | null;
+}
 
 export interface AdminInboxItem {
   id?: string;
@@ -14,6 +21,7 @@ export interface AdminInboxItem {
   summary?: string | null;
   created_at: string;
   subject_reference?: string | null;
+  socio?: SocioSummaryDTO | null;
 }
 
 export type InboxItemDTO = AdminInboxItem;
@@ -32,7 +40,7 @@ export interface AdminInboxCategoryCounts {
 export interface AdminInboxSummary {
   total_pending: number;
   by_category: AdminInboxCategoryCounts;
-};
+}
 
 export type InboxSummaryResponse = AdminInboxSummary;
 
@@ -59,6 +67,7 @@ export interface AuditFindingInboxDetail {
   updated_at?: string;
   reviewed_at?: string | null;
   review_notes?: string | null;
+  socio?: SocioSummaryDTO | null;
 }
 
 export interface ProfileProposalInboxDetail {
@@ -76,6 +85,7 @@ export interface ProfileProposalInboxDetail {
   reviewed_at?: string | null;
   review_notes?: string | null;
   source_reference?: string | null;
+  socio?: SocioSummaryDTO | null;
 }
 
 export interface CommunicationIntentInboxDetail {
@@ -92,6 +102,14 @@ export interface CommunicationIntentInboxDetail {
   reviewed_at?: string | null;
   review_notes?: string | null;
   safe_reference?: string | null;
+  socio?: SocioSummaryDTO | null;
+  channel?: string | null;
+  recipient?: string | null;
+  body_text?: string | null;
+  template_id?: string | null;
+  template_version?: string | null;
+  prepared?: boolean | null;
+  approved_preparation_hash?: string | null;
 }
 
 export type InboxDetailDTO = AuditFindingInboxDetail | ProfileProposalInboxDetail | CommunicationIntentInboxDetail;
@@ -104,4 +122,5 @@ export type ProposalActionType = 'approve' | 'reject' | 'cancel';
 export type CommunicationActionType = 'approve' | 'cancel';
 
 export type ActionType = AuditActionType | ProposalActionType | CommunicationActionType;
+
 
