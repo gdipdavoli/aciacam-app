@@ -23,6 +23,27 @@ interface PaymentRegistrationModalProps {
     socioName: string;
 }
 
+const parsePaymentAmount = (rawValue: string): number => {
+    const value = rawValue.trim().replace(/[^\d,.-]/g, '');
+    if (!value) return 0;
+
+    const lastComma = value.lastIndexOf(',');
+    const lastDot = value.lastIndexOf('.');
+    const lastSeparator = Math.max(lastComma, lastDot);
+    const separator = lastSeparator === -1 ? '' : value[lastSeparator];
+    const digitsAfterSeparator = lastSeparator === -1 ? 0 : value.length - lastSeparator - 1;
+    const decimalSeparator = digitsAfterSeparator > 0 && digitsAfterSeparator <= 2 ? separator : '';
+
+    const normalized = decimalSeparator === ','
+        ? value.replace(/\./g, '').replace(',', '.')
+        : decimalSeparator === '.'
+            ? value.replace(/,/g, '')
+            : value.replace(/[.,]/g, '');
+
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+};
+
 export default function PaymentRegistrationModal({
     isOpen,
     onClose,
@@ -301,11 +322,12 @@ export default function PaymentRegistrationModal({
                                                     <div>
                                                         <label className="text-[10px] font-bold text-muted-foreground block mb-1">Monto ($)</label>
                                                         <input
-                                                            type="number"
+                                                            type="text"
+                                                            inputMode="decimal"
                                                             min="1"
                                                             placeholder="0"
                                                             value={line.amount || ''}
-                                                            onChange={e => updateLine(line.id, 'amount', Math.max(0, parseInt(e.target.value) || 0))}
+                                                            onChange={e => updateLine(line.id, 'amount', parsePaymentAmount(e.target.value))}
                                                             className="w-full p-2 text-xs border rounded-lg bg-background text-foreground"
                                                         />
                                                     </div>
