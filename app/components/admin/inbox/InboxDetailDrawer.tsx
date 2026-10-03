@@ -6,12 +6,15 @@ import {
   AuditFindingInboxDetail,
   ProfileProposalInboxDetail,
   CommunicationIntentInboxDetail,
+  OnboardingProposalInboxDetail,
+  InboxDetailDTO,
 } from '@/types/inbox';
 import { fetchInboxDetail } from '@/app/lib/inbox-client';
 import { SocioDetailSection } from './SocioDetailSection';
 import { AuditFindingDetail } from './details/AuditFindingDetail';
 import { ProfileProposalDetail } from './details/ProfileProposalDetail';
 import { CommunicationIntentDetail } from './details/CommunicationIntentDetail';
+import { OnboardingProposalDetail } from './details/OnboardingProposalDetail';
 import { X, Loader2, AlertCircle } from 'lucide-react';
 
 interface InboxDetailDrawerProps {
@@ -27,12 +30,7 @@ export function InboxDetailDrawer({
   onClose,
   onRequestAction,
 }: InboxDetailDrawerProps) {
-  const [detail, setDetail] = useState<
-    | AuditFindingInboxDetail
-    | ProfileProposalInboxDetail
-    | CommunicationIntentInboxDetail
-    | null
-  >(null);
+  const [detail, setDetail] = useState<InboxDetailDTO | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -184,6 +182,19 @@ export function InboxDetailDrawer({
                   }
                 />
               )}
+
+              {(item.source_type === 'onboarding_proposal' || item.source_type === 'onboarding_proposals') && (
+                <OnboardingProposalDetail
+                  detail={detail as OnboardingProposalInboxDetail}
+                  isAdmin={isAdmin}
+                  onApprove={() =>
+                    onRequestAction('approve', item, detail)
+                  }
+                  onReject={() =>
+                    onRequestAction('reject', item, detail)
+                  }
+                />
+              )}
             </>
           ) : null}
         </div>
@@ -191,4 +202,3 @@ export function InboxDetailDrawer({
     </div>
   );
 }
-

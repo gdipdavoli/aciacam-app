@@ -10,6 +10,7 @@ import {
   AuditActionType,
   ProposalActionType,
   CommunicationActionType,
+  OnboardingActionType,
 } from '@/types/inbox';
 
 export class InboxApiError extends Error {
@@ -173,6 +174,36 @@ export async function cancelCommunicationIntent(
   });
 }
 
+export async function approveOnboardingProposal(
+  sourceId: string,
+  expectedProposalHash: string,
+  reviewComment?: string
+): Promise<unknown> {
+  return bffFetch(`/api/agent/inbox/onboarding-proposals/${sourceId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({
+      expected_proposal_hash: expectedProposalHash,
+      review_comment: reviewComment?.trim() || undefined,
+    }),
+  });
+}
+
+export async function rejectOnboardingProposal(
+  sourceId: string,
+  expectedProposalHash: string,
+  rejectionReason: string,
+  reviewComment?: string
+): Promise<unknown> {
+  return bffFetch(`/api/agent/inbox/onboarding-proposals/${sourceId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({
+      expected_proposal_hash: expectedProposalHash,
+      rejection_reason: rejectionReason.trim(),
+      review_comment: reviewComment?.trim() || undefined,
+    }),
+  });
+}
+
 export async function executeAuditFindingAction(
   sourceId: string,
   action: AuditActionType,
@@ -216,4 +247,22 @@ export async function executeCommunicationAction(
     return cancelCommunicationIntent(sourceId, note);
   }
   throw new Error(`Acción desconocida para communication_intents: ${action}`);
+}
+
+export async function executeOnboardingAction(
+  sourceId: string,
+  action: OnboardingActionType,
+  expectedProposalHash: string,
+  rejectionReason?: string,
+  reviewComment?: string
+): Promise<unknown> {
+  if (action === 'approve') {
+    return approveOnboardingProposal(sourceId, expectedProposalHash, reviewComment);
+  } else if (action === 'reject') {
+    if (!rejectionReason) {
+      throw new Error('El motivo de rechazo es obligatorio para propuestas de onboarding.');
+    }
+    return rejectOnboardingProposal(sourceId, expectedProposalHash, rejectionReason, reviewComment);
+  }
+  throw new Error(`Acción desconocida para onboarding_proposals: ${action}`);
 }

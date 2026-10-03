@@ -1,7 +1,7 @@
-export type AdminInboxSourceType = 'audit_findings' | 'profile_update_proposals' | 'communication_intents' | 'audit_finding' | 'profile_proposal' | 'communication_intent';
+export type AdminInboxSourceType = 'audit_findings' | 'profile_update_proposals' | 'communication_intents' | 'onboarding_proposals' | 'audit_finding' | 'profile_proposal' | 'communication_intent' | 'onboarding_proposal';
 export type AdminInboxCategory = 'AUDIT' | 'FINANCIAL' | 'DOCUMENT' | 'COMMUNICATION';
 export type AdminInboxPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-export type AdminInboxStatus = 'PENDING' | 'IN_REVIEW' | 'AWAITING_APPROVAL' | 'APPROVED' | 'DELIVERING' | 'SENT' | 'FAILED';
+export type AdminInboxStatus = 'PENDING' | 'IN_REVIEW' | 'AWAITING_APPROVAL' | 'AWAITING_REVIEW' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'DELIVERING' | 'SENT' | 'FAILED';
 
 export interface SocioSummaryDTO {
   id: string;
@@ -112,7 +112,53 @@ export interface CommunicationIntentInboxDetail {
   approved_preparation_hash?: string | null;
 }
 
-export type InboxDetailDTO = AuditFindingInboxDetail | ProfileProposalInboxDetail | CommunicationIntentInboxDetail;
+export interface OnboardingProposalInboxDetail {
+  id: string;
+  application_id: string;
+  status: string;
+  test_mode: boolean;
+  proposal_hash: string;
+  identidad_administrativo: {
+    nombre: string;
+    apellido: string;
+    dni_masked: string;
+    email: string;
+    telefono: string;
+  };
+  reprocann: {
+    nombre?: string | null;
+    apellido?: string | null;
+    numero_tramite?: string | null;
+    fecha_alta?: string | null;
+    vencimiento?: string | null;
+    tipo?: string | null;
+  };
+  clinico_inicial: {
+    diagnostico?: string | null;
+    medico_nombre?: string | null;
+    medico_matricula?: string | null;
+    medico_especialidad?: string | null;
+    fecha_firma?: string | null;
+  };
+  documentos: Record<
+    string,
+    {
+      extraction_status?: string | null;
+      document_type?: string | null;
+      tipo?: string | null;
+      confidence?: number | null;
+      requires_review?: boolean | null;
+    }
+  >;
+  created_at: string;
+  socio?: SocioSummaryDTO | null;
+}
+
+export type InboxDetailDTO =
+  | AuditFindingInboxDetail
+  | ProfileProposalInboxDetail
+  | CommunicationIntentInboxDetail
+  | OnboardingProposalInboxDetail;
 
 export type InboxCategoryFilter = 'ALL' | 'AUDIT' | 'FINANCIAL' | 'DOCUMENT' | 'COMMUNICATION' | null;
 export type InboxPriorityFilter = 'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null;
@@ -120,7 +166,7 @@ export type InboxPriorityFilter = 'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
 export type AuditActionType = 'in_review' | 'resolve' | 'dismiss' | 'create_communication_intent';
 export type ProposalActionType = 'approve' | 'reject' | 'cancel';
 export type CommunicationActionType = 'approve' | 'cancel';
+export type OnboardingActionType = 'approve' | 'reject';
 
-export type ActionType = AuditActionType | ProposalActionType | CommunicationActionType;
-
+export type ActionType = AuditActionType | ProposalActionType | CommunicationActionType | OnboardingActionType;
 

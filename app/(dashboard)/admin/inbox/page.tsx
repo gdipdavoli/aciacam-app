@@ -8,12 +8,14 @@ import {
   InboxSummaryResponse,
   InboxItemDTO,
   InboxDetailDTO,
+  OnboardingProposalInboxDetail,
   InboxCategoryFilter,
   InboxPriorityFilter,
   ActionType,
   AuditActionType,
   ProposalActionType,
   CommunicationActionType,
+  OnboardingActionType,
 } from '@/types/inbox';
 import {
   fetchInboxSummary,
@@ -22,6 +24,7 @@ import {
   executeAuditFindingAction,
   executeProfileProposalAction,
   executeCommunicationAction,
+  executeOnboardingAction,
 } from '@/app/lib/inbox-client';
 import { InboxHeader } from '@/app/components/admin/inbox/InboxHeader';
 import { InboxSummaryCards } from '@/app/components/admin/inbox/InboxSummaryCards';
@@ -205,14 +208,43 @@ export default function AdminInboxPage() {
     try {
       if (targetItem.source_type === 'audit_findings' || targetItem.source_type === 'audit_finding') {
         await executeAuditFindingAction(targetItem.source_id, actionType as AuditActionType, note);
+        toast.success('Acción ejecutada correctamente.');
       } else if (targetItem.source_type === 'profile_update_proposals' || targetItem.source_type === 'profile_proposal') {
         await executeProfileProposalAction(targetItem.source_id, actionType as ProposalActionType, note);
+        toast.success('Acción ejecutada correctamente.');
       } else if (targetItem.source_type === 'communication_intents' || targetItem.source_type === 'communication_intent') {
         await executeCommunicationAction(targetItem.source_id, actionType as CommunicationActionType, note);
+        toast.success('Acción ejecutada correctamente.');
+      } else if (targetItem.source_type === 'onboarding_proposals' || targetItem.source_type === 'onboarding_proposal') {
+        const onboardingDetail = detailData as OnboardingProposalInboxDetail | null;
+        if (!onboardingDetail?.proposal_hash) {
+          throw new Error('No se pudo obtener el proposal_hash verificado de la propuesta.');
+        }
+
+        if (actionType === 'approve') {
+          await executeOnboardingAction(
+            targetItem.source_id,
+            'approve',
+            onboardingDetail.proposal_hash,
+            undefined,
+            note
+          );
+          toast.success('Propuesta de onboarding aprobada. Pendiente de materialización.');
+        } else if (actionType === 'reject') {
+          if (!note || !note.trim()) {
+            throw new Error('Se requiere un motivo explicativo para rechazar la propuesta.');
+          }
+          await executeOnboardingAction(
+            targetItem.source_id,
+            'reject',
+            onboardingDetail.proposal_hash,
+            note.trim(),
+            undefined
+          );
+          toast.success('Propuesta de onboarding rechazada.');
+        }
       }
 
-      toast.success('Acción ejecutada correctamente.');
-      
       // Close dialog & drawer
       setActionState({ isOpen: false, actionType: null, targetItem: null, isExecuting: false });
       handleCloseDetail();
@@ -221,7 +253,7 @@ export default function AdminInboxPage() {
       loadSummary();
       loadInitialItems(selectedCategory, selectedPriority);
     } catch (err: unknown) {
-      const apiErr = err as { status?: number; message?: string };
+      const apiErr = err as { status?: number; message?: string; detail?: string };
       setActionState((prev) => ({ ...prev, isExecuting: false }));
 
       if (apiErr?.status === 409) {
@@ -233,9 +265,9 @@ export default function AdminInboxPage() {
       } else if (apiErr?.status === 403) {
         toast.error('No tiene permisos para realizar esta acción.');
       } else if (apiErr?.status === 422) {
-        toast.error(apiErr?.message || 'Error de validación al procesar la solicitud.');
+        toast.error(apiErr?.detail || apiErr?.message || 'Error de validación al procesar la solicitud.');
       } else {
-        toast.error(apiErr?.message || 'Ocurrió un error inesperado al procesar la acción.');
+        toast.error(apiErr?.detail || apiErr?.message || 'Ocurrió un error inesperado al procesar la acción.');
       }
     }
   };
@@ -265,6 +297,11 @@ export default function AdminInboxPage() {
   // Compute dialog properties based on action type
   const getDialogProps = () => {
     const action = actionState.actionType;
+    const targetItem = actionState.targetItem;
+    const isOnboarding =
+      targetItem?.source_type === 'onboarding_proposal' ||
+      targetItem?.source_type === 'onboarding_proposals';
+
     if (!action) {
       return {
         title: 'Confirmar acción',
@@ -273,7 +310,32 @@ export default function AdminInboxPage() {
         confirmVariant: 'primary' as const,
         requiresNote: false,
         noteMinLength: 0,
+        notePlaceholder: 'Escribe un comentario u observación opcional...',
       };
+    }
+
+    if (isOnboarding) {
+      if (action === 'approve') {
+        return {
+          title: 'Aprobar propuesta de onboarding',
+          description: 'Aprobar la propuesta registrará la revisión administrativa favorable. La propuesta quedará en estado APROBADA, pendiente de materialización posterior.',
+          confirmLabel: 'Aprobar propuesta',
+          confirmVariant: 'success' as const,
+          requiresNote: false,
+          noteMinLength: 0,
+          notePlaceholder: 'Escribe una observación opcional de revisión...',
+        };
+      } else if (action === 'reject') {
+        return {
+          title: 'Rechazar propuesta de onboarding',
+          description: 'Esta acción rechazará administrativamente la propuesta de ingreso. Se requiere ingresar el motivo explícito de rechazo.',
+          confirmLabel: 'Rechazar propuesta',
+          confirmVariant: 'destructive' as const,
+          requiresNote: true,
+          noteMinLength: 1,
+          notePlaceholder: 'Escribe el motivo del rechazo (obligatorio)...',
+        };
+      }
     }
 
     switch (action) {
@@ -285,6 +347,7 @@ export default function AdminInboxPage() {
           confirmVariant: 'primary' as const,
           requiresNote: false,
           noteMinLength: 0,
+          notePlaceholder: 'Escribe un comentario u observación opcional...',
         };
       case 'resolve':
         return {
@@ -294,6 +357,7 @@ export default function AdminInboxPage() {
           confirmVariant: 'success' as const,
           requiresNote: true,
           noteMinLength: 3,
+          notePlaceholder: 'Escribe una nota de resolución...',
         };
       case 'dismiss':
         return {
@@ -303,6 +367,7 @@ export default function AdminInboxPage() {
           confirmVariant: 'destructive' as const,
           requiresNote: false,
           noteMinLength: 0,
+          notePlaceholder: 'Escribe un comentario u observación opcional...',
         };
       case 'create_communication_intent':
         return {
@@ -312,6 +377,7 @@ export default function AdminInboxPage() {
           confirmVariant: 'primary' as const,
           requiresNote: false,
           noteMinLength: 0,
+          notePlaceholder: 'Escribe un comentario u observación opcional...',
         };
       case 'approve':
         return {
@@ -321,6 +387,7 @@ export default function AdminInboxPage() {
           confirmVariant: 'success' as const,
           requiresNote: false,
           noteMinLength: 0,
+          notePlaceholder: 'Escribe un comentario u observación opcional...',
         };
       case 'reject':
         return {
@@ -330,6 +397,7 @@ export default function AdminInboxPage() {
           confirmVariant: 'destructive' as const,
           requiresNote: false,
           noteMinLength: 0,
+          notePlaceholder: 'Escribe un comentario u observación opcional...',
         };
       case 'cancel':
         return {
@@ -339,6 +407,7 @@ export default function AdminInboxPage() {
           confirmVariant: 'destructive' as const,
           requiresNote: false,
           noteMinLength: 0,
+          notePlaceholder: 'Escribe un comentario u observación opcional...',
         };
       default:
         return {
@@ -348,6 +417,7 @@ export default function AdminInboxPage() {
           confirmVariant: 'primary' as const,
           requiresNote: false,
           noteMinLength: 0,
+          notePlaceholder: 'Escribe un comentario u observación opcional...',
         };
     }
   };

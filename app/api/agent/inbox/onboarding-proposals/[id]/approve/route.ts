@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDelegatedBffContext } from '@/app/lib/agent/bff-auth';
 
-export async function GET(
+export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ source_type: string; source_id: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await getDelegatedBffContext(request, ['admin', 'staff']);
+  // Requisito estricto: Rol admin obligatorio para acciones sobre propuestas
+  const auth = await getDelegatedBffContext(request, ['admin']);
   if (!auth.success) {
     return auth.response;
   }
@@ -13,15 +14,26 @@ export async function GET(
   const { agentCoreBaseUrl, s2sHeaders } = auth.context;
 
   try {
-    const { source_type, source_id } = await params;
+    const { id } = await params;
+    let bodyPayload = {};
+    try {
+      const text = await request.text();
+      if (text) {
+        bodyPayload = JSON.parse(text);
+      }
+    } catch {
+      bodyPayload = {};
+    }
+
     const targetUrl = new URL(
-      `/api/v1/inbox/${source_type}/${source_id}`,
+      `/api/v1/inbox/onboarding-proposals/${id}/approve`,
       agentCoreBaseUrl
     );
 
     const agentCoreResponse = await fetch(targetUrl.toString(), {
-      method: 'GET',
+      method: 'POST',
       headers: s2sHeaders,
+      body: JSON.stringify(bodyPayload),
       cache: 'no-store',
     });
 
