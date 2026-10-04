@@ -193,6 +193,9 @@ export function InboxDetailDrawer({
                   onReject={() =>
                     onRequestAction('reject', item, detail)
                   }
+                  onApply={() =>
+                    onRequestAction('apply', item, detail)
+                  }
                 />
               )}
             </>

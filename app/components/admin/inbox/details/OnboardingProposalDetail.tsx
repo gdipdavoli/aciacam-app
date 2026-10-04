@@ -9,6 +9,7 @@ interface OnboardingProposalDetailProps {
   isAdmin: boolean;
   onApprove: () => void;
   onReject: () => void;
+  onApply?: () => void;
 }
 
 export function OnboardingProposalDetail({
@@ -16,8 +17,10 @@ export function OnboardingProposalDetail({
   isAdmin,
   onApprove,
   onReject,
+  onApply,
 }: OnboardingProposalDetailProps) {
   const isAwaitingReview = detail.status === 'AWAITING_REVIEW';
+  const isApproved = detail.status === 'APPROVED';
   const identidad = detail.identidad_administrativo || {};
   const reprocann = detail.reprocann || {};
   const clinico = detail.clinico_inicial || {};
@@ -210,6 +213,18 @@ export function OnboardingProposalDetail({
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>Aprobar propuesta</span>
+          </button>
+        </div>
+      )}
+
+      {isAdmin && isApproved && onApply && (
+        <div className="pt-4 border-t border-border flex items-center justify-end gap-3">
+          <button
+            onClick={onApply}
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-colors min-h-[44px]"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Aplicar alta</span>
           </button>
         </div>
       )}

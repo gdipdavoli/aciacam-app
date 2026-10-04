@@ -217,27 +217,36 @@ export default function AdminInboxPage() {
         toast.success('Acción ejecutada correctamente.');
       } else if (targetItem.source_type === 'onboarding_proposals' || targetItem.source_type === 'onboarding_proposal') {
         const onboardingDetail = detailData as OnboardingProposalInboxDetail | null;
-        if (!onboardingDetail?.proposal_hash) {
-          throw new Error('No se pudo obtener el proposal_hash verificado de la propuesta.');
-        }
 
-        if (actionType === 'approve') {
+        if (actionType === 'apply') {
+          await executeOnboardingAction(targetItem.source_id, 'apply', '');
+          toast.success('Alta materializada. Pendiente de invitación.');
+        } else if (actionType === 'approve') {
+          const proposalHash = onboardingDetail?.proposal_hash;
+          if (!proposalHash) {
+            throw new Error('No se pudo obtener el proposal_hash verificado de la propuesta.');
+          }
+
           await executeOnboardingAction(
             targetItem.source_id,
             'approve',
-            onboardingDetail.proposal_hash,
+            proposalHash,
             undefined,
             note
           );
           toast.success('Propuesta de onboarding aprobada. Pendiente de materialización.');
         } else if (actionType === 'reject') {
+          const proposalHash = onboardingDetail?.proposal_hash;
+          if (!proposalHash) {
+            throw new Error('No se pudo obtener el proposal_hash verificado de la propuesta.');
+          }
           if (!note || !note.trim()) {
             throw new Error('Se requiere un motivo explicativo para rechazar la propuesta.');
           }
           await executeOnboardingAction(
             targetItem.source_id,
             'reject',
-            onboardingDetail.proposal_hash,
+            proposalHash,
             note.trim(),
             undefined
           );
@@ -324,6 +333,16 @@ export default function AdminInboxPage() {
           requiresNote: false,
           noteMinLength: 0,
           notePlaceholder: 'Escribe una observación opcional de revisión...',
+        };
+      } else if (action === 'apply') {
+        return {
+          title: 'Aplicar alta de onboarding',
+          description: 'La propuesta ya fue aprobada. Esta acción materializará el alta del socio y su información previamente revisada. No enviará todavía la invitación de acceso.',
+          confirmLabel: 'Aplicar alta',
+          confirmVariant: 'success' as const,
+          requiresNote: false,
+          noteMinLength: 0,
+          notePlaceholder: 'Escribe una observación opcional de materialización...',
         };
       } else if (action === 'reject') {
         return {

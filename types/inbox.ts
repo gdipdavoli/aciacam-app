@@ -163,10 +163,21 @@ export type InboxDetailDTO =
 export type InboxCategoryFilter = 'ALL' | 'AUDIT' | 'FINANCIAL' | 'DOCUMENT' | 'COMMUNICATION' | null;
 export type InboxPriorityFilter = 'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null;
 
+
+export interface OnboardingApplyResult {
+  proposal_id: string;
+  application_id: string;
+  socio_id: string;
+  application_status: string;
+  materialized: boolean;
+  idempotent: boolean;
+  promoted_document_count: number;
+}
+
 export type AuditActionType = 'in_review' | 'resolve' | 'dismiss' | 'create_communication_intent';
 export type ProposalActionType = 'approve' | 'reject' | 'cancel';
 export type CommunicationActionType = 'approve' | 'cancel';
-export type OnboardingActionType = 'approve' | 'reject';
+export type OnboardingActionType = 'approve' | 'reject' | 'apply';
 
 export type ActionType = AuditActionType | ProposalActionType | CommunicationActionType | OnboardingActionType;
 
