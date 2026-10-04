@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { proxyAgentCoreResponse } from '@/app/lib/agent/agent-core-response';
 import { getDelegatedBffContext } from '@/app/lib/agent/bff-auth';
 
 export async function POST(
@@ -37,8 +38,7 @@ export async function POST(
       cache: 'no-store',
     });
 
-    const data = await agentCoreResponse.json();
-    return NextResponse.json(data, { status: agentCoreResponse.status });
+    return proxyAgentCoreResponse(agentCoreResponse);
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || 'Error interno en el BFF' },

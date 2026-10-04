@@ -24,6 +24,21 @@ export class InboxApiError extends Error {
   }
 }
 
+function parseJsonOrNull(text: string): unknown | null {
+  if (!text.trim()) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function messageFromPayload(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return '';
+  const record = payload as Record<string, unknown>;
+  return String(record.detail || record.message || record.error || '');
+}
+
 async function bffFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...options,
@@ -33,22 +48,31 @@ async function bffFetch<T>(url: string, options?: RequestInit): Promise<T> {
     },
   });
 
+  const rawText = await res.text();
+  const contentType = res.headers.get('content-type') || '';
+  const isJson = contentType.toLowerCase().includes('application/json');
+  const payload = isJson ? parseJsonOrNull(rawText) : null;
+
   if (!res.ok) {
-    let errorDetail = '';
-    try {
-      const errJson = await res.json();
-      errorDetail = errJson.detail || errJson.message || JSON.stringify(errJson);
-    } catch {
-      errorDetail = await res.text();
-    }
+    const payloadMessage = messageFromPayload(payload);
+    const errorDetail = payloadMessage || rawText.trim() || `Error HTTP ${res.status}`;
+
     throw new InboxApiError(
-      errorDetail || `Error HTTP ${res.status}`,
+      errorDetail,
       res.status,
       errorDetail
     );
   }
 
-  return res.json();
+  if (!payload) {
+    throw new InboxApiError(
+      'Respuesta inválida del servidor.',
+      res.status,
+      rawText.trim() || 'La respuesta exitosa no contiene JSON válido.'
+    );
+  }
+
+  return payload as T;
 }
 
 export async function fetchInboxSummary(): Promise<AdminInboxSummary> {
