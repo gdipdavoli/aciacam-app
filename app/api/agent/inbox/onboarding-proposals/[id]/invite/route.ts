@@ -17,7 +17,7 @@ export async function POST(
   try {
     const { id } = await params;
     const targetUrl = new URL(
-      /api/v1/inbox/onboarding-proposals//invite,
+      `/api/v1/inbox/onboarding-proposals/${id}/invite`,
       agentCoreBaseUrl
     );
 
