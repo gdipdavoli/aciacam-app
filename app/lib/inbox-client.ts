@@ -213,6 +213,13 @@ export async function approveOnboardingProposal(
 }
 
 
+export async function inviteOnboardingProposal(sourceId: string): Promise<unknown> {
+  return bffFetch(`/api/agent/inbox/onboarding-proposals/${sourceId}/invite`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
 export async function applyOnboardingProposal(sourceId: string): Promise<unknown> {
   return bffFetch(`/api/agent/inbox/onboarding-proposals/${sourceId}/apply`, {
     method: 'POST',
@@ -292,6 +299,8 @@ export async function executeOnboardingAction(
     return approveOnboardingProposal(sourceId, expectedProposalHash, reviewComment);
   } else if (action === 'apply') {
     return applyOnboardingProposal(sourceId);
+  } else if (action === 'invite') {
+    return inviteOnboardingProposal(sourceId);
   } else if (action === 'reject') {
     if (!rejectionReason) {
       throw new Error('El motivo de rechazo es obligatorio para propuestas de onboarding.');

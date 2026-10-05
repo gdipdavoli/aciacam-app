@@ -196,6 +196,9 @@ export function InboxDetailDrawer({
                   onApply={() =>
                     onRequestAction('apply', item, detail)
                   }
+                  onInvite={() =>
+                    onRequestAction('invite', item, detail)
+                  }
                 />
               )}
             </>

@@ -164,6 +164,17 @@ export type InboxCategoryFilter = 'ALL' | 'AUDIT' | 'FINANCIAL' | 'DOCUMENT' | '
 export type InboxPriorityFilter = 'ALL' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null;
 
 
+export interface OnboardingInviteResult {
+  application_id: string;
+  proposal_id: string;
+  socio_id: string;
+  status: string;
+  attempt_number: number;
+  idempotent: boolean;
+  error_code?: string | null;
+  message?: string | null;
+}
+
 export interface OnboardingApplyResult {
   proposal_id: string;
   application_id: string;
@@ -177,7 +188,7 @@ export interface OnboardingApplyResult {
 export type AuditActionType = 'in_review' | 'resolve' | 'dismiss' | 'create_communication_intent';
 export type ProposalActionType = 'approve' | 'reject' | 'cancel';
 export type CommunicationActionType = 'approve' | 'cancel';
-export type OnboardingActionType = 'approve' | 'reject' | 'apply';
+export type OnboardingActionType = 'approve' | 'reject' | 'apply' | 'invite';
 
 export type ActionType = AuditActionType | ProposalActionType | CommunicationActionType | OnboardingActionType;
 

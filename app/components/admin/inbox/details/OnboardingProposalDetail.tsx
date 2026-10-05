@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { OnboardingProposalInboxDetail } from '@/types/inbox';
-import { User, FileText, Activity, ShieldCheck, CheckCircle2, XCircle } from 'lucide-react';
+import { User, FileText, Activity, ShieldCheck, CheckCircle2, XCircle, Mail, AlertTriangle, Clock } from 'lucide-react';
 
 interface OnboardingProposalDetailProps {
   detail: OnboardingProposalInboxDetail;
@@ -10,6 +10,8 @@ interface OnboardingProposalDetailProps {
   onApprove: () => void;
   onReject: () => void;
   onApply?: () => void;
+  onInvite?: () => void;
+  isInviteDisabled?: boolean;
 }
 
 export function OnboardingProposalDetail({
@@ -18,9 +20,16 @@ export function OnboardingProposalDetail({
   onApprove,
   onReject,
   onApply,
+  onInvite,
+  isInviteDisabled = true, // Fail-closed default for Checkpoint 4
 }: OnboardingProposalDetailProps) {
   const isAwaitingReview = detail.status === 'AWAITING_REVIEW';
   const isApproved = detail.status === 'APPROVED';
+  const isReadyForInvitation = detail.status === 'READY_FOR_INVITATION';
+  const isInviting = detail.status === 'INVITING';
+  const isInviteFailed = detail.status === 'INVITE_FAILED';
+  const isCompleted = detail.status === 'COMPLETED';
+
   const identidad = detail.identidad_administrativo || {};
   const reprocann = detail.reprocann || {};
   const clinico = detail.clinico_inicial || {};
@@ -41,12 +50,20 @@ export function OnboardingProposalDetail({
                   ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
                   : detail.status === 'APPROVED'
                   ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+                  : detail.status === 'READY_FOR_INVITATION'
+                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                  : detail.status === 'INVITING'
+                  ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
+                  : detail.status === 'INVITE_FAILED'
+                  ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300'
+                  : detail.status === 'COMPLETED'
+                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
                   : detail.status === 'REJECTED'
                   ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300'
                   : 'bg-muted text-muted-foreground'
               }`}
             >
-              {detail.status}
+              {isCompleted ? 'Invitación procesada' : isInviting ? 'Invitación en proceso' : isReadyForInvitation ? 'Listo para invitación' : detail.status}
             </span>
             {detail.test_mode && (
               <span className="text-[10px] font-mono px-2 py-0.5 bg-muted rounded text-muted-foreground border border-border">
@@ -56,6 +73,28 @@ export function OnboardingProposalDetail({
           </div>
         </div>
       </div>
+
+      {/* Banner de Estado de Invitación */}
+      {isInviting && (
+        <div className="p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-300 flex items-center gap-3 text-xs font-medium">
+          <Clock className="w-4 h-4 animate-spin shrink-0 text-purple-500" />
+          <span>Invitación en proceso. Protección contra doble ejecución activa.</span>
+        </div>
+      )}
+
+      {isInviteFailed && (
+        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 flex items-center gap-3 text-xs font-medium">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
+          <span>La invitación anterior no pudo completarse. Revisa la causa operacional antes de reintentar.</span>
+        </div>
+      )}
+
+      {isCompleted && (
+        <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center gap-3 text-xs font-medium">
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+          <span>Invitación procesada. El vínculo de cuenta ha sido registrado determinísticamente.</span>
+        </div>
+      )}
 
       {/* 1. SOLICITANTE */}
       <div className="space-y-3 p-4 rounded-xl border border-border bg-card">
@@ -225,6 +264,31 @@ export function OnboardingProposalDetail({
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>Aplicar alta</span>
+          </button>
+        </div>
+      )}
+
+      {isAdmin && (isReadyForInvitation || isInviteFailed || isInviting) && (
+        <div className="pt-4 border-t border-border flex flex-col items-end gap-2">
+          {isInviteDisabled && (
+            <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Ejecución productiva de invitaciones bloqueada (Kill Switch OFF).
+            </span>
+          )}
+          <button
+            onClick={onInvite}
+            disabled={isInviteDisabled || isInviting}
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-xl bg-purple-600 text-white hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+          >
+            <Mail className="w-4 h-4" />
+            <span>
+              {isInviting
+                ? 'Invitación en proceso'
+                : isInviteFailed
+                ? 'Reintentar invitación'
+                : 'Invitar socio'}
+            </span>
           </button>
         </div>
       )}
