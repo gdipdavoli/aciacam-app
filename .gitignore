@@ -51,4 +51,6 @@ next-env.d.ts
 /public/fallback-*.js
 /public/swe-*.js
 scratch/
+backups/
+/data/
 /public/swe-*.js.map

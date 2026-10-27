@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+.next
+out
+build
+coverage
+.vercel
+scratch
+backups
+data
+scripts
+*.md
