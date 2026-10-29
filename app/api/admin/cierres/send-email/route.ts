@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { requireStaff } from '@/app/lib/api-auth';
 import { NextResponse } from 'next/server';
+import { isOutboundCommsBlocked, logCommsSimulation, maskRecipient } from '@/app/lib/comms-guard';
 
 const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } });
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
@@ -28,6 +29,20 @@ export async function POST(req: Request) {
         const periodo = cierre.periodo;
         const datosCierre = escaped({ datos: cierre.datos, numeroConstancia: cierre.numero_constancia, hashSha256: cierre.hash_sha256 });
         const apiKey = process.env.RESEND_API_KEY;
+        if (isOutboundCommsBlocked() || process.env.EMAIL_DEBUG === 'true') {
+            logCommsSimulation({
+                channel: 'email',
+                recipient: to,
+                action: 'cierre_email_simulated',
+                subjectOrType: `Cierre mensual periodo ${periodo}`
+            });
+            return NextResponse.json({
+                success: true,
+                simulated: true,
+                to: maskRecipient(to),
+                message: 'Envío de correo simulado (comunicaciones externas deshabilitadas).'
+            });
+        }
         if (!apiKey) return NextResponse.json({ success: false, error: 'El servicio de correo no está configurado. La constancia no fue enviada.' }, { status: 503 });
 
         const socio = datosCierre.datos?.socio || {};

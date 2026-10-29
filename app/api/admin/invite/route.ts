@@ -1,6 +1,7 @@
 import { requireStaff } from '@/app/lib/api-auth';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { isOutboundCommsBlocked, logCommsSimulation } from '@/app/lib/comms-guard';
 
 // Server-Role Supabase Client (Admin Access)
 const supabaseAdmin = createClient(
@@ -112,17 +113,39 @@ export async function POST(req: Request) {
             const origin = providedOrigin || process.env.SITE_URL || req.headers.get('origin') || 'http://localhost:3000';
             const finalRedirectTo = `${origin}/auth/invite-callback`;
 
-            console.log(`API Invite: Sending invite to ${socio.email}`);
-            const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(socio.email, {
-                redirectTo: finalRedirectTo
-            });
+            if (isOutboundCommsBlocked()) {
+                logCommsSimulation({
+                    channel: 'auth_invite',
+                    recipient: socio.email,
+                    action: 'invite_user_simulated',
+                    subjectOrType: 'invite'
+                });
 
-            if (inviteError) {
-                console.error("Invite Error:", inviteError.message);
-                return NextResponse.json({ error: inviteError.message }, { status: 500 });
+                const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+                    type: 'invite',
+                    email: socio.email,
+                    options: { redirectTo: finalRedirectTo }
+                });
+
+                if (linkError) {
+                    console.error("Invite Simulation Link Error:", linkError.message);
+                    return NextResponse.json({ error: linkError.message }, { status: 500 });
+                }
+
+                invitedUser = linkData.user;
+            } else {
+                console.log(`API Invite: Sending invite to ${socio.email}`);
+                const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(socio.email, {
+                    redirectTo: finalRedirectTo
+                });
+
+                if (inviteError) {
+                    console.error("Invite Error:", inviteError.message);
+                    return NextResponse.json({ error: inviteError.message }, { status: 500 });
+                }
+
+                invitedUser = inviteData.user;
             }
-
-            invitedUser = inviteData.user;
         }
 
         if (!invitedUser) {

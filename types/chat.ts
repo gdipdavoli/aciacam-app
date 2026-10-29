@@ -1,13 +1,33 @@
 /**
  * types/chat.ts
  *
- * Contratos estructurados y fuertemente tipados para el BFF de Chat (Sprint 2 - Step 10E-B.2).
- * Sin any, sin Record<string, any>, sin catch-all en ChatResponsePayload.
+ * Contratos estructurados y fuertemente tipados para el BFF de Chat.
+ * Soporta enrutamiento dual seguro:
+ * - Mensajes conversacionales hacia Agent Core Python (QUERY_INBOX, RUN_CAPABILITY, etc.)
+ * - Propuestas de pedidos deterministas hacia Agent Core TypeScript (PROPOSE_ORDER)
  */
+
+export interface ChatOrderItemInput {
+  readonly producto_id?: string;
+  readonly product_id?: string;
+  readonly productoId?: string;
+  readonly cantidad: number;
+}
 
 export interface ChatBffRequest {
   readonly message?: string;
   readonly confirmation_token?: string;
+  readonly intent?: string;
+  readonly items?: ReadonlyArray<ChatOrderItemInput>;
+  readonly tipo_pedido?: string;
+  readonly motivo?: string;
+  readonly direccion_entrega?: string;
+  readonly localidad?: string;
+  readonly fecha_retiro?: string;
+  readonly franja_horaria?: string;
+  readonly slot_id?: string;
+  readonly observaciones?: string;
+  readonly details?: Record<string, unknown>;
 }
 
 export type ChatIntentType =
@@ -16,7 +36,8 @@ export type ChatIntentType =
   | 'PREPARE_INBOX_ACTION'
   | 'CONFIRM_ACTION'
   | 'CANCEL_CONFIRMATION'
-  | 'UNKNOWN';
+  | 'UNKNOWN'
+  | 'PROPOSE_ORDER';
 
 export interface ChatInboxQueryPayload {
   readonly items: ReadonlyArray<unknown>;
@@ -48,12 +69,22 @@ export interface ChatErrorPayload {
   readonly message: string;
 }
 
+export interface ChatProposalCreatedPayload {
+  readonly status: string;
+  readonly proposal_id: string;
+  readonly proposal_payload_hash: string;
+  readonly proposal_status: string;
+  readonly items_count: number;
+  readonly raw_proposal?: unknown;
+}
+
 export type ChatResponsePayload =
   | ChatInboxQueryPayload
   | ChatCapabilityExecutionPayload
   | ChatConfirmationRequiredPayload
   | ChatClarificationRequiredPayload
-  | ChatErrorPayload;
+  | ChatErrorPayload
+  | ChatProposalCreatedPayload;
 
 export interface ChatResponseEnvelope {
   readonly request_id: string;

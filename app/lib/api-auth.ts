@@ -9,9 +9,13 @@ export async function authenticate(request: Request, admin: SupabaseClient): Pro
         const { data, error } = await admin.auth.getUser(header.replace(/^Bearer\s+/i, ''));
         return error ? null : data.user;
     }
-    const client = await createClientServer();
-    const { data, error } = await client.auth.getUser();
-    return error ? null : data.user;
+    try {
+        const client = await createClientServer();
+        const { data, error } = await client.auth.getUser();
+        return error ? null : data.user;
+    } catch {
+        return null;
+    }
 }
 
 export async function hasStaffRole(user: User, admin: SupabaseClient, adminOnly = false): Promise<boolean> {

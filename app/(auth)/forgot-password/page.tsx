@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { supabase } from '@/services/supabaseClient';
+import { isOutboundCommsBlocked, logCommsSimulation } from '@/app/lib/comms-guard';
 import Link from 'next/link';
 
 export default function ForgotPasswordPage() {
@@ -19,6 +20,18 @@ export default function ForgotPasswordPage() {
         setLoading(true);
         setError(null);
         setMessage(null);
+
+        if (isOutboundCommsBlocked()) {
+            logCommsSimulation({
+                channel: 'email',
+                recipient: email,
+                action: 'password_reset_simulated',
+                subjectOrType: 'Recuperar Contraseña'
+            });
+            setMessage('Modo integración: Simulación de recuperación de contraseña activa. No se emitió ningún correo externo.');
+            setLoading(false);
+            return;
+        }
 
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
             redirectTo: `${window.location.origin}/reset-password`,

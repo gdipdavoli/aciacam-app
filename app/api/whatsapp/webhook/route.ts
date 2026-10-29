@@ -1,3 +1,4 @@
+import { isOutboundCommsBlocked, logCommsSimulation } from '@/app/lib/comms-guard';
 // app/api/whatsapp/webhook/route.ts
 // ACIACAM - Agente de documentación vía WhatsApp
 // ================================================
@@ -419,6 +420,16 @@ async function enviarEstadoDocumentacion(socio: any, from: string) {
 
 // ── Enviar mensaje por WhatsApp Cloud API ─────────────────
 async function enviarMensaje(to: string, texto: string) {
+  if (isOutboundCommsBlocked()) {
+    logCommsSimulation({
+      channel: 'whatsapp',
+      recipient: to,
+      action: 'whatsapp_message_simulated',
+      subjectOrType: 'whatsapp_text'
+    });
+    return;
+  }
+
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
   await fetch(

@@ -1,6 +1,7 @@
 import { requireStaff } from '@/app/lib/api-auth';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { isOutboundCommsBlocked, logCommsSimulation } from '@/app/lib/comms-guard';
 
 const supabaseAdmin = createClient(
     process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -85,17 +86,41 @@ export async function POST(req: Request) {
             }
 
             // Invite
-            const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(socio.email, {
-                redirectTo: finalRedirectTo
-            });
+            let invitedUser: any = null;
+            if (isOutboundCommsBlocked()) {
+                logCommsSimulation({
+                    channel: 'auth_invite',
+                    recipient: socio.email,
+                    action: 'bulk_invite_simulated',
+                    subjectOrType: 'bulk_invite'
+                });
 
-            if (inviteError) {
-                results.failed++;
-                results.details.push({ id: socio.id, status: 'failed', reason: inviteError.message });
-                continue;
+                const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+                    type: 'invite',
+                    email: socio.email,
+                    options: { redirectTo: finalRedirectTo }
+                });
+
+                if (linkError) {
+                    results.failed++;
+                    results.details.push({ id: socio.id, status: 'failed', reason: linkError.message });
+                    continue;
+                }
+
+                invitedUser = linkData.user;
+            } else {
+                const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(socio.email, {
+                    redirectTo: finalRedirectTo
+                });
+
+                if (inviteError) {
+                    results.failed++;
+                    results.details.push({ id: socio.id, status: 'failed', reason: inviteError.message });
+                    continue;
+                }
+
+                invitedUser = inviteData.user;
             }
-
-            const invitedUser = inviteData.user;
 
             // Update
             const { error: updateError } = await supabaseAdmin
