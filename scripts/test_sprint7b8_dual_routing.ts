@@ -95,7 +95,12 @@ async function runTestSuite() {
     },
   };
 
-  let mockSocioDbResult: { id: string; rol: string } | null = { id: VALID_SOCIO_ID, rol: 'socio' };
+  let mockSocioDbResult: { id: string; rol: string } | Array<{ id: string; rol: string }> | null = {
+    id: VALID_SOCIO_ID,
+    rol: 'socio',
+  };
+  let mockSocioDbError: { status: number; body: unknown } | null = null;
+  let lastSociosQueryAuthHeader = '';
 
   global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const urlStr = String(input);
@@ -107,10 +112,35 @@ async function runTestSuite() {
 
     // Mock Supabase Database (public.socios)
     if (urlStr.includes('/rest/v1/socios')) {
-      if (!mockSocioDbResult) {
-        return new Response(JSON.stringify([]), { status: 200 });
+      const hdrs = new Headers(init?.headers);
+      lastSociosQueryAuthHeader = hdrs.get('Authorization') || hdrs.get('apikey') || '';
+
+      // Simular entorno Supabase Integration donde el rol 'authenticated' (anon key / user token)
+      // recibe 42501 permission denied en public.socios y solo service_role tiene permiso SELECT
+      if (!lastSociosQueryAuthHeader.includes(process.env.SUPABASE_SERVICE_ROLE_KEY!)) {
+        return new Response(
+          JSON.stringify({
+            code: '42501',
+            details: null,
+            hint: 'Grant the required privileges to the current role with: GRANT SELECT ON public.socios TO authenticated;',
+            message: 'permission denied for table socios',
+          }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } }
+        );
       }
-      return new Response(JSON.stringify([mockSocioDbResult]), { status: 200 });
+
+      if (mockSocioDbError) {
+        return new Response(JSON.stringify(mockSocioDbError.body), {
+          status: mockSocioDbError.status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (!mockSocioDbResult) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      const rows = Array.isArray(mockSocioDbResult) ? mockSocioDbResult : [mockSocioDbResult];
+      return new Response(JSON.stringify(rows), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
 
     // Captura de llamadas a Upstream Agent Core
@@ -497,6 +527,120 @@ async function runTestSuite() {
     recordTest('TC-18', 'Resolución dual en getDelegatedBffContext', 'PASS', 'Python y TypeScript discriminados correctamente');
   } catch (e: any) {
     recordTest('TC-18', 'Resolución dual en getDelegatedBffContext', 'FAIL', e.message);
+  }
+
+  // =========================================================================
+  // BLOQUE 6: RESOLUCIÓN CANÓNICA DE IDENTIDAD (SOCIO, STAFF, ADMIN, DB ERROR 500, KILLSWITCH 503)
+  // =========================================================================
+  try {
+    mockSocioDbResult = { id: '00000000-0000-4000-a000-000000000010', rol: 'staff' };
+    const req = createRequest({
+      intent: 'propose_order',
+      items: [{ producto_id: VALID_PRODUCT_ID, cantidad: 1 }],
+    });
+    const res = await POST(req);
+    const rawText = await res.text();
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Auth-User-Id'], VALID_USER_ID);
+    assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Socio-Id'], '00000000-0000-4000-a000-000000000010');
+    assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-User-Role'], 'staff');
+    assert.strictEqual(rawText.includes(process.env.SUPABASE_SERVICE_ROLE_KEY!), false, 'Nunca debe exponer service_role al cliente');
+    recordTest('TC-19', 'Rol staff válido resuelve identidad vía service_role y propaga contexto delegado', 'PASS', 'X-Delegated-User-Role=staff');
+  } catch (e: any) {
+    recordTest('TC-19', 'Rol staff válido resuelve identidad vía service_role y propaga contexto delegado', 'FAIL', e.message);
+  } finally {
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+  }
+
+  try {
+    mockSocioDbResult = { id: '00000000-0000-4000-a000-000000000011', rol: 'admin' };
+    const req = createRequest({
+      intent: 'propose_order',
+      items: [{ producto_id: VALID_PRODUCT_ID, cantidad: 1 }],
+    });
+    const res = await POST(req);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Auth-User-Id'], VALID_USER_ID);
+    assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Socio-Id'], '00000000-0000-4000-a000-000000000011');
+    assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-User-Role'], 'admin');
+    recordTest('TC-20', 'Rol admin válido resuelve identidad vía service_role y propaga contexto delegado', 'PASS', 'X-Delegated-User-Role=admin');
+  } catch (e: any) {
+    recordTest('TC-20', 'Rol admin válido resuelve identidad vía service_role y propaga contexto delegado', 'FAIL', e.message);
+  } finally {
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+  }
+
+  try {
+    mockSocioDbError = {
+      status: 500,
+      body: { code: 'XX000', message: 'internal postgres failure: secret_conn_string' },
+    };
+    const req = createRequest({ message: 'Consulta con error de BD' });
+    const res = await POST(req);
+    const data = await res.json();
+    assert.strictEqual(res.status, 500, 'Error de consulta a BD debe retornar 500 y no confundirse con 403 usuario no vinculado');
+    assert.strictEqual(data.error, 'Error al consultar perfil de socio');
+    assert.strictEqual(JSON.stringify(data).includes('secret_conn_string'), false, 'No debe filtrar detalle crudo de BD');
+    recordTest('TC-21', 'Error interno de consulta a public.socios distinguido como HTTP 500 sanitizado', 'PASS', '500 Error al consultar perfil de socio');
+  } catch (e: any) {
+    recordTest('TC-21', 'Error interno de consulta a public.socios distinguido como HTTP 500 sanitizado', 'FAIL', e.message);
+  } finally {
+    mockSocioDbError = null;
+  }
+
+  try {
+    mockSocioDbResult = [
+      { id: VALID_SOCIO_ID, rol: 'socio' },
+      { id: '00000000-0000-4000-a000-000000000099', rol: 'socio' },
+    ];
+    const req = createRequest({ message: 'Consulta con perfiles duplicados' });
+    const res = await POST(req);
+    const data = await res.json();
+    assert.strictEqual(res.status, 403);
+    assert(String(data.error).includes('múltiples registros vinculados'));
+    recordTest('TC-22', 'Multiplicidad de perfiles vinculados rechazada fail-closed con 403', 'PASS', '403 Inconsistencia de perfil');
+  } catch (e: any) {
+    recordTest('TC-22', 'Multiplicidad de perfiles vinculados rechazada fail-closed con 403', 'FAIL', e.message);
+  } finally {
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+  }
+
+  try {
+    mockWorkerResponse = {
+      status: 503,
+      body: {
+        error: 'SERVICE_SUSPENDED',
+        code: 'KILLSWITCH_ACTIVE',
+        message: 'Mecanismo de seguridad activado: la formulación de nuevas propuestas está suspendida temporalmente.',
+        correlation_id: 'req_killswitch_test_503',
+      },
+    };
+    const req = createRequest({
+      intent: 'propose_order',
+      items: [{ producto_id: VALID_PRODUCT_ID, cantidad: 1 }],
+    });
+    const res = await POST(req);
+    const data = await res.json();
+    assert.strictEqual(res.status, 503);
+    assert.strictEqual(data.code, 'KILLSWITCH_ACTIVE');
+    assert.strictEqual(data.correlation_id, 'req_killswitch_test_503');
+    recordTest('TC-23', 'Bloqueo de propuestas con kill-switch activo (503 KILLSWITCH_ACTIVE)', 'PASS', '503 KILLSWITCH_ACTIVE propagado con correlation_id');
+  } catch (e: any) {
+    recordTest('TC-23', 'Bloqueo de propuestas con kill-switch activo (503 KILLSWITCH_ACTIVE)', 'FAIL', e.message);
+  } finally {
+    mockWorkerResponse = {
+      status: 200,
+      body: {
+        success: true,
+        reply: 'Propuesta formulada en Worker TS',
+        proposal: {
+          proposal_id: '22222222-2222-4222-a222-222222222222',
+          proposal_payload_hash: 'a'.repeat(64),
+          status: 'pending_review',
+        },
+        correlation_id: 'corr-worker-999',
+      },
+    };
   }
 
   // =========================================================================

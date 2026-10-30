@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
 import { ChatResponseEnvelope } from '@/types/chat';
-import { authJson, isTemporaryAuthFailure } from '@/app/lib/supabase/auth-response';
+import { authJson } from '@/app/lib/supabase/auth-response';
+import {
+  resolveVerifiedBffIdentity,
+  resolveDelegatedUpstreamContext,
+} from '@/app/lib/agent/bff-auth';
 import * as crypto from 'node:crypto';
 
 export const maxDuration = 25;
@@ -15,14 +18,14 @@ export const dynamic = 'force-dynamic';
  * - Solicitudes conversacionales estándar (message, confirmation_token) -> Agent Core Python.
  *
  * GARANTÍAS DE SEGURIDAD Y CONTRATO:
- * 1. Única fuente de auth: Sesión SSR de Supabase via cookies.
- * 2. Cero uso de SUPABASE_SERVICE_ROLE_KEY.
- * 3. Resolución canónica de socio: exclusivamente vía public.socios.auth_user_id.
- * 4. Prohibición total de inyección de campos de autoridad en el body.
- * 5. Validación estricta y discriminada por HTTP Status, intent, flags y payload.
- * 6. Modelo de seguridad ALLOWLIST pura para errores upstream de Agent Core.
- * 7. Respuestas de error públicas determinísticas y sanitizadas sin exponer stack traces ni secrets.
- * 8. Rechazo estricto de payloads ambiguos o malformados sin enviarlos a ningún upstream.
+ * 1. Única fuente de auth: Sesión SSR de Supabase via cookies (verificada en el servidor).
+ * 2. Resolución canónica de socio: exclusivamente vía public.socios.auth_user_id en el servidor
+ *    mediante el helper compartido de bff-auth.ts (sin exponer service_role al navegador).
+ * 3. Prohibición total de inyección de campos de autoridad en el body.
+ * 4. Validación estricta y discriminada por HTTP Status, intent, flags y payload.
+ * 5. Modelo de seguridad ALLOWLIST pura para errores upstream de Agent Core.
+ * 6. Respuestas de error públicas determinísticas y sanitizadas sin exponer stack traces ni secrets.
+ * 7. Rechazo estricto de payloads ambiguos o malformados sin enviarlos a ningún upstream.
  */
 
 const ALLOWED_INTENTS: ReadonlySet<string> = new Set([
@@ -141,71 +144,24 @@ function isChatResponseEnvelope(data: unknown, isHttp200: boolean): data is Chat
 
 export async function POST(request: NextRequest) {
   try {
-    let response: NextResponse | null = null;
-    const json = (body: unknown, init?: ResponseInit) => authJson(response, body, init);
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    // 1. Autenticación de sesión SSR y resolución canónica de identidad de socio vía helper compartido BFF
+    const identityResult = await resolveVerifiedBffIdentity(
+      request,
+      ['admin', 'staff', 'socio'],
+      {
+        allowBearer: false,
+        unauthenticatedMessage: 'No autenticado o sesión inválida',
+        unlinkedSocioMessage: 'Usuario no está vinculado a un socio válido',
+        unauthorizedRoleMessage: 'El usuario autenticado no posee un rol habilitado para el asistente',
+      }
+    );
 
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return json(
-        { error: 'Configuración de Supabase incompleta en el servidor' },
-        { status: 500 }
-      );
+    if (!identityResult.success) {
+      return identityResult.response;
     }
 
-    // Autenticación canónica mediante sesión SSR (cookies)
-    response = NextResponse.next();
-    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        },
-      },
-    });
-
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError && isTemporaryAuthFailure(authError)) {
-      return json(
-        { error: 'Autenticación temporalmente no disponible. Reintentá en unos instantes.' },
-        { status: 503 }
-      );
-    }
-
-    if (authError || !user) {
-      return json({ error: 'No autenticado o sesión inválida' }, { status: 401 });
-    }
-
-    // Resolución canónica de perfil de socio e identidad delegada (EXCLUSIVAMENTE vía auth_user_id)
-    const { data: socio, error: socioError } = await supabase
-      .from('socios')
-      .select('id, rol')
-      .eq('auth_user_id', user.id)
-      .maybeSingle();
-
-    if (socioError || !socio) {
-      return json(
-        { error: 'Usuario no está vinculado a un socio válido' },
-        { status: 403 }
-      );
-    }
-
-    const userRole = String(socio.rol || '').toLowerCase().trim();
-
-    if (!['admin', 'staff', 'socio'].includes(userRole)) {
-      return json(
-        { error: 'El usuario autenticado no posee un rol habilitado para el asistente' },
-        { status: 403 }
-      );
-    }
+    const { identity, authResponse } = identityResult;
+    const json = (body: unknown, init?: ResponseInit) => authJson(authResponse, body, init);
 
     // Parseo y validación estricta de payload de entrada
     let body: Record<string, unknown>;
@@ -341,18 +297,13 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Configuración S2S del Worker TypeScript
-      const workerBaseUrl = process.env.AGENT_CORE_ORDER_WORKER_URL || process.env.AGENT_CORE_BASE_URL;
-      const workerSecret = process.env.AGENT_CORE_ORDER_WORKER_SECRET || process.env.AGENT_CORE_BFF_SECRET;
-
-      if (!workerBaseUrl || !workerSecret) {
-        return json(
-          { error: 'Configuración S2S de Agent Core (worker) no disponible en el servidor' },
-          { status: 500 }
-        );
+      // Configuración S2S del Worker TypeScript mediante resolución compartida BFF
+      const upstreamAuth = resolveDelegatedUpstreamContext(identity, authResponse, 'typescript');
+      if (!upstreamAuth.success) {
+        return upstreamAuth.response;
       }
 
-      const cleanBaseUrl = workerBaseUrl.replace(/\/+$/, '');
+      const cleanBaseUrl = upstreamAuth.context.agentCoreBaseUrl.replace(/\/+$/, '');
       const targetUrl = cleanBaseUrl + '/api/v1/chat/message';
 
       const payloadToSend = {
@@ -376,14 +327,7 @@ export async function POST(request: NextRequest) {
       try {
         workerResponse = await fetch(targetUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Agent-Core-Secret': workerSecret,
-            'Authorization': 'Bearer ' + workerSecret,
-            'X-Delegated-Auth-User-Id': user.id,
-            'X-Delegated-Socio-Id': socio.id,
-            'X-Delegated-User-Role': userRole,
-          },
+          headers: upstreamAuth.context.s2sHeaders,
           body: JSON.stringify(payloadToSend),
           cache: 'no-store',
           signal: controller.signal,
@@ -516,18 +460,13 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Configuración S2S de Agent Core Python
-      const agentCoreBaseUrl = process.env.AGENT_CORE_PYTHON_URL || process.env.AGENT_CORE_BASE_URL || process.env.AGENT_CORE_URL;
-      const agentCoreBffSecret = process.env.AGENT_CORE_BFF_SECRET;
-
-      if (!agentCoreBaseUrl || !agentCoreBffSecret) {
-        return json(
-          { error: 'Configuración S2S de Agent Core no disponible en el servidor' },
-          { status: 500 }
-        );
+      // Configuración S2S de Agent Core Python mediante resolución compartida BFF
+      const upstreamAuth = resolveDelegatedUpstreamContext(identity, authResponse, 'python');
+      if (!upstreamAuth.success) {
+        return upstreamAuth.response;
       }
 
-      const cleanBaseUrl = agentCoreBaseUrl.replace(/\/+$/, '');
+      const cleanBaseUrl = upstreamAuth.context.agentCoreBaseUrl.replace(/\/+$/, '');
       const targetUrl = cleanBaseUrl + '/api/v1/chat/message';
 
       const payloadToSend: Record<string, string> = {};
@@ -541,14 +480,7 @@ export async function POST(request: NextRequest) {
       try {
         agentCoreResponse = await fetch(targetUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Agent-Core-Secret': agentCoreBffSecret,
-            'Authorization': 'Bearer ' + agentCoreBffSecret,
-            'X-Delegated-Auth-User-Id': user.id,
-            'X-Delegated-Socio-Id': socio.id,
-            'X-Delegated-User-Role': userRole,
-          },
+          headers: upstreamAuth.context.s2sHeaders,
           body: JSON.stringify(payloadToSend),
           cache: 'no-store',
           signal: controller.signal,

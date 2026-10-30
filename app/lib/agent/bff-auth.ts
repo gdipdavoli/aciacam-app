@@ -6,10 +6,24 @@ import { validateEnvironmentOrThrow } from '@/app/lib/env-guard';
 
 export type AgentTargetService = 'python' | 'typescript';
 
-export interface DelegatedBffContext {
+export interface VerifiedBffIdentity {
   userId: string;
   socioId: string;
   userRole: string;
+}
+
+export interface VerifyBffIdentityOptions {
+  allowBearer?: boolean;
+  unauthenticatedMessage?: string;
+  unlinkedSocioMessage?: string;
+  unauthorizedRoleMessage?: string;
+}
+
+export type BffIdentityResult =
+  | { success: true; identity: VerifiedBffIdentity; authResponse: NextResponse }
+  | { success: false; response: NextResponse };
+
+export interface DelegatedBffContext extends VerifiedBffIdentity {
   agentCoreBaseUrl: string;
   agentCoreBffSecret: string;
   s2sHeaders: Record<string, string>;
@@ -25,19 +39,27 @@ export function withBffAuthResponse<T extends NextResponse>(auth: BffAuthResult,
 }
 
 /**
- * Helper canónico de autenticación y autorización BFF para S2S Agent Core.
- * Resuelve la identidad de socio EXCLUSIVAMENTE vía public.socios.auth_user_id = auth.users.id.
- * Sin fallbacks de identidad alternativa ni consultas disyuntivas.
- *
- * Soporta resolución dual:
- * - targetService === 'python': resuelve AGENT_CORE_PYTHON_URL || AGENT_CORE_BASE_URL || AGENT_CORE_URL
- * - targetService === 'typescript': resuelve AGENT_CORE_ORDER_WORKER_URL || AGENT_CORE_BASE_URL
+ * Resuelve y verifica de forma canónica la sesión del usuario y su perfil en public.socios.
+ * - Valida primero la sesión autenticada de Supabase (SSR cookies, y opcionalmente Bearer JWT).
+ * - Consulta public.socios EXCLUSIVAMENTE en el servidor mediante SUPABASE_SERVICE_ROLE_KEY
+ *   filtrando por auth_user_id = user.id (aislado de permisos DDL del rol authenticated y sin exponer service_role al cliente).
+ * - Distingue de forma determinística y fail-closed entre:
+ *   1. Error interno de consulta a base de datos (500)
+ *   2. Usuario autenticado no vinculado a un socio o con multiplicidad de registros (403)
+ *   3. Rol no autorizado para la operación (403)
  */
-export async function getDelegatedBffContext(
+export async function resolveVerifiedBffIdentity(
   request: NextRequest,
   allowedRoles: string[] = ['admin', 'staff'],
-  targetService: AgentTargetService = 'python'
-): Promise<BffAuthResult> {
+  options: VerifyBffIdentityOptions = {}
+): Promise<BffIdentityResult> {
+  const {
+    allowBearer = true,
+    unauthenticatedMessage = 'No autenticado',
+    unlinkedSocioMessage = 'No se pudo resolver el perfil de socio para la sesión activa',
+    unauthorizedRoleMessage,
+  } = options;
+
   let authResponse: NextResponse | null = null;
   try {
     validateEnvironmentOrThrow();
@@ -56,26 +78,28 @@ export async function getDelegatedBffContext(
       };
     }
 
-    // 1. Validar primero la sesión/JWT del usuario (vía Bearer Header o Cookie SSR)
+    // 1. Validar primero la sesión/JWT del usuario (vía Bearer Header opcional o Cookie SSR)
     let user = null;
-    const authHeader = request.headers.get('authorization');
-    if (authHeader && /^Bearer\s+\S+$/i.test(authHeader)) {
-      const token = authHeader.replace(/^Bearer\s+/i, '');
-      const adminAuthClient = createClient(supabaseUrl, serviceRoleKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
-      });
-      const { data: authData, error: bearerAuthError } = await adminAuthClient.auth.getUser(token);
-      if (bearerAuthError && isTemporaryAuthFailure(bearerAuthError)) {
-        return {
-          success: false,
-          response: authJson(
-            null,
-            { error: 'Autenticación temporalmente no disponible. Reintentá en unos instantes.' },
-            { status: 503 }
-          ),
-        };
+    if (allowBearer) {
+      const authHeader = request.headers.get('authorization');
+      if (authHeader && /^Bearer\s+\S+$/i.test(authHeader)) {
+        const token = authHeader.replace(/^Bearer\s+/i, '');
+        const adminAuthClient = createClient(supabaseUrl, serviceRoleKey, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        });
+        const { data: authData, error: bearerAuthError } = await adminAuthClient.auth.getUser(token);
+        if (bearerAuthError && isTemporaryAuthFailure(bearerAuthError)) {
+          return {
+            success: false,
+            response: authJson(
+              null,
+              { error: 'Autenticación temporalmente no disponible. Reintentá en unos instantes.' },
+              { status: 503 }
+            ),
+          };
+        }
+        user = authData?.user || null;
       }
-      user = authData?.user || null;
     }
 
     if (!user) {
@@ -86,8 +110,8 @@ export async function getDelegatedBffContext(
             return request.cookies.getAll();
           },
           setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              authResponse?.cookies.set(name, value, options)
+            cookiesToSet.forEach(({ name, value, options: cookieOpts }) =>
+              authResponse?.cookies.set(name, value, cookieOpts)
             );
           },
         },
@@ -111,7 +135,7 @@ export async function getDelegatedBffContext(
     if (!user) {
       return {
         success: false,
-        response: authJson(authResponse, { error: 'No autenticado' }, { status: 401 }),
+        response: authJson(authResponse, { error: unauthenticatedMessage }, { status: 401 }),
       };
     }
 
@@ -131,25 +155,31 @@ export async function getDelegatedBffContext(
         success: false,
         response: authJson(
           authResponse,
-          { error: 'Error al consultar perfil de socio', detail: socioError.message },
+          { error: 'Error al consultar perfil de socio' },
           { status: 500 }
         ),
       };
     }
 
-    if (!socios || socios.length === 0) {
+    const sociosList = Array.isArray(socios)
+      ? socios
+      : socios && typeof socios === 'object' && 'id' in socios
+        ? [socios as { id: string; rol: string }]
+        : [];
+
+    if (sociosList.length === 0) {
       return {
         success: false,
         response: authJson(
           authResponse,
-          { error: 'No se pudo resolver el perfil de socio para la sesión activa' },
+          { error: unlinkedSocioMessage },
           { status: 403 }
         ),
       };
     }
 
     // Rechazar explícitamente multiplicidad de perfiles vinculados
-    if (socios.length > 1) {
+    if (sociosList.length > 1) {
       return {
         success: false,
         response: authJson(
@@ -160,7 +190,7 @@ export async function getDelegatedBffContext(
       };
     }
 
-    const socio = socios[0];
+    const socio = sociosList[0];
     const userRole = String(socio.rol || '').toLowerCase().trim();
 
     if (!allowedRoles.includes(userRole)) {
@@ -168,54 +198,22 @@ export async function getDelegatedBffContext(
         success: false,
         response: authJson(
           authResponse,
-          { error: `Acceso denegado: Rol '${userRole}' no autorizado para esta operación` },
+          {
+            error:
+              unauthorizedRoleMessage ||
+              `Acceso denegado: Rol '${userRole}' no autorizado para esta operación`,
+          },
           { status: 403 }
         ),
       };
     }
 
-    // 3. Resolución segura de destino según targetService
-    let agentCoreBaseUrl: string | undefined;
-    let agentCoreBffSecret: string | undefined;
-
-    if (targetService === 'typescript') {
-      agentCoreBaseUrl = process.env.AGENT_CORE_ORDER_WORKER_URL || process.env.AGENT_CORE_BASE_URL;
-      agentCoreBffSecret = process.env.AGENT_CORE_ORDER_WORKER_SECRET || process.env.AGENT_CORE_BFF_SECRET;
-    } else {
-      agentCoreBaseUrl = process.env.AGENT_CORE_PYTHON_URL || process.env.AGENT_CORE_BASE_URL || process.env.AGENT_CORE_URL;
-      agentCoreBffSecret = process.env.AGENT_CORE_BFF_SECRET;
-    }
-
-    if (!agentCoreBaseUrl || !agentCoreBffSecret) {
-      return {
-        success: false,
-        response: authJson(
-          authResponse,
-          { error: `Configuración S2S de Agent Core (${targetService}) no disponible en el servidor` },
-          { status: 500 }
-        ),
-      };
-    }
-
-    const s2sHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'X-Agent-Core-Secret': agentCoreBffSecret,
-      'Authorization': 'Bearer ' + agentCoreBffSecret,
-      'X-Delegated-Auth-User-Id': user.id,
-      'X-Delegated-Socio-Id': socio.id,
-      'X-Delegated-User-Role': userRole,
-    };
-
     return {
       success: true,
-      context: {
+      identity: {
         userId: user.id,
         socioId: socio.id,
         userRole,
-        agentCoreBaseUrl,
-        agentCoreBffSecret,
-        s2sHeaders,
-        targetService,
       },
       authResponse: authResponse || NextResponse.next(),
     };
@@ -229,4 +227,85 @@ export async function getDelegatedBffContext(
       ),
     };
   }
+}
+
+/**
+ * Construye el contexto S2S hacia el servicio Agent Core correspondiente ('python' o 'typescript')
+ * a partir de una identidad BFF previamente verificada.
+ */
+export function resolveDelegatedUpstreamContext(
+  identity: VerifiedBffIdentity,
+  authResponse: NextResponse,
+  targetService: AgentTargetService = 'python'
+): BffAuthResult {
+  let agentCoreBaseUrl: string | undefined;
+  let agentCoreBffSecret: string | undefined;
+
+  if (targetService === 'typescript') {
+    agentCoreBaseUrl = process.env.AGENT_CORE_ORDER_WORKER_URL || process.env.AGENT_CORE_BASE_URL;
+    agentCoreBffSecret = process.env.AGENT_CORE_ORDER_WORKER_SECRET || process.env.AGENT_CORE_BFF_SECRET;
+  } else {
+    agentCoreBaseUrl = process.env.AGENT_CORE_PYTHON_URL || process.env.AGENT_CORE_BASE_URL || process.env.AGENT_CORE_URL;
+    agentCoreBffSecret = process.env.AGENT_CORE_BFF_SECRET;
+  }
+
+  if (!agentCoreBaseUrl || !agentCoreBffSecret) {
+    const errorMsg =
+      targetService === 'typescript'
+        ? 'Configuración S2S de Agent Core (worker) no disponible en el servidor'
+        : 'Configuración S2S de Agent Core no disponible en el servidor';
+    return {
+      success: false,
+      response: authJson(authResponse, { error: errorMsg }, { status: 500 }),
+    };
+  }
+
+  const s2sHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Agent-Core-Secret': agentCoreBffSecret,
+    'Authorization': 'Bearer ' + agentCoreBffSecret,
+    'X-Delegated-Auth-User-Id': identity.userId,
+    'X-Delegated-Socio-Id': identity.socioId,
+    'X-Delegated-User-Role': identity.userRole,
+  };
+
+  return {
+    success: true,
+    context: {
+      ...identity,
+      agentCoreBaseUrl,
+      agentCoreBffSecret,
+      s2sHeaders,
+      targetService,
+    },
+    authResponse,
+  };
+}
+
+/**
+ * Helper canónico de autenticación y autorización BFF para S2S Agent Core.
+ * Resuelve la identidad de socio EXCLUSIVAMENTE vía public.socios.auth_user_id = auth.users.id.
+ * Sin fallbacks de identidad alternativa ni consultas disyuntivas.
+ *
+ * Soporta resolución dual:
+ * - targetService === 'python': resuelve AGENT_CORE_PYTHON_URL || AGENT_CORE_BASE_URL || AGENT_CORE_URL
+ * - targetService === 'typescript': resuelve AGENT_CORE_ORDER_WORKER_URL || AGENT_CORE_BASE_URL
+ */
+export async function getDelegatedBffContext(
+  request: NextRequest,
+  allowedRoles: string[] = ['admin', 'staff'],
+  targetService: AgentTargetService = 'python'
+): Promise<BffAuthResult> {
+  const identityResult = await resolveVerifiedBffIdentity(request, allowedRoles, {
+    allowBearer: true,
+  });
+  if (!identityResult.success) {
+    return identityResult;
+  }
+
+  return resolveDelegatedUpstreamContext(
+    identityResult.identity,
+    identityResult.authResponse,
+    targetService
+  );
 }
