@@ -1,110 +1,73 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { proxyAgentCoreResponse } from '@/app/lib/agent/agent-core-response';
+import { getDelegatedBffContext, withBffAuthResponse } from '@/app/lib/agent/bff-auth';
+
+const FORBIDDEN_IDENTITY_KEYS = [
+  'socio_id',
+  'socioId',
+  'auth_user_id',
+  'authUserId',
+  'user_id',
+  'userId',
+  'rol',
+  'role',
+  'actor_id',
+  'actorId',
+  'actor_role',
+  'actorRole',
+] as const;
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Requisito estricto: Rol admin obligatorio para realizar acciones sobre el Admin Inbox
+  const auth = await getDelegatedBffContext(request, ['admin']);
+  if (!auth.success) {
+    return auth.response;
+  }
+
+  const { agentCoreBaseUrl, s2sHeaders } = auth.context;
+
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json(
-        { error: 'Configuración de Supabase incompleta en el servidor' },
-        { status: 500 }
-      );
-    }
-
-    const response = NextResponse.next();
-    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        },
-      },
-    });
-
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-    }
-
-    const { data: socio, error: socioError } = await supabase
-      .from('socios')
-      .select('id, rol')
-      .or('auth_user_id.eq.' + user.id + ',user_id.eq.' + user.id)
-      .maybeSingle();
-
-    if (socioError || !socio) {
-      return NextResponse.json(
-        { error: 'No se pudo resolver el perfil de socio para la sesión activa' },
-        { status: 403 }
-      );
-    }
-
-    const userRole = String(socio.rol || '').toLowerCase().trim();
-
-    if (userRole !== 'admin') {
-      return NextResponse.json(
-        { error: 'Acceso denegado: Se requiere rol admin para realizar acciones sobre el Admin Inbox' },
-        { status: 403 }
-      );
-    }
-
-    const agentCoreBaseUrl = process.env.AGENT_CORE_BASE_URL;
-    const agentCoreBffSecret = process.env.AGENT_CORE_BFF_SECRET;
-
-    if (!agentCoreBaseUrl || !agentCoreBffSecret) {
-      return NextResponse.json(
-        { error: 'Configuración S2S de Agent Core no disponible en el servidor' },
-        { status: 500 }
-      );
-    }
-
-    let bodyPayload = {};
+    const { id } = await params;
+    let bodyPayload: Record<string, unknown> = {};
     try {
       const text = await request.text();
       if (text) {
-        bodyPayload = JSON.parse(text);
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          bodyPayload = { ...(parsed as Record<string, unknown>) };
+        }
       }
-    } catch (e) {
+    } catch {
       bodyPayload = {};
     }
 
+    for (const key of FORBIDDEN_IDENTITY_KEYS) {
+      delete bodyPayload[key];
+    }
+
     const targetUrl = new URL(
-      '/api/v1/inbox/audit-findings/' + (await params).id + '/resolve',
+      `/api/v1/inbox/audit-findings/${id}/resolve`,
       agentCoreBaseUrl
     );
 
     const agentCoreResponse = await fetch(targetUrl.toString(), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Agent-Core-Secret': agentCoreBffSecret,
-        'X-Delegated-Auth-User-Id': user.id,
-        'X-Delegated-Socio-Id': socio.id,
-        'X-Delegated-User-Role': userRole,
-      },
+      headers: s2sHeaders,
       body: JSON.stringify(bodyPayload),
       cache: 'no-store',
     });
 
-    const data = await agentCoreResponse.json();
-    return NextResponse.json(data, { status: agentCoreResponse.status });
+    return withBffAuthResponse(auth, await proxyAgentCoreResponse(agentCoreResponse));
   } catch (error: any) {
-    return NextResponse.json(
-      { error: error?.message || 'Error interno en el BFF' },
-      { status: 500 }
+    return withBffAuthResponse(
+      auth,
+      NextResponse.json(
+        { error: error?.message || 'Error interno en el BFF' },
+        { status: 500 }
+      )
     );
   }
 }

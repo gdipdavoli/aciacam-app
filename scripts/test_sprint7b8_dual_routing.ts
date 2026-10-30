@@ -1,6 +1,15 @@
 import { NextRequest } from 'next/server';
 import assert from 'node:assert';
 import { POST } from '../app/api/agent/chat/route';
+import { POST as postAuditCreateCommIntent } from '../app/api/agent/inbox/audit-findings/[id]/create-communication-intent/route';
+import { POST as postAuditDismiss } from '../app/api/agent/inbox/audit-findings/[id]/dismiss/route';
+import { POST as postAuditMarkInReview } from '../app/api/agent/inbox/audit-findings/[id]/mark-in-review/route';
+import { POST as postAuditResolve } from '../app/api/agent/inbox/audit-findings/[id]/resolve/route';
+import { POST as postCommApprove } from '../app/api/agent/inbox/communication-intents/[id]/approve/route';
+import { POST as postCommCancel } from '../app/api/agent/inbox/communication-intents/[id]/cancel/route';
+import { POST as postProfileApprove } from '../app/api/agent/inbox/profile-proposals/[id]/approve/route';
+import { POST as postProfileCancel } from '../app/api/agent/inbox/profile-proposals/[id]/cancel/route';
+import { POST as postProfileReject } from '../app/api/agent/inbox/profile-proposals/[id]/reject/route';
 import { getDelegatedBffContext } from '../app/lib/agent/bff-auth';
 
 /**
@@ -639,6 +648,305 @@ async function runTestSuite() {
           status: 'pending_review',
         },
         correlation_id: 'corr-worker-999',
+      },
+    };
+  }
+
+  // =========================================================================
+  // BLOQUE 7: ESTANDARIZACIÓN DE AUTENTICACIÓN DE LAS 9 RUTAS DEL ADMIN INBOX
+  // =========================================================================
+  const ADMIN_INBOX_ACTION_ROUTES = [
+    {
+      name: 'audit-findings/create-communication-intent',
+      handler: postAuditCreateCommIntent,
+      expectedPath: '/api/v1/inbox/audit-findings/44444444-4444-4444-8444-444444444444/create-communication-intent',
+      sampleBody: { review_notes: 'Crear intent de comunicación' },
+    },
+    {
+      name: 'audit-findings/dismiss',
+      handler: postAuditDismiss,
+      expectedPath: '/api/v1/inbox/audit-findings/44444444-4444-4444-8444-444444444444/dismiss',
+      sampleBody: { resolution_note: 'Hallazgo descartado por duplicado' },
+    },
+    {
+      name: 'audit-findings/mark-in-review',
+      handler: postAuditMarkInReview,
+      expectedPath: '/api/v1/inbox/audit-findings/44444444-4444-4444-8444-444444444444/mark-in-review',
+      sampleBody: {},
+    },
+    {
+      name: 'audit-findings/resolve',
+      handler: postAuditResolve,
+      expectedPath: '/api/v1/inbox/audit-findings/44444444-4444-4444-8444-444444444444/resolve',
+      sampleBody: { resolution_note: 'Hallazgo resuelto satisfactoriamente' },
+    },
+    {
+      name: 'communication-intents/approve',
+      handler: postCommApprove,
+      expectedPath: '/api/v1/inbox/communication-intents/44444444-4444-4444-8444-444444444444/approve',
+      sampleBody: { review_notes: 'Aprobado para envío' },
+    },
+    {
+      name: 'communication-intents/cancel',
+      handler: postCommCancel,
+      expectedPath: '/api/v1/inbox/communication-intents/44444444-4444-4444-8444-444444444444/cancel',
+      sampleBody: { review_notes: 'Cancelado por revisión manual' },
+    },
+    {
+      name: 'profile-proposals/approve',
+      handler: postProfileApprove,
+      expectedPath: '/api/v1/inbox/profile-proposals/44444444-4444-4444-8444-444444444444/approve',
+      sampleBody: { review_notes: 'Propuesta de perfil aprobada' },
+    },
+    {
+      name: 'profile-proposals/cancel',
+      handler: postProfileCancel,
+      expectedPath: '/api/v1/inbox/profile-proposals/44444444-4444-4444-8444-444444444444/cancel',
+      sampleBody: { review_notes: 'Propuesta de perfil cancelada' },
+    },
+    {
+      name: 'profile-proposals/reject',
+      handler: postProfileReject,
+      expectedPath: '/api/v1/inbox/profile-proposals/44444444-4444-4444-8444-444444444444/reject',
+      sampleBody: { review_notes: 'Propuesta de perfil rechazada' },
+    },
+  ];
+
+  const ITEM_ID = '44444444-4444-4444-8444-444444444444';
+
+  // TC-24: Sesión ausente o inválida en las 9 rutas -> 401
+  try {
+    for (const route of ADMIN_INBOX_ACTION_ROUTES) {
+      lastCapturedUpstreamUrl = '';
+      const unauthReq = new NextRequest(`http://localhost:3000/api/agent/inbox/${route.name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(route.sampleBody),
+      });
+      const res = await route.handler(unauthReq, { params: Promise.resolve({ id: ITEM_ID }) });
+      const data = await res.json();
+      assert.strictEqual(res.status, 401, `Ruta ${route.name} sin sesión debe devolver 401`);
+      assert.strictEqual(data.error, 'No autenticado');
+      assert.strictEqual(lastCapturedUpstreamUrl, '', `Ruta ${route.name} no debe invocar upstream sin sesión`);
+    }
+    recordTest('TC-24', 'Las 9 rutas del Admin Inbox rechazan sesión ausente o inválida con 401', 'PASS', '9/9 rutas -> 401 No autenticado');
+  } catch (e: any) {
+    recordTest('TC-24', 'Las 9 rutas del Admin Inbox rechazan sesión ausente o inválida con 401', 'FAIL', e.message);
+  }
+
+  // TC-25: Roles socio y staff rechazados con 403 en las 9 rutas
+  try {
+    for (const forbiddenRole of ['socio', 'staff']) {
+      mockSocioDbResult = { id: VALID_SOCIO_ID, rol: forbiddenRole };
+      for (const route of ADMIN_INBOX_ACTION_ROUTES) {
+        lastCapturedUpstreamUrl = '';
+        const req = new NextRequest(`http://localhost:3000/api/agent/inbox/${route.name}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...createAuthCookie(),
+          },
+          body: JSON.stringify(route.sampleBody),
+        });
+        const res = await route.handler(req, { params: Promise.resolve({ id: ITEM_ID }) });
+        const data = await res.json();
+        assert.strictEqual(res.status, 403, `Ruta ${route.name} con rol ${forbiddenRole} debe devolver 403`);
+        assert(String(data.error).includes(`Rol '${forbiddenRole}' no autorizado`), `Mensaje inesperado: ${data.error}`);
+        assert.strictEqual(lastCapturedUpstreamUrl, '', `Ruta ${route.name} no debe invocar upstream con rol ${forbiddenRole}`);
+      }
+    }
+    recordTest('TC-25', 'Las 9 rutas del Admin Inbox rechazan usuarios con rol socio o staff con 403', 'PASS', '18/18 intentos bloqueados con 403');
+  } catch (e: any) {
+    recordTest('TC-25', 'Las 9 rutas del Admin Inbox rechazan usuarios con rol socio o staff con 403', 'FAIL', e.message);
+  } finally {
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+  }
+
+  // TC-26: Usuario sin vinculación (403) vs error de consulta a base de datos (500) en las 9 rutas
+  try {
+    mockSocioDbResult = null;
+    for (const route of ADMIN_INBOX_ACTION_ROUTES) {
+      const req = new NextRequest(`http://localhost:3000/api/agent/inbox/${route.name}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...createAuthCookie(),
+        },
+        body: JSON.stringify(route.sampleBody),
+      });
+      const res = await route.handler(req, { params: Promise.resolve({ id: ITEM_ID }) });
+      const data = await res.json();
+      assert.strictEqual(res.status, 403, `Ruta ${route.name} sin socio vinculado debe devolver 403`);
+      assert.strictEqual(data.error, 'No se pudo resolver el perfil de socio para la sesión activa');
+    }
+
+    mockSocioDbError = {
+      status: 500,
+      body: { code: 'XX000', message: 'postgres crash internal detail' },
+    };
+    for (const route of ADMIN_INBOX_ACTION_ROUTES) {
+      const req = new NextRequest(`http://localhost:3000/api/agent/inbox/${route.name}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...createAuthCookie(),
+        },
+        body: JSON.stringify(route.sampleBody),
+      });
+      const res = await route.handler(req, { params: Promise.resolve({ id: ITEM_ID }) });
+      const data = await res.json();
+      assert.strictEqual(res.status, 500, `Ruta ${route.name} ante fallo de BD debe devolver 500`);
+      assert.strictEqual(data.error, 'Error al consultar perfil de socio');
+      assert.strictEqual(JSON.stringify(data).includes('postgres crash'), false);
+    }
+    recordTest('TC-26', 'Las 9 rutas distinguen usuario sin vinculación (403) de error de BD (500)', 'PASS', '9x403 + 9x500 verificados');
+  } catch (e: any) {
+    recordTest('TC-26', 'Las 9 rutas distinguen usuario sin vinculación (403) de error de BD (500)', 'FAIL', e.message);
+  } finally {
+    mockSocioDbError = null;
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+  }
+
+  // TC-27: Administrador válido y construcción segura de cabeceras S2S en las 9 rutas
+  try {
+    const ADMIN_SOCIO_ID = '30000000-0000-4000-8000-000000000011';
+    mockSocioDbResult = { id: ADMIN_SOCIO_ID, rol: 'admin' };
+    mockPythonResponse = {
+      status: 200,
+      body: { status: 'ok', updated_id: ITEM_ID },
+    };
+
+    for (const route of ADMIN_INBOX_ACTION_ROUTES) {
+      lastCapturedUpstreamUrl = '';
+      lastCapturedUpstreamHeaders = {};
+      lastCapturedUpstreamBody = null;
+
+      const req = new NextRequest(`http://localhost:3000/api/agent/inbox/${route.name}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...createAuthCookie(),
+        },
+        body: JSON.stringify(route.sampleBody),
+      });
+      const res = await route.handler(req, { params: Promise.resolve({ id: ITEM_ID }) });
+      const data = await res.json();
+
+      assert.strictEqual(res.status, 200, `Ruta ${route.name} con admin válido debe devolver 200`);
+      assert.strictEqual(lastCapturedUpstreamUrl, `http://localhost:8000${route.expectedPath}`);
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Agent-Core-Secret'], 'e2e_integration_secret_test_12345');
+      assert.strictEqual(lastCapturedUpstreamHeaders['Authorization'], 'Bearer e2e_integration_secret_test_12345');
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Auth-User-Id'], VALID_USER_ID);
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Socio-Id'], ADMIN_SOCIO_ID);
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-User-Role'], 'admin');
+      assert.deepStrictEqual(lastCapturedUpstreamBody, route.sampleBody);
+      assert.strictEqual(data.updated_id, ITEM_ID);
+    }
+    recordTest('TC-27', 'Administrador válido delega las 9 rutas con cabeceras S2S canónicas y payload intacto', 'PASS', '9/9 rutas -> 200 OK');
+  } catch (e: any) {
+    recordTest('TC-27', 'Administrador válido delega las 9 rutas con cabeceras S2S canónicas y payload intacto', 'FAIL', e.message);
+  } finally {
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+  }
+
+  // TC-28: Prevención de suplantación (headers delegados forjados y campos de identidad en body)
+  try {
+    const ADMIN_SOCIO_ID = '30000000-0000-4000-8000-000000000011';
+    mockSocioDbResult = { id: ADMIN_SOCIO_ID, rol: 'admin' };
+    mockPythonResponse = {
+      status: 200,
+      body: { status: 'ok' },
+    };
+
+    for (const route of ADMIN_INBOX_ACTION_ROUTES) {
+      lastCapturedUpstreamHeaders = {};
+      lastCapturedUpstreamBody = null;
+
+      const req = new NextRequest(`http://localhost:3000/api/agent/inbox/${route.name}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Delegated-Auth-User-Id': '99999999-9999-4999-8999-999999999999',
+          'X-Delegated-Socio-Id': '99999999-9999-4999-8999-999999999999',
+          'X-Delegated-User-Role': 'superadmin_forged',
+          'X-Agent-Core-Secret': 'forged_secret',
+          ...createAuthCookie(),
+        },
+        body: JSON.stringify({
+          ...route.sampleBody,
+          socio_id: '99999999-9999-4999-8999-999999999999',
+          auth_user_id: '99999999-9999-4999-8999-999999999999',
+          user_id: '99999999-9999-4999-8999-999999999999',
+          rol: 'socio',
+          role: 'socio',
+          actor_id: 'forged_actor',
+          actor_role: 'forged_role',
+        }),
+      });
+      const res = await route.handler(req, { params: Promise.resolve({ id: ITEM_ID }) });
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Auth-User-Id'], VALID_USER_ID);
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Socio-Id'], ADMIN_SOCIO_ID);
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-User-Role'], 'admin');
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Agent-Core-Secret'], 'e2e_integration_secret_test_12345');
+      assert.strictEqual('socio_id' in lastCapturedUpstreamBody, false);
+      assert.strictEqual('auth_user_id' in lastCapturedUpstreamBody, false);
+      assert.strictEqual('user_id' in lastCapturedUpstreamBody, false);
+      assert.strictEqual('rol' in lastCapturedUpstreamBody, false);
+      assert.strictEqual('role' in lastCapturedUpstreamBody, false);
+      assert.strictEqual('actor_id' in lastCapturedUpstreamBody, false);
+      assert.strictEqual('actor_role' in lastCapturedUpstreamBody, false);
+      assert.deepStrictEqual(lastCapturedUpstreamBody, route.sampleBody);
+    }
+    recordTest('TC-28', 'Las 9 rutas neutralizan intentos de suplantación en headers y body', 'PASS', 'Headers y body sanitizados en 9/9 rutas');
+  } catch (e: any) {
+    recordTest('TC-28', 'Las 9 rutas neutralizan intentos de suplantación en headers y body', 'FAIL', e.message);
+  } finally {
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+  }
+
+  // TC-29: Propagación del bloqueo operativo del Worker (503 KILLSWITCH_ACTIVE) en las 9 rutas
+  try {
+    const ADMIN_SOCIO_ID = '30000000-0000-4000-8000-000000000011';
+    mockSocioDbResult = { id: ADMIN_SOCIO_ID, rol: 'admin' };
+    mockPythonResponse = {
+      status: 503,
+      body: {
+        error: 'Mecanismo de seguridad activado: operaciones suspendidas temporalmente.',
+        code: 'KILLSWITCH_ACTIVE',
+        correlation_id: 'req_inbox_killswitch_503',
+      },
+    };
+
+    for (const route of ADMIN_INBOX_ACTION_ROUTES) {
+      const req = new NextRequest(`http://localhost:3000/api/agent/inbox/${route.name}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...createAuthCookie(),
+        },
+        body: JSON.stringify(route.sampleBody),
+      });
+      const res = await route.handler(req, { params: Promise.resolve({ id: ITEM_ID }) });
+      const data = await res.json();
+      assert.strictEqual(res.status, 503, `Ruta ${route.name} debe propagar 503 cuando kill-switch está activo`);
+      assert.strictEqual(data.code, 'KILLSWITCH_ACTIVE');
+      assert.strictEqual(data.correlation_id, 'req_inbox_killswitch_503');
+    }
+    recordTest('TC-29', 'Las 9 rutas propagan bloqueo operativo (503 KILLSWITCH_ACTIVE) del Worker', 'PASS', '9/9 rutas -> 503 KILLSWITCH_ACTIVE');
+  } catch (e: any) {
+    recordTest('TC-29', 'Las 9 rutas propagan bloqueo operativo (503 KILLSWITCH_ACTIVE) del Worker', 'FAIL', e.message);
+  } finally {
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+    mockPythonResponse = {
+      status: 200,
+      body: {
+        request_id: '11111111-1111-4111-a111-111111111111',
+        intent: 'QUERY_INBOX',
+        payload: { items: [{ id: 'item-1' }], total_count: 1 },
+        human_message: 'Consulta de inbox procesada en Python',
+        requires_confirmation: false,
+        requires_clarification: false,
       },
     };
   }

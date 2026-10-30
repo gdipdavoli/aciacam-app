@@ -37,16 +37,39 @@ async function main() {
   });
 
   // 2. Rutas migradas del Admin Inbox usan el helper canónico
-  await runTestCase('02. Rutas migradas de Admin Inbox consumen getDelegatedBffContext', () => {
-    const routeList = path.join(appDir, 'app', 'api', 'agent', 'inbox', 'route.ts');
-    const routeSummary = path.join(appDir, 'app', 'api', 'agent', 'inbox', 'summary', 'route.ts');
-    const routeDetail = path.join(appDir, 'app', 'api', 'agent', 'inbox', '[source_type]', '[source_id]', 'route.ts');
+  await runTestCase('02. Todas las rutas de lectura y las 9 rutas de acción de Admin Inbox consumen getDelegatedBffContext', () => {
+    const readRoutes = [
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', 'route.ts'),
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', 'summary', 'route.ts'),
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', '[source_type]', '[source_id]', 'route.ts'),
+    ];
+    const adminActionRoutes = [
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', 'audit-findings', '[id]', 'create-communication-intent', 'route.ts'),
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', 'audit-findings', '[id]', 'dismiss', 'route.ts'),
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', 'audit-findings', '[id]', 'mark-in-review', 'route.ts'),
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', 'audit-findings', '[id]', 'resolve', 'route.ts'),
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', 'communication-intents', '[id]', 'approve', 'route.ts'),
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', 'communication-intents', '[id]', 'cancel', 'route.ts'),
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', 'profile-proposals', '[id]', 'approve', 'route.ts'),
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', 'profile-proposals', '[id]', 'cancel', 'route.ts'),
+      path.join(appDir, 'app', 'api', 'agent', 'inbox', 'profile-proposals', '[id]', 'reject', 'route.ts'),
+    ];
 
-    [routeList, routeSummary, routeDetail].forEach((p) => {
+    readRoutes.forEach((p) => {
       assert.strictEqual(fs.existsSync(p), true);
       const code = fs.readFileSync(p, 'utf-8');
       assert.strictEqual(code.includes('getDelegatedBffContext'), true);
       assert.strictEqual(code.includes('user_id.eq.'), false);
+      assert.strictEqual(code.includes("from('socios')"), false);
+    });
+
+    adminActionRoutes.forEach((p) => {
+      assert.strictEqual(fs.existsSync(p), true);
+      const code = fs.readFileSync(p, 'utf-8');
+      assert.strictEqual(code.includes("getDelegatedBffContext(request, ['admin'])"), true);
+      assert.strictEqual(code.includes('user_id.eq.'), false);
+      assert.strictEqual(code.includes("from('socios')"), false);
+      assert.strictEqual(code.includes('createServerClient'), false);
     });
   });
 
