@@ -174,6 +174,28 @@ async function main() {
     assert.strictEqual(pageCode.includes('No enviará todavía la invitación de acceso.'), true);
   });
 
+  // 10. Las 3 rutas de orquestación usan getDelegatedBffContext sin consultas legacy a socios
+  await runTestCase('10. Las 3 rutas de orquestación consumen getDelegatedBffContext sin consultas legacy a socios', () => {
+    const docEnrichRoute = path.join(appDir, 'app', 'api', 'agent', 'document-enrichment', 'route.ts');
+    const paymentAuditRoute = path.join(appDir, 'app', 'api', 'agent', 'payment-audit', 'route.ts');
+    const stockAuditRoute = path.join(appDir, 'app', 'api', 'agent', 'stock-audit', 'route.ts');
+
+    const docEnrichCode = fs.readFileSync(docEnrichRoute, 'utf-8');
+    const paymentAuditCode = fs.readFileSync(paymentAuditRoute, 'utf-8');
+    const stockAuditCode = fs.readFileSync(stockAuditRoute, 'utf-8');
+
+    assert.strictEqual(docEnrichCode.includes("getDelegatedBffContext(request, ['admin', 'staff'])"), true);
+    assert.strictEqual(paymentAuditCode.includes("getDelegatedBffContext(request, ['admin'])"), true);
+    assert.strictEqual(stockAuditCode.includes("getDelegatedBffContext(request, ['admin'])"), true);
+
+    [docEnrichCode, paymentAuditCode, stockAuditCode].forEach((code) => {
+      assert.strictEqual(code.includes('user_id.eq.'), false);
+      assert.strictEqual(code.includes("from('socios')"), false);
+      assert.strictEqual(code.includes('createClientServer'), false);
+      assert.strictEqual(code.includes('getSession'), false);
+    });
+  });
+
   console.log('======================================================================');
   console.log('SUMMARY: TOTAL TESTS: ' + testCount + ' | PASS: ' + passCount + ' | FAIL: ' + (testCount - passCount));
   console.log('======================================================================');

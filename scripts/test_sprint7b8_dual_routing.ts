@@ -10,6 +10,9 @@ import { POST as postCommCancel } from '../app/api/agent/inbox/communication-int
 import { POST as postProfileApprove } from '../app/api/agent/inbox/profile-proposals/[id]/approve/route';
 import { POST as postProfileCancel } from '../app/api/agent/inbox/profile-proposals/[id]/cancel/route';
 import { POST as postProfileReject } from '../app/api/agent/inbox/profile-proposals/[id]/reject/route';
+import { POST as postDocEnrichment } from '../app/api/agent/document-enrichment/route';
+import { POST as postPaymentAudit } from '../app/api/agent/payment-audit/route';
+import { POST as postStockAudit } from '../app/api/agent/stock-audit/route';
 import { getDelegatedBffContext } from '../app/lib/agent/bff-auth';
 
 /**
@@ -936,6 +939,305 @@ async function runTestSuite() {
     recordTest('TC-29', 'Las 9 rutas propagan bloqueo operativo (503 KILLSWITCH_ACTIVE) del Worker', 'PASS', '9/9 rutas -> 503 KILLSWITCH_ACTIVE');
   } catch (e: any) {
     recordTest('TC-29', 'Las 9 rutas propagan bloqueo operativo (503 KILLSWITCH_ACTIVE) del Worker', 'FAIL', e.message);
+  } finally {
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+    mockPythonResponse = {
+      status: 200,
+      body: {
+        request_id: '11111111-1111-4111-a111-111111111111',
+        intent: 'QUERY_INBOX',
+        payload: { items: [{ id: 'item-1' }], total_count: 1 },
+        human_message: 'Consulta de inbox procesada en Python',
+        requires_confirmation: false,
+        requires_clarification: false,
+      },
+    };
+  }
+
+  // =========================================================================
+  // BLOQUE 8: ESTANDARIZACIÓN DE LAS 3 RUTAS DE ORQUESTACIÓN (DOC-ENRICHMENT, PAYMENT-AUDIT, STOCK-AUDIT)
+  // =========================================================================
+  const ORCHESTRATION_ROUTES = [
+    {
+      name: 'document-enrichment',
+      url: 'http://localhost:3000/api/agent/document-enrichment',
+      handler: postDocEnrichment,
+      expectedPath: '/api/v1/orchestration/document-enrichment',
+      allowedRoles: ['admin', 'staff'],
+      forbiddenRoles: ['socio'],
+      sampleBody: {
+        socio_id: '55555555-5555-4555-8555-555555555555',
+        document_id: '66666666-6666-4666-8666-666666666666',
+        reason: 'Enriquecimiento documental de prueba',
+      },
+      expectedUpstreamBody: {
+        socio_id: '55555555-5555-4555-8555-555555555555',
+        document_id: '66666666-6666-4666-8666-666666666666',
+        reason: 'Enriquecimiento documental de prueba',
+      },
+    },
+    {
+      name: 'payment-audit',
+      url: 'http://localhost:3000/api/agent/payment-audit',
+      handler: postPaymentAudit,
+      expectedPath: '/api/v1/orchestration/payment-audit',
+      allowedRoles: ['admin'],
+      forbiddenRoles: ['socio', 'staff'],
+      sampleBody: {
+        target_date: '2026-10-30',
+        reason: 'Auditoría de pagos de prueba',
+      },
+      expectedUpstreamBody: {
+        target_date: '2026-10-30',
+        reason: 'Auditoría de pagos de prueba',
+      },
+    },
+    {
+      name: 'stock-audit',
+      url: 'http://localhost:3000/api/agent/stock-audit',
+      handler: postStockAudit,
+      expectedPath: '/api/v1/orchestration/stock-audit',
+      allowedRoles: ['admin'],
+      forbiddenRoles: ['socio', 'staff'],
+      sampleBody: {
+        target_date: '2026-10-30',
+        force_recount: true,
+        reason: 'Auditoría de stock de prueba',
+      },
+      expectedUpstreamBody: {
+        target_date: '2026-10-30',
+        force_recount: true,
+        reason: 'Auditoría de stock de prueba',
+      },
+    },
+  ];
+
+  // TC-30: Sin sesión -> 401 en las 3 rutas de orquestación
+  try {
+    for (const route of ORCHESTRATION_ROUTES) {
+      lastCapturedUpstreamUrl = '';
+      const unauthReq = new NextRequest(route.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(route.sampleBody),
+      });
+      const res = await route.handler(unauthReq);
+      const data = await res.json();
+      assert.strictEqual(res.status, 401, `Ruta ${route.name} sin sesión debe devolver 401`);
+      assert.strictEqual(data.error, 'No autenticado');
+      assert.strictEqual(lastCapturedUpstreamUrl, '', `Ruta ${route.name} no debe invocar upstream sin sesión`);
+    }
+    recordTest('TC-30', 'Las 3 rutas de orquestación rechazan sesión ausente o inválida con 401', 'PASS', '3/3 rutas -> 401 No autenticado');
+  } catch (e: any) {
+    recordTest('TC-30', 'Las 3 rutas de orquestación rechazan sesión ausente o inválida con 401', 'FAIL', e.message);
+  }
+
+  // TC-31: Matriz de roles autorizados y prohibidos (admin/staff en document-enrichment; solo admin en payment-audit y stock-audit)
+  try {
+    mockPythonResponse = {
+      status: 200,
+      body: { status: 'queued', run_id: '77777777-7777-4777-8777-777777777777' },
+    };
+
+    for (const route of ORCHESTRATION_ROUTES) {
+      for (const forbiddenRole of route.forbiddenRoles) {
+        mockSocioDbResult = { id: VALID_SOCIO_ID, rol: forbiddenRole };
+        lastCapturedUpstreamUrl = '';
+        const req = new NextRequest(route.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...createAuthCookie(),
+          },
+          body: JSON.stringify(route.sampleBody),
+        });
+        const res = await route.handler(req);
+        const data = await res.json();
+        assert.strictEqual(res.status, 403, `Ruta ${route.name} con rol ${forbiddenRole} debe devolver 403`);
+        assert(String(data.error).includes(`Rol '${forbiddenRole}' no autorizado`), `Mensaje inesperado: ${data.error}`);
+        assert.strictEqual(lastCapturedUpstreamUrl, '', `Ruta ${route.name} no debe invocar upstream con rol ${forbiddenRole}`);
+      }
+
+      for (const allowedRole of route.allowedRoles) {
+        const callerSocioId = allowedRole === 'admin' ? '30000000-0000-4000-8000-000000000011' : '30000000-0000-4000-8000-000000000010';
+        mockSocioDbResult = { id: callerSocioId, rol: allowedRole };
+        lastCapturedUpstreamUrl = '';
+        lastCapturedUpstreamHeaders = {};
+        lastCapturedUpstreamBody = null;
+
+        const req = new NextRequest(route.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...createAuthCookie(),
+          },
+          body: JSON.stringify(route.sampleBody),
+        });
+        const res = await route.handler(req);
+        const data = await res.json();
+        assert.strictEqual(res.status, 200, `Ruta ${route.name} con rol ${allowedRole} debe devolver 200`);
+        assert.strictEqual(lastCapturedUpstreamUrl, `http://localhost:8000${route.expectedPath}`);
+        assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Auth-User-Id'], VALID_USER_ID);
+        assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Socio-Id'], callerSocioId);
+        assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-User-Role'], allowedRole);
+        assert.deepStrictEqual(lastCapturedUpstreamBody, route.expectedUpstreamBody);
+        assert.strictEqual(data.status, 'queued');
+      }
+    }
+    recordTest('TC-31', 'Matriz de roles respetada en las 3 rutas (admin+staff en document-enrichment, solo admin en auditorías)', 'PASS', 'Roles autorizados y denegados verificados');
+  } catch (e: any) {
+    recordTest('TC-31', 'Matriz de roles respetada en las 3 rutas (admin+staff en document-enrichment, solo admin en auditorías)', 'FAIL', e.message);
+  } finally {
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+  }
+
+  // TC-32: Usuario sin vinculación (403) vs error de consulta a base de datos (500) en las 3 rutas
+  try {
+    mockSocioDbResult = null;
+    for (const route of ORCHESTRATION_ROUTES) {
+      const req = new NextRequest(route.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...createAuthCookie(),
+        },
+        body: JSON.stringify(route.sampleBody),
+      });
+      const res = await route.handler(req);
+      const data = await res.json();
+      assert.strictEqual(res.status, 403, `Ruta ${route.name} sin socio vinculado debe devolver 403`);
+      assert.strictEqual(data.error, 'No se pudo resolver el perfil de socio para la sesión activa');
+    }
+
+    mockSocioDbError = {
+      status: 500,
+      body: { code: 'XX000', message: 'postgres crash internal detail' },
+    };
+    for (const route of ORCHESTRATION_ROUTES) {
+      const req = new NextRequest(route.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...createAuthCookie(),
+        },
+        body: JSON.stringify(route.sampleBody),
+      });
+      const res = await route.handler(req);
+      const data = await res.json();
+      assert.strictEqual(res.status, 500, `Ruta ${route.name} ante fallo de BD debe devolver 500`);
+      assert.strictEqual(data.error, 'Error al consultar perfil de socio');
+      assert.strictEqual(JSON.stringify(data).includes('postgres crash'), false);
+    }
+    recordTest('TC-32', 'Las 3 rutas distinguen usuario sin vinculación (403) de error de BD (500)', 'PASS', '3x403 + 3x500 verificados');
+  } catch (e: any) {
+    recordTest('TC-32', 'Las 3 rutas distinguen usuario sin vinculación (403) de error de BD (500)', 'FAIL', e.message);
+  } finally {
+    mockSocioDbError = null;
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+  }
+
+  // TC-33: Validación de payload obligatorio (400 en document-enrichment) y prevención de suplantación en headers/body
+  try {
+    const ADMIN_SOCIO_ID = '30000000-0000-4000-8000-000000000011';
+    mockSocioDbResult = { id: ADMIN_SOCIO_ID, rol: 'admin' };
+    mockPythonResponse = {
+      status: 200,
+      body: { status: 'queued' },
+    };
+
+    // 1. document-enrichment sin socio_id o document_id -> 400
+    lastCapturedUpstreamUrl = '';
+    const badReq = new NextRequest('http://localhost:3000/api/agent/document-enrichment', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...createAuthCookie(),
+      },
+      body: JSON.stringify({ socio_id: '55555555-5555-4555-8555-555555555555' }), // falta document_id
+    });
+    const badRes = await postDocEnrichment(badReq);
+    const badData = await badRes.json();
+    assert.strictEqual(badRes.status, 400);
+    assert.strictEqual(badData.error, 'Bad Request: socio_id y document_id son obligatorios');
+    assert.strictEqual(lastCapturedUpstreamUrl, '');
+
+    // 2. Prevención de suplantación en las 3 rutas
+    for (const route of ORCHESTRATION_ROUTES) {
+      lastCapturedUpstreamHeaders = {};
+      lastCapturedUpstreamBody = null;
+
+      const req = new NextRequest(route.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Delegated-Auth-User-Id': '99999999-9999-4999-8999-999999999999',
+          'X-Delegated-Socio-Id': '99999999-9999-4999-8999-999999999999',
+          'X-Delegated-User-Role': 'superadmin_forged',
+          'X-Agent-Core-Secret': 'forged_secret',
+          ...createAuthCookie(),
+        },
+        body: JSON.stringify({
+          ...route.sampleBody,
+          auth_user_id: '99999999-9999-4999-8999-999999999999',
+          user_id: '99999999-9999-4999-8999-999999999999',
+          rol: 'socio',
+          role: 'socio',
+          actor_id: 'forged_actor',
+          actor_role: 'forged_role',
+        }),
+      });
+      const res = await route.handler(req);
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Auth-User-Id'], VALID_USER_ID);
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-Socio-Id'], ADMIN_SOCIO_ID);
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Delegated-User-Role'], 'admin');
+      assert.strictEqual(lastCapturedUpstreamHeaders['X-Agent-Core-Secret'], 'e2e_integration_secret_test_12345');
+      assert.strictEqual('auth_user_id' in lastCapturedUpstreamBody, false);
+      assert.strictEqual('user_id' in lastCapturedUpstreamBody, false);
+      assert.strictEqual('rol' in lastCapturedUpstreamBody, false);
+      assert.strictEqual('role' in lastCapturedUpstreamBody, false);
+      assert.strictEqual('actor_id' in lastCapturedUpstreamBody, false);
+      assert.strictEqual('actor_role' in lastCapturedUpstreamBody, false);
+      assert.deepStrictEqual(lastCapturedUpstreamBody, route.expectedUpstreamBody);
+    }
+    recordTest('TC-33', 'Validación 400 y neutralización de suplantación en las 3 rutas de orquestación', 'PASS', 'Headers y body verificados');
+  } catch (e: any) {
+    recordTest('TC-33', 'Validación 400 y neutralización de suplantación en las 3 rutas de orquestación', 'FAIL', e.message);
+  } finally {
+    mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
+  }
+
+  // TC-34: Propagación de bloqueo operativo (503 KILLSWITCH_ACTIVE) en las 3 rutas de orquestación
+  try {
+    const ADMIN_SOCIO_ID = '30000000-0000-4000-8000-000000000011';
+    mockSocioDbResult = { id: ADMIN_SOCIO_ID, rol: 'admin' };
+    mockPythonResponse = {
+      status: 503,
+      body: {
+        error: 'Mecanismo de seguridad activado: operaciones suspendidas temporalmente.',
+        code: 'KILLSWITCH_ACTIVE',
+        correlation_id: 'req_orchestration_killswitch_503',
+      },
+    };
+
+    for (const route of ORCHESTRATION_ROUTES) {
+      const req = new NextRequest(route.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...createAuthCookie(),
+        },
+        body: JSON.stringify(route.sampleBody),
+      });
+      const res = await route.handler(req);
+      const data = await res.json();
+      assert.strictEqual(res.status, 503, `Ruta ${route.name} debe propagar 503 cuando kill-switch está activo`);
+      assert.strictEqual(data.code, 'KILLSWITCH_ACTIVE');
+      assert.strictEqual(data.correlation_id, 'req_orchestration_killswitch_503');
+    }
+    recordTest('TC-34', 'Las 3 rutas de orquestación propagan bloqueo operativo (503 KILLSWITCH_ACTIVE)', 'PASS', '3/3 rutas -> 503 KILLSWITCH_ACTIVE');
+  } catch (e: any) {
+    recordTest('TC-34', 'Las 3 rutas de orquestación propagan bloqueo operativo (503 KILLSWITCH_ACTIVE)', 'FAIL', e.message);
   } finally {
     mockSocioDbResult = { id: VALID_SOCIO_ID, rol: 'socio' };
     mockPythonResponse = {
