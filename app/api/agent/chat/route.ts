@@ -522,6 +522,52 @@ export async function POST(request: NextRequest) {
         return json(data, { status: 200 });
       }
 
+      // Si Agent Core respondió con status 423 (killswitch activo en Python upstream)
+      if (agentCoreResponse.status === 423) {
+        return json(
+          {
+            error: 'Operación bloqueada: el servicio de asistencia tiene activo el modo de solo lectura (kill-switch).',
+            code: 'KILLSWITCH_ACTIVE',
+            detail: 'AGENT_CORE_KILLSWITCH_ACTIVE: Operación bloqueada en modo seguro.',
+            killswitch_active: true,
+          },
+          { status: 423 }
+        );
+      }
+
+      // Si Agent Core respondió con error de autorización S2S upstream (401 o 403)
+      if (agentCoreResponse.status === 401 || agentCoreResponse.status === 403) {
+        return json(
+          { error: 'Falla de autorización upstream en Agent Core' },
+          { status: 502 }
+        );
+      }
+
+      // Si Agent Core respondió con 503 por killswitch o suspensión del servicio
+      if (agentCoreResponse.status === 503) {
+        const errorData =
+          data && typeof data === 'object' && !Array.isArray(data)
+            ? (data as Record<string, unknown>)
+            : {};
+        if (errorData.code === 'KILLSWITCH_ACTIVE' || errorData.code === 'SERVICE_SUSPENDED') {
+          return json(
+            {
+              error:
+                typeof errorData.error === 'string' && errorData.error.trim()
+                  ? errorData.error.trim()
+                  : 'El servicio de asistencia está temporalmente suspendido (kill-switch activo).',
+              code: String(errorData.code),
+              detail:
+                typeof errorData.detail === 'string' && errorData.detail.trim()
+                  ? errorData.detail.trim()
+                  : 'AGENT_CORE_KILLSWITCH_ACTIVE: Operación bloqueada en modo seguro.',
+              killswitch_active: true,
+            },
+            { status: 503 }
+          );
+        }
+      }
+
       // Para respuestas de error HTTP de Agent Core (4xx / 5xx):
       // ACEPTAR EXCLUSIVAMENTE si la respuesta es un ChatResponseEnvelope de error válido de Agent Core
       if (isChatResponseEnvelope(data, false)) {

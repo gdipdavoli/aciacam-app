@@ -1254,6 +1254,143 @@ async function runTestSuite() {
   }
 
   // =========================================================================
+  // BLOQUE 8: SPRINT 7B.10A - CONTRATO DE ERRORES DEL CHAT PYTHON AGENT CORE
+  // =========================================================================
+  try {
+    mockPythonResponse = {
+      status: 423,
+      body: {
+        code: 'KILLSWITCH_ACTIVE',
+        error: 'Operación bloqueada: el kill-switch global de Agent Core está activo.',
+        detail: 'AGENT_CORE_KILLSWITCH_ACTIVE: Solo se permite lectura autenticada del Admin Inbox y verificación de salud.',
+        killswitch_active: true,
+      },
+    };
+    const req = createRequest({ message: 'Hola, ¿puedo consultar?' });
+    const res = await POST(req);
+    const data = await res.json();
+
+    assert.strictEqual(res.status, 423);
+    assert.strictEqual(data.code, 'KILLSWITCH_ACTIVE');
+    assert.strictEqual(data.killswitch_active, true);
+    assert.strictEqual(data.error, 'Operación bloqueada: el servicio de asistencia tiene activo el modo de solo lectura (kill-switch).');
+    assert.strictEqual(data.detail, 'AGENT_CORE_KILLSWITCH_ACTIVE: Operación bloqueada en modo seguro.');
+    recordTest('TC-35', 'Python 423 KILLSWITCH_ACTIVE preservado en BFF de chat', 'PASS', '423 Locked propagado con code KILLSWITCH_ACTIVE');
+  } catch (e: any) {
+    recordTest('TC-35', 'Python 423 KILLSWITCH_ACTIVE preservado en BFF de chat', 'FAIL', e.message);
+  } finally {
+    mockPythonResponse = {
+      status: 200,
+      body: {
+        request_id: '11111111-1111-4111-a111-111111111111',
+        intent: 'QUERY_INBOX',
+        payload: { items: [], total_count: 0 },
+        human_message: 'Ok',
+        requires_confirmation: false,
+        requires_clarification: false,
+      },
+    };
+  }
+
+  try {
+    mockPythonResponse = {
+      status: 200,
+      body: { invalid_field: 'not an envelope', answer: '42' },
+    };
+    const req = createRequest({ message: 'Test estructura inválida' });
+    const res = await POST(req);
+    const data = await res.json();
+
+    assert.strictEqual(res.status, 502);
+    assert.strictEqual(data.error, 'Respuesta con estructura inválida desde Agent Core');
+    recordTest('TC-36', 'Python 200 con payload no-envelope rechazado con 502', 'PASS', 'Validación estricta de ChatResponseEnvelope');
+  } catch (e: any) {
+    recordTest('TC-36', 'Python 200 con payload no-envelope rechazado con 502', 'FAIL', e.message);
+  } finally {
+    mockPythonResponse = {
+      status: 200,
+      body: {
+        request_id: '11111111-1111-4111-a111-111111111111',
+        intent: 'QUERY_INBOX',
+        payload: { items: [], total_count: 0 },
+        human_message: 'Ok',
+        requires_confirmation: false,
+        requires_clarification: false,
+      },
+    };
+  }
+
+  try {
+    mockPythonResponse = {
+      status: 401,
+      body: { detail: 'Servicio no autenticado. Secret leaked: e2e_integration_secret_test_12345' },
+    };
+    const req = createRequest({ message: 'Test error auth S2S' });
+    const res = await POST(req);
+    const data = await res.json();
+
+    assert.strictEqual(res.status, 502);
+    assert.strictEqual(data.error, 'Falla de autorización upstream en Agent Core');
+    assert.strictEqual(JSON.stringify(data).includes('e2e_integration_secret_test_12345'), false);
+
+    mockPythonResponse = {
+      status: 403,
+      body: { detail: 'Forbidden upstream: invalid actor credentials' },
+    };
+    const req403 = createRequest({ message: 'Test error auth S2S 403' });
+    const res403 = await POST(req403);
+    const data403 = await res403.json();
+
+    assert.strictEqual(res403.status, 502);
+    assert.strictEqual(data403.error, 'Falla de autorización upstream en Agent Core');
+
+    recordTest('TC-37', 'Python 401 y 403 S2S upstream sanitizados a 502 sin leaks', 'PASS', '502 Bad Gateway sin exposición de secretos');
+  } catch (e: any) {
+    recordTest('TC-37', 'Python 401 y 403 S2S upstream sanitizados a 502 sin leaks', 'FAIL', e.message);
+  } finally {
+    mockPythonResponse = {
+      status: 200,
+      body: {
+        request_id: '11111111-1111-4111-a111-111111111111',
+        intent: 'QUERY_INBOX',
+        payload: { items: [], total_count: 0 },
+        human_message: 'Ok',
+        requires_confirmation: false,
+        requires_clarification: false,
+      },
+    };
+  }
+
+  try {
+    mockPythonResponse = {
+      status: 503,
+      body: { code: 'KILLSWITCH_ACTIVE', error: 'Servicio suspendido', detail: 'Suspensión temporal', killswitch_active: true },
+    };
+    const req = createRequest({ message: 'Test 503 suspensión' });
+    const res = await POST(req);
+    const data = await res.json();
+
+    assert.strictEqual(res.status, 503);
+    assert.strictEqual(data.code, 'KILLSWITCH_ACTIVE');
+    assert.strictEqual(data.killswitch_active, true);
+    recordTest('TC-38', 'Python 503 con código de suspensión preservado en BFF', 'PASS', '503 propagado con KILLSWITCH_ACTIVE');
+  } catch (e: any) {
+    recordTest('TC-38', 'Python 503 con código de suspensión preservado en BFF', 'FAIL', e.message);
+  } finally {
+    mockPythonResponse = {
+      status: 200,
+      body: {
+        request_id: '11111111-1111-4111-a111-111111111111',
+        intent: 'QUERY_INBOX',
+        payload: { items: [], total_count: 0 },
+        human_message: 'Ok',
+        requires_confirmation: false,
+        requires_clarification: false,
+      },
+    };
+  }
+
+  // =========================================================================
   // RESUMEN FINAL
   // =========================================================================
   console.log('======================================================================');
