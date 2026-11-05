@@ -18,3 +18,14 @@ test('loads one profile request with credentials, cancellation and no document w
  assert.equal(profile.id,'member');assert.equal(calls,1);
  await assert.rejects(fetchLinkedProfile('test',async()=>({ok:true,json:async()=>({})})),/incompleta/);
 });
+test('attaches Authorization Bearer header when token is supplied',async()=>{
+ let capturedOpts;
+ const profile=await fetchLinkedProfile('test-uid',async(url,opts)=>{
+  capturedOpts=opts;
+  return {ok:true,json:async()=>({id:'member-with-token'})};
+ },'synthetic-test-jwt');
+ assert.equal(profile.id,'member-with-token');
+ assert.equal(capturedOpts.headers['Authorization'],'Bearer synthetic-test-jwt');
+ assert.equal(capturedOpts.credentials,'same-origin');
+ assert.equal(capturedOpts.cache,'no-store');
+});

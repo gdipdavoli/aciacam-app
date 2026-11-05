@@ -813,8 +813,17 @@ export const StoreService = {
         return mapSocioFromDB(mergedData);
     },
 
-    getSocioByUserId: async (userId: string): Promise<Socio | undefined> => {
-        const data = await fetchLinkedProfile(userId);
+    getSocioByUserId: async (userId: string, token?: string): Promise<Socio | undefined> => {
+        let authToken = token;
+        if (!authToken && supabase) {
+            try {
+                const { data } = await supabase.auth.getSession();
+                authToken = data.session?.access_token;
+            } catch {
+                // Ignore fallback error
+            }
+        }
+        const data = await fetchLinkedProfile(userId, fetch, authToken);
         return data ? mapSocioFromDB(data) : undefined;
     },
 

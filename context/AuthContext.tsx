@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             try {
                 // Documents are loaded by the account screen, after profile identification.
-                const socio = await StoreService.getSocioByUserId(userId);
+                const socio = await StoreService.getSocioByUserId(userId, session?.access_token);
 
                 if (socio) {
                     console.log("AuthContext: Socio found linked:", socio.id);
@@ -281,7 +281,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const refreshUser = async () => {
         if (!session?.user?.id) return;
         try {
-            const socio = await StoreService.getSocioByUserId(session.user.id);
+            const socio = await StoreService.getSocioByUserId(session.user.id, session.access_token);
             if (socio) {
                 // Keep admin role override logic if applicable
                 const authRole = session?.user?.app_metadata?.role;
