@@ -439,7 +439,7 @@ export const StoreService = {
 
         const { data, error } = await supabase
             .from('pagos')
-            .select('*, socio:socios(*)')
+            .select('*')
             .order('fecha', { ascending: false });
 
         if (error) {
@@ -486,7 +486,7 @@ export const StoreService = {
 
         let query = supabase
             .from('pedidos')
-            .select('*, socio:socios(*)')
+            .select('*')
             .order('created_at', { ascending: false });
 
         if (!includeArchived) {
