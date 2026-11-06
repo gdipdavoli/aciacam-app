@@ -9,7 +9,7 @@ import { NotificationService } from '@/services/notificationService';
 import { StorageService } from '@/services/storageService';
 import type { TipoDocumento, EstadoVerificacion } from '@/services/documentacionService';
 import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento, Pago, Notificacion } from '@/types';
-import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus, CreditCard, Send, Bell, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus, CreditCard, Send, Bell, MessageSquare, Clock, AlertCircle, XCircle } from 'lucide-react';
 
 const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
     consentimiento: { needsFecha: false, needsMonto: false, hasExpiration: false },
@@ -1115,17 +1115,44 @@ export default function SocioDetailsPage() {
                                 </div>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.5rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.6rem' }}>
                                 {compliance.documentos_requeridos.map((req: string) => {
-                                    const isPresent = compliance.documentos_presentes.includes(req);
+                                    const item = compliance.detalle?.[req];
+                                    const estado = item?.estado || (compliance.documentos_aprobados?.includes(req) ? 'aprobado' : (compliance.documentos_presentes?.includes(req) ? 'presentado_pendiente' : 'no_presentado'));
+
+                                    let icon = <X size={16} color="#ef4444" />;
+                                    let badgeText = 'No presentado';
+                                    let badgeStyle: React.CSSProperties = { color: 'hsl(var(--muted-foreground))', backgroundColor: 'hsl(var(--muted))', fontSize: '0.75rem', fontWeight: 500, padding: '0.15rem 0.5rem', borderRadius: '4px' };
+
+                                    if (estado === 'aprobado') {
+                                        icon = <CheckCircle size={16} color="#16a34a" />;
+                                        badgeText = 'Aprobado';
+                                        badgeStyle = { color: '#166534', backgroundColor: '#dcfce7', fontSize: '0.75rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '4px' };
+                                    } else if (estado === 'presentado_pendiente' || estado === 'en_revision') {
+                                        icon = <Clock size={16} color="#d97706" />;
+                                        badgeText = estado === 'en_revision' ? 'En revisión' : 'Pendiente de verificación';
+                                        badgeStyle = { color: '#92400e', backgroundColor: '#fef3c7', fontSize: '0.75rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '4px' };
+                                    } else if (estado === 'vencido') {
+                                        icon = <AlertCircle size={16} color="#dc2626" />;
+                                        badgeText = 'Vencido';
+                                        badgeStyle = { color: '#991b1b', backgroundColor: '#fee2e2', fontSize: '0.75rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '4px' };
+                                    } else if (estado === 'rechazado') {
+                                        icon = <XCircle size={16} color="#dc2626" />;
+                                        badgeText = 'Rechazado';
+                                        badgeStyle = { color: '#991b1b', backgroundColor: '#fee2e2', fontSize: '0.75rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '4px' };
+                                    }
+
                                     return (
-                                        <div key={req} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.9rem' }}>
-                                            {isPresent ? <CheckCircle size={16} color="#22c55e" /> : <X size={16} color="#ef4444" />}
-                                            <span style={{ color: isPresent ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))' }}>
-                                                {req.replace('_', ' ').toUpperCase()}
-                                            </span>
+                                        <div key={req} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.25rem 0', fontSize: '0.9rem' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                                {icon}
+                                                <span style={{ fontWeight: 500, color: estado === 'no_presentado' ? 'hsl(var(--muted-foreground))' : 'hsl(var(--foreground))' }}>
+                                                    {req.replace('_', ' ').toUpperCase()}
+                                                </span>
+                                            </div>
+                                            <span style={badgeStyle}>{badgeText}</span>
                                         </div>
-                                    )
+                                    );
                                 })}
                             </div>
                         </div>
@@ -1546,6 +1573,7 @@ export default function SocioDetailsPage() {
                     <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <InputGroup label="Nº Trámite" value={socio.reprocann?.numeroTramite} onChange={(v: string) => setSocio({ ...socio, reprocann: { ...socio.reprocann, numeroTramite: v } })} readOnly={editingSection !== 'reprocann'} />
                         <InputGroup label="Fecha Alta" type="date" value={socio.reprocann?.fechaAlta} onChange={(v: string) => setSocio({ ...socio, reprocann: { ...socio.reprocann, fechaAlta: v } })} readOnly={editingSection !== 'reprocann'} />
+                        <InputGroup label="Fecha Vencimiento" type="date" value={socio.reprocann?.fechaVencimiento} onChange={(v: string) => setSocio({ ...socio, reprocann: { ...socio.reprocann, fechaVencimiento: v } })} readOnly={editingSection !== 'reprocann'} />
                         <SelectGroup
                             label="Estado"
                             value={socio.reprocann?.estado}

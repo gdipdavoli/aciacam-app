@@ -828,13 +828,25 @@ export const StoreService = {
         }
     },
 
-    getSocioById: async (id: string): Promise<Socio | undefined> => {
-        // Try API first (Admin access bypass)
+    getSocioById: async (id: string, token?: string): Promise<Socio | undefined> => {
+        // Try API first (Admin & Socio access via authorized BFF)
         try {
-            const res = await fetch(`/api/admin/socios/${id}`);
+            let authToken = token;
+            if (!authToken && supabase) {
+                try {
+                    const { data } = await supabase.auth.getSession();
+                    authToken = data.session?.access_token;
+                } catch {
+                    // Ignore fallback error
+                }
+            }
+            const headers: Record<string, string> = {};
+            if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+            const res = await fetch(`/api/admin/socios/${id}`, { headers });
             if (res.ok) {
                 const data = await res.json();
-                const docs = await StoreService.getDocumentosBySocio(data.id);
+                const docs = Array.isArray(data.documentos) ? data.documentos : await StoreService.getDocumentosBySocio(data.id);
                 return mapSocioFromDB({ ...data, documentos: docs });
             }
         } catch (e) {

@@ -51,6 +51,22 @@ export interface EstadoDocumentacionSocio {
  * Obtiene todos los documentos de un socio
  */
 export const getDocumentosBySocio = async (socioId: string): Promise<DocumentoSocio[]> => {
+  if (typeof window !== 'undefined') {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: Record<string, string> = {};
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
+
+      const res = await fetch(`/api/socios/${socioId}/documents`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        return data || [];
+      }
+    } catch (e) {
+      console.warn('Fallback to direct client for getDocumentosBySocio', e);
+    }
+  }
+
   const { data, error } = await supabase
     .from('documentos_socio')
     .select('*')
@@ -356,6 +372,25 @@ export const uploadDocumento = async (
  * Obtiene la URL pública (o signed URL) de un documento
  */
 export const getUrlDocumento = async (archivoPath: string): Promise<string | null> => {
+  if (!archivoPath) return null;
+
+  // Use authenticated BFF endpoint in browser
+  if (typeof window !== 'undefined') {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: Record<string, string> = {};
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
+
+      const res = await fetch(`/api/docs/signed-url?path=${encodeURIComponent(archivoPath)}`, { headers });
+      if (res.ok) {
+        const body = await res.json();
+        return body.signedUrl || null;
+      }
+    } catch (e) {
+      console.warn('Fallback to direct storage createSignedUrl', e);
+    }
+  }
+
   const { data } = await supabase.storage
     .from('documentos-socios')
     .createSignedUrl(archivoPath, 60 * 60); // 1 hora de validez

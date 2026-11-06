@@ -8,6 +8,8 @@ const supabaseAdmin = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const ALLOWED_SOCIO_COLUMNS = 'id, auth_user_id, nombre, apellido, dni, email, telefono, domicilio, localidad, rol, status, fecha_ingreso_ong, envios_habilitados, bloqueado, motivo_bloqueo, reprocann_num_tramite, reprocann_fecha_alta, reprocann_fecha_vencimiento, reprocann_tipo, medico_nombre, medico_matricula, diagnostico, created_at, updated_at, onboarding_completed_at, terms_accepted_at';
+
 export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const userId = searchParams.get('id');
@@ -27,7 +29,7 @@ export async function GET(request: NextRequest) {
         }
         const { data, error } = await supabaseAdmin
             .from('socios')
-            .select('*')
+            .select(ALLOWED_SOCIO_COLUMNS)
             .eq('auth_user_id', userId)
             .maybeSingle();
 
@@ -41,7 +43,15 @@ export async function GET(request: NextRequest) {
             return NextResponse.json(null, { status: 404 });
         }
 
-        return NextResponse.json(data, { headers: { 'Cache-Control': 'private, no-store' } });
+        const socioData = data as unknown as Record<string, any>;
+
+        // Fetch documents via service role to ensure consistent access across roles
+        const { data: docs } = await supabaseAdmin
+            .from('documentos_socio')
+            .select('id, tipo, archivo_path, verificacion_estado, verificacion_obs, fecha_emision, fecha_vencimiento, is_current, version')
+            .eq('socio_id', socioData.id);
+
+        return NextResponse.json({ ...socioData, documentos: docs || [] }, { headers: { 'Cache-Control': 'private, no-store' } });
 
     } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });

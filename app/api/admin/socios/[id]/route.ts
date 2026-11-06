@@ -8,35 +8,54 @@ const supabaseAdmin = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const ALLOWED_SOCIO_COLUMNS = 'id, auth_user_id, nombre, apellido, dni, email, telefono, domicilio, localidad, rol, status, fecha_ingreso_ong, envios_habilitados, bloqueado, motivo_bloqueo, reprocann_num_tramite, reprocann_fecha_alta, reprocann_fecha_vencimiento, reprocann_tipo, medico_nombre, medico_matricula, diagnostico, created_at, updated_at, onboarding_completed_at, terms_accepted_at';
+
 export async function GET(
     request: Request,
-    { params }: { params: Promise<{ id: string }> } // Params is a Promise in Next 15+? Or strictly just { params } in generic.
-    // In Next 13 App Dir, generic types for params are slightly tricky.
-    // Let's use context generic.
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
-        const caller = await authenticate(request, supabaseAdmin);
-        if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-        // Next.js 15 breaking change: params is a promise. 
-        // We can await it.
-        const { id } = await params;
+        const authResult = await authenticate(request, supabaseAdmin);
+        const caller = (authResult && typeof authResult === 'object' && 'user' in authResult)
+            ? (authResult as any).user
+            : authResult;
 
-        if (!id) {
-            return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
+        if (!caller) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+
+        const { id } = await params;
+        if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+            return NextResponse.json({ error: 'Identificador inválido' }, { status: 400 });
         }
 
+        // Fetch socio explicitly from public.socios with curated allowed columns
         const { data: socio, error } = await supabaseAdmin
-            .from('socios_with_auth')
-            .select('*')
+            .from('socios')
+            .select(ALLOWED_SOCIO_COLUMNS)
             .eq('id', id)
             .single();
 
-        if (error) {
-            return NextResponse.json({ error: error.message }, { status: 404 });
+        if (error || !socio) {
+            return NextResponse.json({ error: 'Socio not found' }, { status: 404 });
         }
 
-        if (socio.auth_user_id !== caller.id && !await hasStaffRole(caller, supabaseAdmin)) return NextResponse.json({ error: "No autorizado" }, { status: 403 });
-        return NextResponse.json(socio, { headers: { "Cache-Control": "private, no-store" } });
+        const socioData = socio as unknown as Record<string, any>;
+
+        // Access check: only owner or staff/admin
+        if (socioData.auth_user_id !== caller.id && !await hasStaffRole(caller, supabaseAdmin)) {
+            return NextResponse.json({ error: "No autorizado" }, { status: 403 });
+        }
+
+        // Fetch associated documents via service role to bypass client RLS restrictions
+        const { data: docs } = await supabaseAdmin
+            .from('documentos_socio')
+            .select('id, socio_id, tipo, archivo_path, estado, verificacion_estado, verificacion_obs, verificado_at, verificado_por, fecha_emision, fecha_vencimiento, version, supersedes_document_id, is_current, created_at')
+            .eq('socio_id', id)
+            .order('created_at', { ascending: false });
+
+        return NextResponse.json(
+            { ...socioData, documentos: docs || [] },
+            { headers: { "Cache-Control": "private, no-store" } }
+        );
     } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });
     }
