@@ -6,14 +6,14 @@ import { NextRequest } from 'next/server';
 
 const localEnvPath = 'c:/Users/gdipd/Documents/Proyectos/aciacam-app/.env.integration.local';
 if (fs.existsSync(localEnvPath)) {
-    const env = dotenv.parse(fs.readFileSync(localEnvPath));
-    for (const k in env) {
-        process.env[k] = env[k];
+    const envVars = dotenv.parse(fs.readFileSync(localEnvPath));
+    for (const k in envVars) {
+        process.env[k] = envVars[k];
     }
 }
-const SUPABASE_URL = env.NEXT_PUBLIC_SUPABASE_URL;
-const SERVICE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
-const ANON_KEY = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 if (!SUPABASE_URL || !SUPABASE_URL.includes('uqwuhjxzazsexuvqxmfm')) {
     console.error('Guard fail: Not integration');
