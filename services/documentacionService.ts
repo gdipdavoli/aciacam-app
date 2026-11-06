@@ -163,31 +163,53 @@ export const upsertDocumentoSocio = async (
     user_id?: string;
   }
 ): Promise<DocumentoSocio | null> => {
-  // Pre-flight: Ensure user_id is set if we have a session but it's missing from updates
-  const upsertPayload: any = {
-      socio_id: socioId,
-      tipo,
-      ...updates,
-  };
+  const cleanTipo = (tipo === 'declaracionJurada' || tipo === 'declaracion_jurada') ? 'declaracion_jurada' : tipo;
 
-  if (!upsertPayload.user_id) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user?.id) {
-          upsertPayload.user_id = session.user.id;
-      }
-  }
-
-  const { data, error } = await supabase
+  // Check if current document exists
+  const { data: existingDoc } = await supabase
     .from('documentos_socio')
-    .upsert(upsertPayload, { onConflict: 'socio_id,tipo' })
-    .select()
-    .single();
+    .select('id, version')
+    .eq('socio_id', socioId)
+    .eq('tipo', cleanTipo)
+    .eq('is_current', true)
+    .maybeSingle();
 
-  if (error) {
-    console.error('upsertDocumentoSocio error:', error);
-    throw error;
+  if (existingDoc) {
+    const { data, error } = await supabase
+      .from('documentos_socio')
+      .update({
+        ...updates,
+        tipo: cleanTipo,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', existingDoc.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('upsertDocumentoSocio update error:', error);
+      throw error;
+    }
+    return data;
+  } else {
+    const { data, error } = await supabase
+      .from('documentos_socio')
+      .insert({
+        socio_id: socioId,
+        tipo: cleanTipo,
+        ...updates,
+        is_current: true,
+        version: 1
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('upsertDocumentoSocio insert error:', error);
+      throw error;
+    }
+    return data;
   }
-  return data;
 };
 
 /**
@@ -255,6 +277,12 @@ export const registrarRecordatorioEnviado = async (
 
 // ── STORAGE ───────────────────────────────────────────────────
 
+export interface UploadDocumentoOptions {
+  fechaEmision?: string;
+  fechaVencimiento?: string;
+  numeroTramite?: string;
+}
+
 /**
  * Sube un archivo de documento al Storage de Supabase
  * y guarda el path en documentos_socio
@@ -264,12 +292,43 @@ export const uploadDocumento = async (
   tipo: TipoDocumento,
   file: File,
   uploadedBy: UploadedBy = 'socio_web',
-  userId?: string
-): Promise<DocumentoSocio | null> => {
+  userId?: string,
+  options?: UploadDocumentoOptions
+): Promise<any> => {
   // Compress image if applicable (JPEG/PNG/WEBP) before uploading
   const fileToUpload = await compressImageFile(file);
 
-  // 1. Subir al bucket 'documentos-socios'
+  // If in browser environment, use authenticated BFF endpoint /api/docs/upload
+  if (typeof window !== 'undefined') {
+    const formData = new FormData();
+    formData.append('file', fileToUpload);
+    formData.append('socioId', socioId);
+    formData.append('docType', tipo);
+    if (options?.fechaEmision) formData.append('fechaEmision', options.fechaEmision);
+    if (options?.fechaVencimiento) formData.append('fechaVencimiento', options.fechaVencimiento);
+    if (options?.numeroTramite) formData.append('numeroTramite', options.numeroTramite);
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers: Record<string, string> = {};
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+
+    const res = await fetch('/api/docs/upload', {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Error al subir el documento' }));
+      throw new Error(err.error || 'Error al subir el documento');
+    }
+
+    return await res.json();
+  }
+
+  // 1. Subir al bucket 'documentos-socios' (fallback fuera de browser)
   const ext = fileToUpload.name.split('.').pop();
   const path = `${socioId}/${tipo}_${Date.now()}.${ext}`;
 
@@ -288,6 +347,8 @@ export const uploadDocumento = async (
     verificacion_estado: 'pendiente',
     uploaded_by: uploadedBy,
     user_id: userId,
+    fecha_emision: options?.fechaEmision,
+    fecha_vencimiento: options?.fechaVencimiento,
   });
 };
 

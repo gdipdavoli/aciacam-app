@@ -14,6 +14,7 @@ import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, 
 const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
     consentimiento: { needsFecha: false, needsMonto: false, hasExpiration: false },
     declaracionJurada: { needsFecha: true, needsMonto: false, hasExpiration: false },
+    declaracion_jurada: { needsFecha: true, needsMonto: false, hasExpiration: false },
     reprocann: { needsFecha: true, needsMonto: false, hasExpiration: true },
     contrato_autocultivo: { needsFecha: true, needsMonto: true, hasExpiration: true },
     contrato_madre: { needsFecha: true, needsMonto: true, hasExpiration: true },
@@ -880,7 +881,8 @@ export default function SocioDetailsPage() {
         if (!socio || !editingDocKey) return;
 
         const docKeyToTipo: Record<string, string> = {
-            'declaracionJurada': 'declaracionJurada', // Fixed to match compliance and keys
+            'declaracionJurada': 'declaracion_jurada',
+            'declaracion_jurada': 'declaracion_jurada',
             'consentimiento': 'consentimiento',
             'reprocann': 'reprocann',
             'contrato_autocultivo': 'contrato_autocultivo',

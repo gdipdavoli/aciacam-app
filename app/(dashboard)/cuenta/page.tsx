@@ -19,8 +19,21 @@ export default function CuentaPage() {
     // REPROCANN dates state for upload
     const [reprocannDates, setReprocannDates] = useState({
         fechaEmision: '',
-        fechaVencimiento: ''
+        fechaVencimiento: '',
+        numeroTramite: ''
     });
+
+    const openUploadModal = (dbKey: string) => {
+        setUploadingDoc(dbKey);
+        if (dbKey === 'reprocann') {
+            const docRepro = socio?.documentacion?.reprocann;
+            setReprocannDates({
+                fechaEmision: docRepro?.fechaEmision || socio?.reprocann?.fechaAlta || '',
+                fechaVencimiento: docRepro?.fechaVencimiento || socio?.reprocann?.fechaVencimiento || '',
+                numeroTramite: socio?.reprocann?.numeroTramite || ''
+            });
+        }
+    };
 
     useEffect(() => {
         if (authUser) {
@@ -145,30 +158,20 @@ export default function CuentaPage() {
 
         setIsUploading(true);
         try {
-            await StoreService.uploadDocumento(socio.id, tipo, file, 'socio_web', authUser.id);
-            
-            // If it's reprocann and dates are set, update metadata
-            if (tipo === 'reprocann' && (reprocannDates.fechaEmision || reprocannDates.fechaVencimiento)) {
-                // In a perfect world, uploadDocumento would take these.
-                // For now, we update the doc record immediately after
-                const docs = await StoreService.getDocumentosBySocio(socio.id);
-                const reproDoc = docs.find(d => d.tipo === 'reprocann');
-                if (reproDoc) {
-                    await StoreService.upsertDocumentoSocio(socio.id, 'reprocann', {
-                        fecha_emision: reprocannDates.fechaEmision || undefined,
-                        fecha_vencimiento: reprocannDates.fechaVencimiento || undefined
-                    });
-                }
-            }
+            await StoreService.uploadDocumento(socio.id, tipo, file, 'socio_web', authUser?.id, {
+                fechaEmision: tipo === 'reprocann' ? reprocannDates.fechaEmision || undefined : undefined,
+                fechaVencimiento: tipo === 'reprocann' ? reprocannDates.fechaVencimiento || undefined : undefined,
+                numeroTramite: tipo === 'reprocann' ? reprocannDates.numeroTramite || undefined : undefined
+            });
 
-            // Refresh data
+            // Refresh data from server
             const freshSocio = await StoreService.getSocioById(socio.id);
             if (freshSocio) setSocio(freshSocio);
             setUploadingDoc(null);
             toast.success('Documento subido correctamente. Será revisado por administración.');
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
-            toast.error('Error al subir el documento.');
+            toast.error(err.message || 'Error al subir el documento.');
         } finally {
             setIsUploading(false);
         }
@@ -207,24 +210,36 @@ export default function CuentaPage() {
                         </div>
 
                         {uploadingDoc === 'reprocann' && (
-                            <div style={{ marginBottom: '1.5rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <div style={{ marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.4rem', fontWeight: 500 }}>Fecha de Emisión</label>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.4rem', fontWeight: 500 }}>Número de Trámite REPROCANN</label>
                                     <input 
-                                        type="date" 
-                                        value={reprocannDates.fechaEmision}
-                                        onChange={(e) => setReprocannDates(prev => ({ ...prev, fechaEmision: e.target.value }))}
+                                        type="text" 
+                                        placeholder="Ej: 123456"
+                                        value={reprocannDates.numeroTramite}
+                                        onChange={(e) => setReprocannDates(prev => ({ ...prev, numeroTramite: e.target.value }))}
                                         style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid hsl(var(--border))' }}
                                     />
                                 </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.4rem', fontWeight: 500 }}>Fecha de Vencimiento</label>
-                                    <input 
-                                        type="date" 
-                                        value={reprocannDates.fechaVencimiento}
-                                        onChange={(e) => setReprocannDates(prev => ({ ...prev, fechaVencimiento: e.target.value }))}
-                                        style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid hsl(var(--border))' }}
-                                    />
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.4rem', fontWeight: 500 }}>Fecha de Emisión</label>
+                                        <input 
+                                            type="date" 
+                                            value={reprocannDates.fechaEmision}
+                                            onChange={(e) => setReprocannDates(prev => ({ ...prev, fechaEmision: e.target.value }))}
+                                            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid hsl(var(--border))' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.4rem', fontWeight: 500 }}>Fecha de Vencimiento</label>
+                                        <input 
+                                            type="date" 
+                                            value={reprocannDates.fechaVencimiento}
+                                            onChange={(e) => setReprocannDates(prev => ({ ...prev, fechaVencimiento: e.target.value }))}
+                                            style={{ width: '100%', padding: '0.5rem', borderRadius: '4px', border: '1px solid hsl(var(--border))' }}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -305,25 +320,131 @@ export default function CuentaPage() {
                 </SectionCard>
 
                 {/* 2. REPROCANN */}
-                <SectionCard title="REPROCANN" icon={FileCheck}>
-                    {socio.reprocann ? (
-                        <>
-                            <InfoRow label="Número de Trámite" value={socio.reprocann.numeroTramite || 'No informado'} />
-                            <InfoRow label="Fecha de Alta" value={formatDate(socio.reprocann.fechaAlta)} />
-                            <InfoRow label="Estado" value={<DocumentStatusBadge status={socio.reprocann.estado || 'Desconocido'} />} />
-                            {socio.reprocann.estado === 'vencido' && (
-                                <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#fef2f2', color: '#dc2626', borderRadius: 'var(--radius)', fontSize: '0.9rem' }}>
-                                    <AlertCircle size={16} style={{ display: 'inline', marginRight: '0.5rem' }} />
-                                    Tu REPROCANN está vencido. Por favor regularizá tu situación.
+                {(() => {
+                    const reproDoc = socio.documentacion?.reprocann;
+                    const fechaVencimiento = socio.reprocann?.fechaVencimiento || reproDoc?.fechaVencimiento;
+                    const fechaAlta = socio.reprocann?.fechaAlta || reproDoc?.fechaEmision;
+                    const numeroTramite = socio.reprocann?.numeroTramite;
+                    const verificacionDoc = reproDoc?.verificacion_estado;
+
+                    let daysLeft: number | null = null;
+                    let isExpired = false;
+                    let isExpiringSoon = false;
+
+                    if (fechaVencimiento) {
+                        const vDate = new Date(fechaVencimiento);
+                        if (!isNaN(vDate.getTime())) {
+                            const now = new Date();
+                            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                            const target = new Date(vDate.getFullYear(), vDate.getMonth(), vDate.getDate());
+                            const diffDays = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                            daysLeft = diffDays;
+                            if (diffDays <= 0 || socio.reprocann?.estado === 'vencido') {
+                                isExpired = true;
+                            } else if (diffDays <= 30) {
+                                isExpiringSoon = true;
+                            }
+                        }
+                    } else if (socio.reprocann?.estado === 'vencido') {
+                        isExpired = true;
+                    }
+
+                    const tieneDatos = Boolean(numeroTramite || fechaAlta || fechaVencimiento || reproDoc?.archivoPath);
+
+                    return (
+                        <SectionCard title="REPROCANN" icon={FileCheck}>
+                            {tieneDatos ? (
+                                <>
+                                    <InfoRow label="Número de Trámite" value={numeroTramite || 'No informado'} />
+                                    <InfoRow label="Fecha de Alta" value={formatDate(fechaAlta)} />
+                                    <InfoRow label="Fecha de Vencimiento" value={fechaVencimiento ? formatDate(fechaVencimiento) : 'No informada'} />
+                                    <InfoRow 
+                                        label="Estado Autorización" 
+                                        value={
+                                            isExpired ? (
+                                                <DocumentStatusBadge status="vencido" />
+                                            ) : isExpiringSoon ? (
+                                                <span style={{ backgroundColor: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', padding: '0.25rem 0.6rem', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                    Por Vencer ({daysLeft}d)
+                                                </span>
+                                            ) : (
+                                                <DocumentStatusBadge status={socio.reprocann?.estado || (verificacionDoc === 'aprobado' ? 'vigente' : 'pendiente')} />
+                                            )
+                                        } 
+                                    />
+                                    <InfoRow 
+                                        label="Certificado Adjunto" 
+                                        value={
+                                            !reproDoc?.archivoPath ? (
+                                                <span style={{ color: '#b45309', fontSize: '0.85rem' }}>No adjuntado</span>
+                                            ) : verificacionDoc === 'aprobado' ? (
+                                                <span style={{ color: '#10b981', fontSize: '0.85rem', fontWeight: 600 }}>Aprobado por administración</span>
+                                            ) : verificacionDoc === 'rechazado' ? (
+                                                <span style={{ color: '#ef4444', fontSize: '0.85rem', fontWeight: 600 }}>Rechazado / Observado</span>
+                                            ) : (
+                                                <span style={{ color: '#7c3aed', fontSize: '0.85rem', fontWeight: 600 }}>En revisión por administración</span>
+                                            )
+                                        } 
+                                    />
+
+                                    {/* Alertas contextuales claras */}
+                                    {isExpired && (
+                                        <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#fef2f2', color: '#dc2626', borderRadius: 'var(--radius)', fontSize: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                                            <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                                            <div>
+                                                <strong>Autorización vencida:</strong> Tu certificado REPROCANN ha vencido. Regularizá tu trámite para poder solicitar tratamientos.
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {isExpiringSoon && !isExpired && (
+                                        <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#fffbeb', color: '#b45309', borderRadius: 'var(--radius)', fontSize: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                                            <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                                            <div>
+                                                <strong>Próximo a vencer:</strong> Tu autorización vence en {daysLeft} {daysLeft === 1 ? 'día' : 'días'}. Te recomendamos gestionar la renovación con anticipación.
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {reproDoc?.archivoPath && (verificacionDoc === 'pendiente' || verificacionDoc === 'en_revision') && !isExpired && (
+                                        <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#f5f3ff', color: '#6d28d9', borderRadius: 'var(--radius)', fontSize: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                                            <Clock size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                                            <div>
+                                                <strong>Certificado en revisión:</strong> El archivo adjunto está siendo verificado por el equipo de administración.
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {reproDoc?.archivoPath && verificacionDoc === 'rechazado' && (
+                                        <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#fef2f2', color: '#dc2626', borderRadius: 'var(--radius)', fontSize: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                                            <XCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                                            <div>
+                                                <strong>Certificado observado:</strong> {reproDoc.verificacion_obs ? `"${reproDoc.verificacion_obs}"` : 'El archivo adjunto fue rechazado por administración. Por favor subí una copia legible.'}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {!reproDoc?.archivoPath && (
+                                        <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#fffbeb', color: '#b45309', borderRadius: 'var(--radius)', fontSize: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                                            <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                                            <div>
+                                                <strong>Certificado digital pendiente:</strong> Podés adjuntar tu certificado en formato PDF o imagen desde la sección de Documentación.
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <div style={{ color: 'hsl(var(--muted-foreground))', textAlign: 'center', padding: '2rem 0' }}>
+                                    <p style={{ marginBottom: '1rem' }}>Sin datos de REPROCANN cargados.</p>
+                                    <div style={{ padding: '0.75rem', backgroundColor: '#fffbeb', color: '#b45309', borderRadius: 'var(--radius)', fontSize: '0.85rem', textAlign: 'left', display: 'flex', gap: '0.5rem' }}>
+                                        <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                                        <span>Subí tu certificado digital en la sección de Documentación para registrar tu autorización.</span>
+                                    </div>
                                 </div>
                             )}
-                        </>
-                    ) : (
-                        <div style={{ color: 'hsl(var(--muted-foreground))', textAlign: 'center', padding: '2rem 0' }}>
-                            <p>Sin datos de REPROCANN cargados.</p>
-                        </div>
-                    )}
-                </SectionCard>
+                        </SectionCard>
+                    );
+                })()}
 
                 {/* 3. Médico Tratante */}
                 <SectionCard title="Médico Tratante" icon={Activity}>
@@ -364,7 +485,7 @@ export default function CuentaPage() {
                                 </thead>
                                 <tbody>
                                     {[
-                                        { key: 'declaracionJurada', dbKey: 'declaracion_jurada', name: 'Declaración Jurada', data: socio.documentacion?.declaracionJurada },
+                                        { key: 'declaracion_jurada', dbKey: 'declaracion_jurada', name: 'Declaración Jurada', data: socio.documentacion?.declaracion_jurada || socio.documentacion?.declaracionJurada },
                                         { key: 'consentimiento', dbKey: 'consentimiento', name: 'Consentimiento Informado', data: socio.documentacion?.consentimiento },
                                         { key: 'reprocann', dbKey: 'reprocann', name: 'Certificado de Reprocann', data: socio.documentacion?.reprocann },
                                     ].map((doc, idx) => (
@@ -399,7 +520,7 @@ export default function CuentaPage() {
                                                     
                                                     {(!doc.data || doc.data.verificacion_estado === 'pendiente' || doc.data.verificacion_estado === 'rechazado') ? (
                                                         <button
-                                                            onClick={() => setUploadingDoc(doc.dbKey)}
+                                                            onClick={() => openUploadModal(doc.dbKey)}
                                                             style={{
                                                                 padding: '0.3rem 0.6rem',
                                                                 borderRadius: 'var(--radius)',

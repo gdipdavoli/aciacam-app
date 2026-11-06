@@ -44,13 +44,20 @@ const mapSocioFromDB = (row: any): Socio => {
         localidad: row.localidad,
         direccion: row.domicilio,
 
-        // Reprocann
-        reprocann: {
-            numeroTramite: row.reprocann_num_tramite,
-            fechaAlta: row.reprocann_fecha_alta,
-            fechaVencimiento: row.reprocann_fecha_vencimiento || row.reprocann_vencimiento,
-            estado: row.reprocann_estado || 'pendiente',
-        },
+        // Reprocann (with fallback from joined reprocann document if present)
+        reprocann: (() => {
+            const reproDocs = Array.isArray(row.documentos)
+                ? row.documentos.filter((d: any) => String(d.tipo || '').toLowerCase().trim().includes('reprocann'))
+                : [];
+            // Prefer current document (is_current === true), or fallback to newest version / first record
+            const reproDoc = reproDocs.find((d: any) => d.is_current === true) || reproDocs[0];
+            return {
+                numeroTramite: row.reprocann_num_tramite,
+                fechaAlta: row.reprocann_fecha_alta || reproDoc?.fecha_emision?.slice(0, 10),
+                fechaVencimiento: row.reprocann_fecha_vencimiento || row.reprocann_vencimiento || reproDoc?.fecha_vencimiento?.slice(0, 10),
+                estado: row.reprocann_estado || (reproDoc?.verificacion_estado === 'aprobado' ? 'vigente' : 'pendiente'),
+            };
+        })(),
         medicoNombre: row.medico_nombre,
         medicoMatricula: row.medico_matricula,
         diagnosticoPrincipal: row.diagnostico,
@@ -65,14 +72,25 @@ const mapSocioFromDB = (row: any): Socio => {
             };
             
             if (row.documentos && Array.isArray(row.documentos)) {
-                row.documentos.forEach((d: any) => {
-                    // Normalize tipo string (lower case, replace spaces/dashes with underscore)
-                    const normalizedTipo = String(d.tipo || '').toLowerCase()
-                        .trim()
-                        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
-                        .replace(/[\s-]/g, '_');
+                // Prioritize active/current documents: is_current === true first, then highest version
+                const sortedDocs = [...row.documentos].sort((a, b) => {
+                    if (a.is_current === true && b.is_current !== true) return -1;
+                    if (b.is_current === true && a.is_current !== true) return 1;
+                    return (b.version || 0) - (a.version || 0);
+                });
+
+                sortedDocs.forEach((d: any) => {
+                    const rawTipo = String(d.tipo || '').toLowerCase().trim();
+                    const isDeclaracion = rawTipo === 'declaracionjurada' || rawTipo === 'declaracion_jurada' || (rawTipo.includes('declaracion') && rawTipo.includes('jurada'));
                     
-                    const key = normalizedTipo === 'declaracion_jurada' ? 'declaracionJurada' : normalizedTipo;
+                    const canonicalKey = isDeclaracion
+                        ? 'declaracion_jurada'
+                        : rawTipo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\s-]/g, '_');
+
+                    // Prevent historical replaced documents (is_current === false) from overwriting current documents
+                    if (docs[canonicalKey] && d.is_current === false) {
+                        return;
+                    }
                     
                     // Map verification state to legacy 'estado' for the DocumentStatusBadge
                     let estado = d.estado || (d.archivo_path ? 'completo' : 'pendiente');
@@ -81,7 +99,7 @@ const mapSocioFromDB = (row: any): Socio => {
                     else if (d.verificacion_estado === 'en_revision') estado = 'en_revision';
                     else if (d.archivo_path && d.verificacion_estado === 'pendiente') estado = 'en_revision';
 
-                    docs[key] = {
+                    const docObj = {
                         estado,
                         archivoPath: d.archivo_path,
                         fechaEmision: d.fecha_emision?.slice(0, 10),
@@ -89,6 +107,12 @@ const mapSocioFromDB = (row: any): Socio => {
                         verificacion_obs: d.verificacion_obs,
                         verificacion_estado: d.verificacion_estado
                     };
+
+                    docs[canonicalKey] = docObj;
+                    // Backward compatibility alias for UI consumers expecting camelCase
+                    if (isDeclaracion) {
+                        docs['declaracionJurada'] = docObj;
+                    }
                 });
             }
             return docs;
@@ -884,7 +908,7 @@ export const StoreService = {
             return { id: 'mock-id', ...socio } as Socio;
         }
 
-        const dbRow = {
+        const dbRow: any = {
             nombre: socio.nombre,
             apellido: socio.apellido,
             dni: socio.dni,
@@ -892,6 +916,10 @@ export const StoreService = {
             telefono: socio.telefono,
             rol: socio.rol || 'socio' // Add role persistence
         };
+
+        if (socio.direccion) dbRow.domicilio = socio.direccion;
+        if (socio.localidad) dbRow.localidad = socio.localidad;
+        if (socio.fechaNacimiento) dbRow.fecha_nacimiento = socio.fechaNacimiento;
 
         const { data, error } = await supabase
             .from('socios')
@@ -933,6 +961,7 @@ export const StoreService = {
         if (updates.reprocann) {
             if (updates.reprocann.numeroTramite !== undefined) dbUpdates.reprocann_num_tramite = updates.reprocann.numeroTramite;
             if (updates.reprocann.fechaAlta !== undefined) dbUpdates.reprocann_fecha_alta = updates.reprocann.fechaAlta;
+            if (updates.reprocann.fechaVencimiento !== undefined) dbUpdates.reprocann_fecha_vencimiento = updates.reprocann.fechaVencimiento;
             if (updates.reprocann.estado !== undefined) dbUpdates.reprocann_estado = updates.reprocann.estado;
         }
 

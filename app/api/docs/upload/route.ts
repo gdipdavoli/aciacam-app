@@ -29,11 +29,20 @@ export async function POST(req: NextRequest) {
         const formData = await req.formData();
         const file = formData.get('file') as File;
         const socioId = formData.get('socioId') as string;
-        const docType = formData.get('docType') as string;
+        const rawDocType = formData.get('docType') as string;
+        const fechaEmision = (formData.get('fechaEmision') as string | null) || null;
+        const fechaVencimiento = (formData.get('fechaVencimiento') as string | null) || null;
+        const numeroTramite = (formData.get('numeroTramite') as string | null) || null;
 
-        if (!file || !socioId || !docType) {
+        if (!file || !socioId || !rawDocType) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
+
+        // Canonicalize document type
+        const rawLower = rawDocType.toLowerCase().trim();
+        const docType = (rawLower === 'declaracionjurada' || rawLower === 'declaracion_jurada' || (rawLower.includes('declaracion') && rawLower.includes('jurada')))
+            ? 'declaracion_jurada'
+            : rawDocType;
 
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(socioId) || !/^[a-zA-Z0-9_-]+$/.test(docType)) {
             return NextResponse.json({ error: 'Documento inválido' }, { status: 400 });
@@ -69,29 +78,63 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: uploadError.message }, { status: 500 });
         }
 
-        // 2. UPSERT in Database (documentos_socio)
-        // We use onConflict on (socio_id, tipo)
-        // We do NOT update 'estado' as it is deprecated.
+        // 2. Manage versioning and insert new document record
+        const { data: existingDoc } = await supabaseAdmin
+            .from('documentos_socio')
+            .select('id, version')
+            .eq('socio_id', socioId)
+            .eq('tipo', docType)
+            .eq('is_current', true)
+            .maybeSingle();
+
+        if (existingDoc) {
+            await supabaseAdmin
+                .from('documentos_socio')
+                .update({ is_current: false, updated_at: new Date().toISOString() })
+                .eq('id', existingDoc.id);
+        }
+
+        const newVersion = existingDoc ? (existingDoc.version || 1) + 1 : 1;
+        const supersedesId = existingDoc ? existingDoc.id : null;
+
+        const docPayload: any = {
+            socio_id: socioId,
+            tipo: docType,
+            archivo_path: path,
+            verificacion_estado: 'pendiente',
+            verificado_at: null,
+            verificado_por: null,
+            is_current: true,
+            version: newVersion,
+            supersedes_document_id: supersedesId
+        };
+        if (fechaEmision) docPayload.fecha_emision = fechaEmision;
+        if (fechaVencimiento) docPayload.fecha_vencimiento = fechaVencimiento;
+
         const { error: dbError } = await supabaseAdmin
             .from('documentos_socio')
-            .upsert({
-                socio_id: socioId,
-                tipo: docType,
-                user_id: user.id,
-                archivo_path: path,
-                // verificacion_estado: 'pendiente' // OPTIONAL: Do we want to reset verification on new upload? 
-                // Let's assume YES, strict mode: New Document -> New Verification needed.
-                verificacion_estado: 'pendiente',
-                verificado_at: null,
-                verificado_por: null
-            }, {
-                onConflict: 'socio_id, tipo'
-            });
+            .insert(docPayload);
 
         if (dbError) {
             console.error("Supabase DB Insert Error:", dbError);
-            // Optional: Rollback storage if DB fails? For now, just report error.
             return NextResponse.json({ error: "Upload successful but DB insert failed: " + dbError.message }, { status: 500 });
+        }
+
+        // 3. If reprocann, persist trámite number and dates to socios table
+        if (docType === 'reprocann') {
+            const socioUpdates: any = {};
+            if (numeroTramite && numeroTramite.trim()) socioUpdates.reprocann_num_tramite = numeroTramite.trim();
+            if (fechaVencimiento && fechaVencimiento.trim()) socioUpdates.reprocann_fecha_vencimiento = fechaVencimiento.trim();
+            if (fechaEmision && fechaEmision.trim()) socioUpdates.reprocann_fecha_alta = fechaEmision.trim();
+            if (Object.keys(socioUpdates).length > 0) {
+                const { error: sUpdateErr } = await supabaseAdmin
+                    .from('socios')
+                    .update(socioUpdates)
+                    .eq('id', socioId);
+                if (sUpdateErr) {
+                    console.error("Error updating socio reprocann fields:", sUpdateErr);
+                }
+            }
         }
 
         return NextResponse.json({ path: uploadData.path, success: true }, { status: 200 });
