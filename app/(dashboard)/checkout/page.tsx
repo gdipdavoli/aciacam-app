@@ -26,8 +26,15 @@ export default function CheckoutPage() {
         }
     }, [user, router]);
 
-    const [orderType, setOrderType] = useState<OrderType>('delivery');
+    const [orderType, setOrderType] = useState<OrderType>('retiro_sede');
     const [observaciones, setObservaciones] = useState('');
+
+    // Ensure orderType matches member permissions
+    React.useEffect(() => {
+        if (user && !user.envios_habilitados && orderType === 'delivery') {
+            setOrderType('retiro_sede');
+        }
+    }, [user, orderType]);
 
     // Delivery fields
     const [direccion, setDireccion] = useState(user?.direccion || '');
@@ -45,6 +52,13 @@ export default function CheckoutPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [finalAporte, setFinalAporte] = useState(0);
+    const checkoutIdempotencyKeyRef = React.useRef<string>('');
+
+    React.useEffect(() => {
+        if (!checkoutIdempotencyKeyRef.current && typeof crypto !== 'undefined' && crypto.randomUUID) {
+            checkoutIdempotencyKeyRef.current = crypto.randomUUID();
+        }
+    }, []);
 
     // Global Configs
     const [globalConfigs, setGlobalConfigs] = useState({
@@ -129,6 +143,12 @@ export default function CheckoutPage() {
             return;
         }
 
+        if (orderType === 'delivery' && !user.envios_habilitados) {
+            toast.warning("Los envíos a domicilio no están habilitados para tu usuario. Por favor seleccioná 'Retiro en Sede'.");
+            setIsSubmitting(false);
+            return;
+        }
+
         if (orderType === 'retiro_sede' && !selectedSlotId && !coordinarConAdmin) {
             toast.warning("Por favor selecciona un turno para retirar o marca la opción para coordinar con administración.");
             setIsSubmitting(false);
@@ -153,7 +173,9 @@ export default function CheckoutPage() {
                 localidad: orderType === 'delivery' ? localidad : undefined,
                 ubicacion_gps: orderType === 'delivery' ? ubicacionGps : undefined,
                 fechaRetiroPreferida: orderType === 'retiro_sede' ? (coordinarConAdmin ? undefined : slotDate) : undefined,
-                slotId: orderType === 'retiro_sede' ? (coordinarConAdmin ? undefined : selectedSlotId!) : undefined
+                slotId: orderType === 'retiro_sede' ? (coordinarConAdmin ? undefined : selectedSlotId!) : undefined,
+                created_by_user_id: user.auth_user_id || user.userId,
+                idempotency_key: checkoutIdempotencyKeyRef.current || undefined
             });
 
             if (orderType === 'delivery' && guardarPerfil) {
@@ -170,10 +192,25 @@ export default function CheckoutPage() {
 
             setFinalAporte(pesoTotal * globalConfigs.aporte_por_gramo);
             setShowSuccessModal(true);
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                checkoutIdempotencyKeyRef.current = crypto.randomUUID();
+            }
             clearCart();
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to create order", error);
-            toast.error("Hubo un error al crear el pedido");
+            let msg = "Hubo un error al crear el pedido";
+            if (error?.message) {
+                if (error.message.includes('DELIVERY_DISABLED')) {
+                    msg = "Los envíos a domicilio no están habilitados para tu cuenta. Por favor seleccioná retiro en sede.";
+                } else if (error.message.includes('ORDER_STOCK_INSUFFICIENT') || error.message.includes('PRODUCT_UNAVAILABLE')) {
+                    msg = "El stock disponible cambió durante la operación. Por favor reintentá con otra cantidad.";
+                } else if (error.message.includes('ORDER_CREATION_BOUNDARY_REQUIRED')) {
+                    msg = "No se pudo validar la sesión para la creación del pedido. Por favor recargá la página.";
+                } else {
+                    msg = `Error al registrar el pedido: ${error.message}`;
+                }
+            }
+            toast.error(msg);
         } finally {
             setIsSubmitting(false);
         }
@@ -279,9 +316,9 @@ export default function CheckoutPage() {
                                 padding: '1rem',
                                 borderRadius: 'var(--radius)',
                                 border: `2px solid ${!user?.envios_habilitados ? 'hsl(var(--muted))' : (orderType === 'delivery' ? 'hsl(var(--primary))' : 'hsl(var(--border))')}`,
-                                cursor: 'pointer',
+                                cursor: !user?.envios_habilitados ? 'not-allowed' : 'pointer',
                                 backgroundColor: orderType === 'delivery' ? 'hsl(var(--primary) / 0.05)' : 'transparent',
-                                opacity: 1,
+                                opacity: !user?.envios_habilitados ? 0.6 : 1,
                                 position: 'relative'
                             }}>
                                 <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -289,12 +326,20 @@ export default function CheckoutPage() {
                                         type="radio"
                                         name="orderType"
                                         value="delivery"
+                                        disabled={!user?.envios_habilitados}
                                         checked={orderType === 'delivery'}
-                                        onChange={() => setOrderType('delivery')}
+                                        onChange={() => {
+                                            if (user?.envios_habilitados) setOrderType('delivery');
+                                        }}
                                         style={{ marginRight: '0.5rem' }}
                                     />
                                     <div>
                                         <span style={{ display: 'block', fontWeight: 500 }}>Envío a Domicilio</span>
+                                        {!user?.envios_habilitados && (
+                                            <span style={{ display: 'block', fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>
+                                                No habilitado para tu cuenta (solo retiro en sede)
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                             </label>

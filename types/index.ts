@@ -168,6 +168,8 @@ export interface Pedido {
     // Soft delete/Archive
     archivado?: boolean;
     socio?: Socio;
+    created_by_user_id?: string;
+    idempotency_key?: string;
 }
 
 export type PagoConcepto = 'aporte_sostenimiento' | 'cuota_social' | 'donacion' | 'otro';

@@ -309,24 +309,7 @@ export const StoreService = {
 
         console.log("Creating Pedido Payload:", { socioId, items, tipo, details });
 
-        // --- PRE-FLIGHT CHECKS (DEBUGGING 400 ERROR) ---
-
-        // 1. Check Socio (Optional Debug Check - Modified to be less brittle)
-        const { data: socioCheck, error: socioError } = await supabase
-            .from('socios')
-            .select('id')
-            .eq('id', socioId)
-            .maybeSingle(); // Use maybeSingle to avoid 406 on 0 rows
-
-        if (socioError) {
-            console.error("DEBUG: Socio ID Check Error:", socioError);
-            // We don't throw here to let the INSERT attempt proceed (it will fail with RLS if truly forbidden)
-        } else if (!socioCheck) {
-            console.warn("DEBUG: Socio ID not found via client RLS:", socioId);
-            // throw new Error(`DEBUG: Socio no encontrado en DB (${socioId})`);
-        }
-
-        // 2. Check Slot (if required)
+        // 1. Check Slot (if required)
         if (details.slotId) {
             const { data: slotCheck, error: slotError } = await supabase
                 .from('pickup_slots')
@@ -339,14 +322,26 @@ export const StoreService = {
             }
         }
 
-        // ----------------------------------------------
+        // 2. Resolve authenticated user ID (Strictly required by DB trigger tr_order_operator_guard)
+        const sessionRes = await supabase.auth.getSession();
+        const sessionUserId = sessionRes.data.session?.user?.id;
 
-        const dbRow = {
+        if (!sessionUserId) {
+            throw new Error("No hay una sesión activa de usuario para autorizar la creación del pedido.");
+        }
+
+        // Prevent client spoofing: created_by_user_id must match authenticated session
+        const currentAuthUserId = sessionUserId;
+
+        // 3. Generate or preserve idempotency key to prevent double submissions
+        const idempotencyKey = details.idempotency_key || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined);
+
+        const dbRow: any = {
             socio_id: socioId,
             items: items,
             tipo_pedido: tipo,
             origen: details.origen || 'app',
-            estado: details.estado || 'pendiente',
+            estado: 'pendiente', // tr_order_operator_guard strictly requires initial status 'pendiente' on INSERT
             observaciones: details.observaciones,
             direccion_entrega: details.direccionEntrega,
             localidad: details.localidad,
@@ -354,7 +349,9 @@ export const StoreService = {
             fecha_retiro_preferida: details.fechaRetiroPreferida,
             franja_horaria: details.franjaHoraria,
             entrega_estimada: details.entrega_estimada,
-            slot_id: details.slotId
+            slot_id: details.slotId,
+            created_by_user_id: currentAuthUserId,
+            idempotency_key: idempotencyKey
         };
 
         console.log("Sending to Supabase 'pedidos':", dbRow);
@@ -366,10 +363,38 @@ export const StoreService = {
             .single();
 
         if (error) {
+            // Check if this is an idempotent retry of an order that was already created
+            if (error.code === '23505' && idempotencyKey) {
+                console.warn("Idempotency collision detected (23505). Recovering existing order for key:", idempotencyKey);
+                const { data: existing, error: fetchExistingErr } = await supabase
+                    .from('pedidos')
+                    .select('*')
+                    .eq('idempotency_key', idempotencyKey)
+                    .maybeSingle();
+
+                if (!fetchExistingErr && existing) {
+                    console.log("Idempotent retry successfully recovered existing order:", existing.id);
+                    return mapPedidoFromDB(existing);
+                }
+            }
+
             console.error("StoreService: Create Order Failed", error);
-            // Log full error details
             console.error("Full Error Details:", JSON.stringify(error, null, 2));
             throw error;
+        }
+
+        // If an administrative order requested an immediate confirmed status, update after insert
+        if (details.estado && details.estado !== 'pendiente') {
+            const { data: updated, error: updateErr } = await supabase
+                .from('pedidos')
+                .update({ estado: details.estado })
+                .eq('id', data.id)
+                .select()
+                .single();
+
+            if (!updateErr && updated) {
+                return mapPedidoFromDB(updated);
+            }
         }
 
         return mapPedidoFromDB(data);

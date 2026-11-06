@@ -478,7 +478,7 @@ export default function DashboardLayout({
                     onClick={() => setShowMoreMenu(false)}
                 >
                     <div 
-                        className="bg-card w-full max-w-md rounded-t-2xl shadow-2xl border-t border-border p-6 pb-8 animate-in slide-in-from-bottom duration-200"
+                        className="bg-card w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-t-2xl shadow-2xl border-t border-border p-6 pb-8 animate-in slide-in-from-bottom duration-200"
                         onClick={e => e.stopPropagation()}
                     >
                         {/* Drag handle */}
