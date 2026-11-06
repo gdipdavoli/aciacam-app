@@ -61,9 +61,12 @@ async function run() {
         .eq('auth_user_id', socioAuthUser.id)
         .single();
 
+    if (!socioDb) throw new Error('Socio not found in DB');
+
     // 3. Obtener producto y stock inicial
     const productId = '30000000-0000-4000-8000-000000000021';
     const { data: prodInit } = await adminClient.from('products').select('*').eq('id', productId).single();
+    if (!prodInit) throw new Error('Product not found in DB');
     const initialStock = prodInit.stock_disponible;
     console.log(`\n[Paso 2] Producto seleccionado: '${prodInit.nombre}' | Stock inicial: ${initialStock}`);
 
@@ -87,7 +90,7 @@ async function run() {
         .select()
         .single();
 
-    const orderCreated = !orderErr && newOrder?.id;
+    const orderCreated = !orderErr && Boolean(newOrder?.id);
     console.log(`  -> Pedido ID: ${newOrder?.id || 'NINGUNO'} | Error: ${orderErr?.message || 'null'} -> ${orderCreated ? 'PASS' : 'FAIL'}`);
     if (!orderCreated) allPassed = false;
 
@@ -106,8 +109,8 @@ async function run() {
     // 6. Verificar descuento exacto de stock
     console.log('\n[Paso 5] Verificando descuento exacto de stock en PostgreSQL...');
     const { data: prodAfterOrder } = await adminClient.from('products').select('stock_disponible').eq('id', productId).single();
-    const stockDeducted = prodAfterOrder.stock_disponible === initialStock - 2;
-    console.log(`  -> Stock disponible tras pedido: ${prodAfterOrder.stock_disponible} (Esperado: ${initialStock - 2}) -> ${stockDeducted ? 'PASS' : 'FAIL'}`);
+    const stockDeducted = Boolean(prodAfterOrder && prodAfterOrder.stock_disponible === initialStock - 2);
+    console.log(`  -> Stock disponible tras pedido: ${prodAfterOrder?.stock_disponible} (Esperado: ${initialStock - 2}) -> ${stockDeducted ? 'PASS' : 'FAIL'}`);
     if (!stockDeducted) allPassed = false;
 
     // 7. Comprobar que reintentos con la misma idempotency_key NO generan duplicados
@@ -137,8 +140,8 @@ async function run() {
     // 9. Verificar restitución exacta de stock
     console.log('\n[Paso 8] Verificando restitución automática y exacta del stock en PostgreSQL...');
     const { data: prodAfterCancel } = await adminClient.from('products').select('stock_disponible').eq('id', productId).single();
-    const stockRestored = prodAfterCancel.stock_disponible === initialStock;
-    console.log(`  -> Stock disponible tras cancelación: ${prodAfterCancel.stock_disponible} (Esperado: ${initialStock}) -> ${stockRestored ? 'PASS' : 'FAIL'}`);
+    const stockRestored = Boolean(prodAfterCancel && prodAfterCancel.stock_disponible === initialStock);
+    console.log(`  -> Stock disponible tras cancelación: ${prodAfterCancel?.stock_disponible} (Esperado: ${initialStock}) -> ${stockRestored ? 'PASS' : 'FAIL'}`);
     if (!stockRestored) allPassed = false;
 
     // 10. Limpieza del pedido de prueba
@@ -161,3 +164,4 @@ run().catch(err => {
     console.error('Unhandled verification error:', err);
     process.exit(1);
 });
+
