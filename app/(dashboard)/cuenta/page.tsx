@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { StorageService } from '@/services/storageService';
 import { Pago, Pedido, Socio } from '@/types';
+import { formatCalendarDate, calculateDaysRemaining, formatPeriodoCuota } from '@/app/lib/date-format';
 import { User, CreditCard, History, FileText, Activity, AlertCircle, FileCheck, CheckCircle, Clock, XCircle, ExternalLink, Upload, Plus, X } from 'lucide-react';
 
 export default function CuentaPage() {
@@ -69,10 +70,9 @@ export default function CuentaPage() {
         );
     }
 
-    // Helper to format dates
+    // Helper to format calendar dates without timezone offsets
     const formatDate = (dateString?: string) => {
-        if (!dateString) return 'No informada';
-        return new Date(dateString).toLocaleDateString('es-AR');
+        return formatCalendarDate(dateString, 'No informada');
     };
 
     // Helper for Document Status Badge
@@ -327,27 +327,9 @@ export default function CuentaPage() {
                     const numeroTramite = socio.reprocann?.numeroTramite;
                     const verificacionDoc = reproDoc?.verificacion_estado;
 
-                    let daysLeft: number | null = null;
-                    let isExpired = false;
-                    let isExpiringSoon = false;
-
-                    if (fechaVencimiento) {
-                        const vDate = new Date(fechaVencimiento);
-                        if (!isNaN(vDate.getTime())) {
-                            const now = new Date();
-                            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                            const target = new Date(vDate.getFullYear(), vDate.getMonth(), vDate.getDate());
-                            const diffDays = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                            daysLeft = diffDays;
-                            if (diffDays <= 0 || socio.reprocann?.estado === 'vencido') {
-                                isExpired = true;
-                            } else if (diffDays <= 30) {
-                                isExpiringSoon = true;
-                            }
-                        }
-                    } else if (socio.reprocann?.estado === 'vencido') {
-                        isExpired = true;
-                    }
+                    const daysLeft = fechaVencimiento ? calculateDaysRemaining(fechaVencimiento) : null;
+                    const isExpired = (daysLeft !== null && daysLeft <= 0) || socio.reprocann?.estado === 'vencido';
+                    const isExpiringSoon = Boolean(daysLeft !== null && daysLeft > 0 && daysLeft <= 30 && !isExpired);
 
                     const tieneDatos = Boolean(numeroTramite || fechaAlta || fechaVencimiento || reproDoc?.archivoPath);
 
@@ -453,22 +435,37 @@ export default function CuentaPage() {
                     <InfoRow label="Diagnóstico" value={socio.diagnosticoPrincipal || 'No informado'} />
                 </SectionCard>
 
-                {/* 4. Estado de Cuenta (Original) */}
+                {/* 4. Estado de Cuota */}
                 <SectionCard title="Estado de Cuota" icon={CreditCard}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                        <span>Última cuota paga:</span>
-                        <span style={{ fontWeight: 600 }}>{socio.estadoCuenta?.ultimaCuotaPaga || 'N/A'}</span>
-                    </div>
-                    <div style={{
-                        backgroundColor: 'hsl(var(--primary) / 0.1)',
-                        color: 'hsl(var(--primary))',
-                        padding: '1rem',
-                        borderRadius: 'var(--radius)',
-                        textAlign: 'center',
-                        fontWeight: 600
-                    }}>
-                        Estás al día con tu cuota
-                    </div>
+                    {socio.estadoCuenta?.ultimaCuotaPaga ? (
+                        <>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                                <span>Última cuota paga:</span>
+                                <span style={{ fontWeight: 600 }}>{formatPeriodoCuota(socio.estadoCuenta.ultimaCuotaPaga)}</span>
+                            </div>
+                            <div style={{
+                                backgroundColor: 'hsl(var(--primary) / 0.1)',
+                                color: 'hsl(var(--primary))',
+                                padding: '1rem',
+                                borderRadius: 'var(--radius)',
+                                textAlign: 'center',
+                                fontWeight: 600
+                            }}>
+                                Estás al día con tu cuota
+                            </div>
+                        </>
+                    ) : (
+                        <div style={{
+                            padding: '1.25rem 1rem',
+                            color: 'hsl(var(--muted-foreground))',
+                            textAlign: 'center',
+                            fontSize: '0.9rem',
+                            backgroundColor: 'hsl(var(--muted) / 0.4)',
+                            borderRadius: 'var(--radius)'
+                        }}>
+                            Información de aportes no disponible
+                        </div>
+                    )}
                 </SectionCard>
 
                 {/* 5. Documentación */}

@@ -71,9 +71,9 @@ export interface Socio {
     documentacion?: DocumentacionSocio;
     notas?: string;
 
-    estadoCuenta: {
-        saldo: number;
-        ultimaCuotaPaga: string; // ISO Date YYYY-MM
+    estadoCuenta?: {
+        saldo?: number;
+        ultimaCuotaPaga?: string; // ISO Date YYYY-MM
     };
 
     // Auth Link

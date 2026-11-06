@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { StoreService } from '@/services/storeService';
 import { EmailService } from '@/services/emailService';
 import { Pago, Socio, CierreMensual } from '@/types';
+import { formatCalendarDate } from '@/app/lib/date-format';
 import { 
     Coins, 
     Search, 
@@ -604,7 +605,7 @@ export default function AdminPagosPage() {
                                     </div>
                                     <div className="border-t border-border pt-2 grid grid-cols-2 gap-y-1">
                                         <div><span className="text-muted-foreground font-semibold">REPROCANN N°:</span> <strong className="text-foreground">{renderedCierre.datos?.socio?.reprocann?.numeroTramite || 'N/A'}</strong></div>
-                                        <div><span className="text-muted-foreground font-semibold">Vencimiento:</span> <strong className="text-foreground">{renderedCierre.datos?.socio?.reprocann?.vencimiento ? new Date(renderedCierre.datos.socio.reprocann.vencimiento).toLocaleDateString('es-AR') : 'N/A'}</strong></div>
+                                        <div><span className="text-muted-foreground font-semibold">Vencimiento:</span> <strong className="text-foreground">{formatCalendarDate(renderedCierre.datos?.socio?.reprocann?.vencimiento, 'N/A')}</strong></div>
                                     </div>
                                 </div>
 
@@ -822,7 +823,7 @@ export default function AdminPagosPage() {
                                     <td><strong>REPROCANN N°:</strong></td>
                                     <td>{renderedCierre.datos?.socio?.reprocann?.numeroTramite || 'N/A'}</td>
                                     <td><strong>Vencimiento:</strong></td>
-                                    <td>{renderedCierre.datos?.socio?.reprocann?.vencimiento ? new Date(renderedCierre.datos.socio.reprocann.vencimiento).toLocaleDateString('es-AR') : 'N/A'}</td>
+                                    <td>{formatCalendarDate(renderedCierre.datos?.socio?.reprocann?.vencimiento, 'N/A')}</td>
                                 </tr>
                             </tbody>
                         </table>

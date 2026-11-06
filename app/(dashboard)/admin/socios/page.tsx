@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { Socio } from '@/types';
+import { formatCalendarDate, calculateDaysRemaining } from '@/app/lib/date-format';
 import { Plus, Search, User, AlertTriangle } from 'lucide-react';
 
 function formatFriendlyDate(dateStr?: string): string {
@@ -36,19 +37,20 @@ function formatFriendlyDate(dateStr?: string): string {
 function getReprocannTrafficLight(socio: Socio) {
     const rawStatus = socio.reprocann?.estado || socio.documentacion?.reprocann?.verificacion_estado || 'pendiente';
     const vencimientoStr = socio.reprocann?.fechaVencimiento || socio.documentacion?.reprocann?.fechaVencimiento;
+    const dateFormatted = formatCalendarDate(vencimientoStr, 'Sin fecha');
 
     if (!vencimientoStr || rawStatus === 'pendiente' || rawStatus === 'rechazado') {
         return {
             label: rawStatus === 'rechazado' ? 'Rechazado' : 'Pendiente',
             badgeClass: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800',
-            dateFormatted: vencimientoStr ? formatDateOnly(vencimientoStr) : 'Sin fecha',
+            dateFormatted,
             daysLeft: null,
             statusType: 'red' as const
         };
     }
 
-    const vencimientoDate = new Date(vencimientoStr);
-    if (isNaN(vencimientoDate.getTime())) {
+    const diffDays = calculateDaysRemaining(vencimientoStr);
+    if (diffDays === null) {
         return {
             label: 'Pendiente',
             badgeClass: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800',
@@ -57,14 +59,6 @@ function getReprocannTrafficLight(socio: Socio) {
             statusType: 'red' as const
         };
     }
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const target = new Date(vencimientoDate.getFullYear(), vencimientoDate.getMonth(), vencimientoDate.getDate());
-
-    const diffMs = target.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-    const dateFormatted = `${String(vencimientoDate.getDate()).padStart(2, '0')}/${String(vencimientoDate.getMonth() + 1).padStart(2, '0')}/${vencimientoDate.getFullYear()}`;
 
     if (diffDays <= 0 || rawStatus === 'vencido') {
         return {
@@ -96,12 +90,7 @@ function getReprocannTrafficLight(socio: Socio) {
 }
 
 function formatDateOnly(dateStr: string): string {
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return dateStr;
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
+    return formatCalendarDate(dateStr, dateStr);
 }
 
 const getSocioStatus = (socio: Socio) => {

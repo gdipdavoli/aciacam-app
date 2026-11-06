@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { formatCalendarDate } from '@/app/lib/date-format';
 
 /**
  * SEGURIDAD - WEBHOOK WHATSAPP
@@ -236,7 +237,7 @@ async function procesarDocumento(socio: any, from: string, message: WhatsAppMess
       respuesta += `📋 Estado: Pendiente de revisión por el equipo de ACIACAM.\n`;
 
       if (analisis.fecha_vencimiento) {
-        const fecha = new Date(analisis.fecha_vencimiento).toLocaleDateString('es-AR');
+        const fecha = formatCalendarDate(analisis.fecha_vencimiento);
         respuesta += `📅 Vencimiento detectado: ${fecha}\n`;
       }
 

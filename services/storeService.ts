@@ -118,10 +118,7 @@ const mapSocioFromDB = (row: any): Socio => {
             return docs;
         })(),
 
-        estadoCuenta: {
-            saldo: 0,
-            ultimaCuotaPaga: new Date().toISOString()
-        },
+        estadoCuenta: row.estado_cuenta || undefined,
 
         // Status & Auth
         auth_user_id: row.auth_user_id,

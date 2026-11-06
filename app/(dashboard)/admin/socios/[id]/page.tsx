@@ -9,6 +9,7 @@ import { NotificationService } from '@/services/notificationService';
 import { StorageService } from '@/services/storageService';
 import type { TipoDocumento, EstadoVerificacion } from '@/services/documentacionService';
 import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento, Pago, Notificacion } from '@/types';
+import { formatCalendarDate, calculateDaysRemaining, formatTimestamp } from '@/app/lib/date-format';
 import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus, CreditCard, Send, Bell, MessageSquare, Clock, AlertCircle, XCircle } from 'lucide-react';
 
 const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
@@ -298,7 +299,7 @@ const InviteStatusWidget = ({ socioId, socioEmail, mode = 'full' }: { socioId: s
                     {isActive ? (
                         <span>UID: <code style={{ fontSize: '0.75rem', backgroundColor: 'rgba(0,0,0,0.05)', padding: '0.1rem 0.3rem', borderRadius: '3px' }}>{status.socioUserId?.substring(0, 8)}...</code></span>
                     ) : relevantDate ? (
-                        <span>{isExpired ? 'Expiró el' : (computed === 'sent' ? 'Enviada el' : 'Creada el')} {new Date(relevantDate).toLocaleDateString()} a las {new Date(relevantDate).toLocaleTimeString().slice(0, 5)}</span>
+                        <span>{isExpired ? 'Expiró el' : (computed === 'sent' ? 'Enviada el' : 'Creada el')} {formatTimestamp(relevantDate, { includeTime: true })}</span>
                     ) : (
                         <span>Listo para invitar</span>
                     )}
@@ -1211,8 +1212,8 @@ export default function SocioDetailsPage() {
                                                 <Pill status={doc?.verificacion_estado || 'pendiente'} />
                                             </td>
                                             <td style={{ padding: '0.75rem', fontSize: '0.85rem' }}>
-                                                {doc?.fechaVencimiento ? new Date(doc.fechaVencimiento).toLocaleDateString() : '-'}
-                                                {doc?.fechaVencimiento && new Date(doc.fechaVencimiento) < new Date() && (
+                                                {doc?.fechaVencimiento ? formatCalendarDate(doc.fechaVencimiento) : '-'}
+                                                {doc?.fechaVencimiento && (calculateDaysRemaining(doc.fechaVencimiento) ?? 0) <= 0 && (
                                                     <span style={{ color: '#ef4444', marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: 600 }}>(Vencido)</span>
                                                 )}
                                             </td>
@@ -1308,7 +1309,7 @@ export default function SocioDetailsPage() {
                                     orders.map(order => (
                                         <tr key={order.id} style={{ borderBottom: '1px dashed hsl(var(--border))' }}>
                                             <td style={{ padding: '0.75rem 0' }}>#{order.id.slice(-6)}</td>
-                                            <td style={{ padding: '0.75rem 0' }}>{new Date(order.fechaCreacion).toLocaleDateString()}</td>
+                                            <td style={{ padding: '0.75rem 0' }}>{formatTimestamp(order.fechaCreacion)}</td>
                                             <td style={{ padding: '0.75rem 0' }}>{order.tipoPedido}</td>
                                             <td style={{ padding: '0.75rem 0', fontWeight: 600 }}>{order.estado}</td>
                                             <td style={{ padding: '0.75rem 0', textAlign: 'right' }}><a href="#" style={{ color: 'hsl(var(--primary))' }}>Ver</a></td>
@@ -1411,7 +1412,7 @@ export default function SocioDetailsPage() {
                                 ) : (
                                     pagos.map(pago => (
                                         <tr key={pago.id} style={{ borderBottom: '1px dashed hsl(var(--border))' }}>
-                                            <td style={{ padding: '0.75rem 0' }}>{new Date(pago.fecha).toLocaleDateString()}</td>
+                                            <td style={{ padding: '0.75rem 0' }}>{formatTimestamp(pago.fecha)}</td>
                                             <td style={{ padding: '0.75rem 0' }}>{pago.concepto}</td>
                                             <td style={{ padding: '0.75rem 0' }}>{pago.medioDePago}</td>
                                             <td style={{ padding: '0.75rem 0', textAlign: 'right', fontWeight: 600, color: 'hsl(var(--primary))' }}>${pago.monto}</td>
