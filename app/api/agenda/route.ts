@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     const { data: socio, error: socioError } = await supabaseAdmin
         .from('socios')
         .select('rol')
-        .eq('user_id', user.id)
+        .eq('auth_user_id', user.id)
         .single();
 
     if (socioError || !socio || (socio.rol !== 'admin' && socio.rol !== 'staff')) {
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     // Admin Check
-    const { data: socio } = await supabaseAdmin.from('socios').select('rol').eq('user_id', user.id).single();
+    const { data: socio } = await supabaseAdmin.from('socios').select('rol').eq('auth_user_id', user.id).single();
     if (!socio || (socio.rol !== 'admin' && socio.rol !== 'staff')) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -124,7 +124,7 @@ export async function DELETE(req: NextRequest) {
 
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { data: socio } = await supabaseAdmin.from('socios').select('rol').eq('user_id', user.id).single();
+    const { data: socio } = await supabaseAdmin.from('socios').select('rol').eq('auth_user_id', user.id).single();
     if (!socio || (socio.rol !== 'admin' && socio.rol !== 'staff')) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }

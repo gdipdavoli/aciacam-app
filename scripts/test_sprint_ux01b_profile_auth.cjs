@@ -134,7 +134,7 @@ const otherSocioUid = '30000000-0000-4000-8000-000000000003';
 test('UX-01B: /api/admin/socios/by-user route contract tests', async () => {
     // A. Anonymous request (no token, no cookies) returns 401
     {
-        const mockAdminDb = { auth: {}, from: () => ({ select: () => ({ or: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) };
+        const mockAdminDb = { auth: {}, from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) };
         const route = loadRoute('app/api/admin/socios/by-user/route.ts', {
             '@supabase/supabase-js': { createClient: () => mockAdminDb },
             'next/server': { NextResponse: responseHelper },
@@ -150,7 +150,7 @@ test('UX-01B: /api/admin/socios/by-user route contract tests', async () => {
 
     // B. Socio queries another user profile -> 403 Forbidden (Cross-tenant guard)
     {
-        const mockAdminDb = { auth: {}, from: () => ({ select: () => ({ or: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) };
+        const mockAdminDb = { auth: {}, from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }) };
         const route = loadRoute('app/api/admin/socios/by-user/route.ts', {
             '@supabase/supabase-js': { createClient: () => mockAdminDb },
             'next/server': { NextResponse: responseHelper },
@@ -165,38 +165,28 @@ test('UX-01B: /api/admin/socios/by-user route contract tests', async () => {
         assert.equal(res.status, 403);
     }
 
-    // C. Socio queries own profile -> 200 OK
+    // C. Socio queries own profile -> 200 OK (Strictly on auth_user_id)
     {
         const mockAdminDb = {
             auth: {},
             from: (table) => ({
                 select: () => ({
-                    eq: () => ({
-                        maybeSingle: async () => ({
-                            data: {
-                                id: 'socio-record-002',
-                                auth_user_id: socioUid,
-                                nombre: 'Socio Test',
-                                rol: 'socio',
-                                status: 'active',
-                                bloqueado: false
-                            },
-                            error: null
-                        })
-                    }),
-                    or: () => ({
-                        maybeSingle: async () => ({
-                            data: {
-                                id: 'socio-record-002',
-                                auth_user_id: socioUid,
-                                nombre: 'Socio Test',
-                                rol: 'socio',
-                                status: 'active',
-                                bloqueado: false
-                            },
-                            error: null
-                        })
-                    })
+                    eq: (col, val) => {
+                        assert.equal(col, 'auth_user_id', 'Query MUST filter exclusively by auth_user_id, never user_id');
+                        return {
+                            maybeSingle: async () => ({
+                                data: {
+                                    id: 'socio-record-002',
+                                    auth_user_id: socioUid,
+                                    nombre: 'Socio Test',
+                                    rol: 'socio',
+                                    status: 'active',
+                                    bloqueado: false
+                                },
+                                error: null
+                            })
+                        };
+                    }
                 })
             })
         };
@@ -220,32 +210,22 @@ test('UX-01B: /api/admin/socios/by-user route contract tests', async () => {
             auth: {},
             from: (table) => ({
                 select: () => ({
-                    eq: () => ({
-                        maybeSingle: async () => ({
-                            data: {
-                                id: 'socio-record-003',
-                                auth_user_id: otherSocioUid,
-                                nombre: 'Other Member',
-                                rol: 'socio',
-                                status: 'active',
-                                bloqueado: false
-                            },
-                            error: null
-                        })
-                    }),
-                    or: () => ({
-                        maybeSingle: async () => ({
-                            data: {
-                                id: 'socio-record-003',
-                                auth_user_id: otherSocioUid,
-                                nombre: 'Other Member',
-                                rol: 'socio',
-                                status: 'active',
-                                bloqueado: false
-                            },
-                            error: null
-                        })
-                    })
+                    eq: (col, val) => {
+                        assert.equal(col, 'auth_user_id');
+                        return {
+                            maybeSingle: async () => ({
+                                data: {
+                                    id: 'socio-record-003',
+                                    auth_user_id: otherSocioUid,
+                                    nombre: 'Other Member',
+                                    rol: 'socio',
+                                    status: 'active',
+                                    bloqueado: false
+                                },
+                                error: null
+                            })
+                        };
+                    }
                 })
             })
         };
@@ -278,4 +258,61 @@ test('UX-01B: /api/admin/socios/by-user route contract tests', async () => {
         const res = await route.GET(req);
         assert.equal(res.status, 400);
     }
+
+    // F. UX-01D: Fail-closed schema assertion (Throws 42703 if user_id is queried)
+    {
+        const schemaStrictDb = {
+            auth: {},
+            from: (table) => ({
+                select: (columns) => {
+                    if (typeof columns === 'string' && columns.includes('user_id')) {
+                        return {
+                            eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'column socios.user_id does not exist', code: '42703' } }) }),
+                            or: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'column socios.user_id does not exist', code: '42703' } }) })
+                        };
+                    }
+                    return {
+                        eq: (col, val) => {
+                            if (col === 'user_id') {
+                                return { maybeSingle: async () => ({ data: null, error: { message: 'column socios.user_id does not exist', code: '42703' } }) };
+                            }
+                            return {
+                                maybeSingle: async () => ({
+                                    data: { id: 'socio-verified-001', auth_user_id: val, rol: 'socio' },
+                                    error: null
+                                })
+                            };
+                        },
+                        or: (filterStr) => {
+                            if (filterStr && filterStr.includes('user_id')) {
+                                return { maybeSingle: async () => ({ data: null, error: { message: 'column socios.user_id does not exist', code: '42703' } }) };
+                            }
+                            return { maybeSingle: async () => ({ data: null, error: null }) };
+                        }
+                    };
+                }
+            })
+        };
+
+        const route = loadRoute('app/api/admin/socios/by-user/route.ts', {
+            '@supabase/supabase-js': { createClient: () => schemaStrictDb },
+            'next/server': { NextResponse: responseHelper },
+            '@/app/lib/api-auth': {
+                authenticate: async () => ({ id: socioUid }),
+                hasStaffRole: async () => false
+            }
+        });
+        const req = { nextUrl: new URL(`https://example.invalid?id=${socioUid}`) };
+        const res = await route.GET(req);
+        assert.equal(res.status, 200, 'Route must succeed with 200 against schema-strict database');
+        assert.equal(res.body.id, 'socio-verified-001');
+    }
+});
+
+test('UX-01D: Static code audit guarantees zero references to socios.user_id', () => {
+    const routeCode = fs.readFileSync(path.join(__dirname, '../app/api/admin/socios/by-user/route.ts'), 'utf8');
+    assert.equal(/\buser_id\b/.test(routeCode), false, 'by-user/route.ts must not reference standalone user_id anywhere');
+
+    const apiAuthCode = fs.readFileSync(path.join(__dirname, '../app/lib/api-auth.ts'), 'utf8');
+    assert.equal(/\buser_id\b/.test(apiAuthCode), false, 'api-auth.ts must not query socios with standalone user_id');
 });

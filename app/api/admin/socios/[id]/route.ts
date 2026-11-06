@@ -35,7 +35,7 @@ export async function GET(
             return NextResponse.json({ error: error.message }, { status: 404 });
         }
 
-        if (socio.auth_user_id !== caller.id && socio.user_id !== caller.id && !await hasStaffRole(caller, supabaseAdmin)) return NextResponse.json({ error: "No autorizado" }, { status: 403 });
+        if (socio.auth_user_id !== caller.id && !await hasStaffRole(caller, supabaseAdmin)) return NextResponse.json({ error: "No autorizado" }, { status: 403 });
         return NextResponse.json(socio, { headers: { "Cache-Control": "private, no-store" } });
     } catch (e: any) {
         return NextResponse.json({ error: e.message }, { status: 500 });

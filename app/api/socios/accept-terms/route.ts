@@ -25,7 +25,7 @@ export async function POST(req: Request) {
         let { data: socio, error: socioError } = await supabaseAdmin
             .from('socios')
             .select('id, status, email') // Added email to select
-            .or(`auth_user_id.eq.${user.id},user_id.eq.${user.id}`)
+            .eq('auth_user_id', user.id)
             .maybeSingle();
 
         // 2b. Fallback: Lookup by Email (Self-Healing)
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
             if (socioByEmail) {
                 console.log(`AcceptTerms: Found socio by email ${socioByEmail.id}. Healing link...`);
                 // Heal the link immediately
-                await supabaseAdmin.from('socios').update({ auth_user_id: user.id, user_id: user.id }).eq('id', socioByEmail.id);
+                await supabaseAdmin.from('socios').update({ auth_user_id: user.id }).eq('id', socioByEmail.id);
                 socio = socioByEmail;
             }
         }

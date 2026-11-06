@@ -15,7 +15,7 @@ export async function POST(req: Request) {
         // 1. Validate Invite Token
         const { data: invite, error: inviteError } = await supabaseAdmin
             .from('socio_invites')
-            .select('*, socios!inner(id, user_id, email, nombre, apellido)')
+            .select('*, socios!inner(id, auth_user_id, email, nombre, apellido)')
             .eq('token', token)
             .single();
 
@@ -76,7 +76,6 @@ export async function POST(req: Request) {
         // 3. Link Socio & Mark Invite as Consumed
         const socioUpdate: any = {
             auth_user_id: targetUserId,
-            user_id: targetUserId, // Sync legacy user_id to avoid RLS and policy issues
             status: 'active',
             terms_accepted_at: new Date().toISOString() // Auto-accept terms on first activation for simplicity
         };

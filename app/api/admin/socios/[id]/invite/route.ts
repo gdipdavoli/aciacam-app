@@ -30,7 +30,7 @@ export async function POST(
             return NextResponse.json({ error: 'Socio not found' }, { status: 404 });
         }
 
-        if (socio.user_id) {
+        if (socio.auth_user_id) {
             return NextResponse.json({ error: 'Socio already active (linked to user)' }, { status: 409 });
         }
 

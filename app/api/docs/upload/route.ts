@@ -39,9 +39,9 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Documento inválido' }, { status: 400 });
         }
         if (!await hasStaffRole(user, supabaseAdmin)) {
-            const { data: owner, error } = await supabaseAdmin.from('socios').select('auth_user_id,user_id').eq('id', socioId).maybeSingle();
+            const { data: owner, error } = await supabaseAdmin.from('socios').select('auth_user_id').eq('id', socioId).maybeSingle();
             if (error) throw error;
-            if (!owner || (owner.auth_user_id !== user.id && owner.user_id !== user.id)) {
+            if (!owner || owner.auth_user_id !== user.id) {
                 return NextResponse.json({ error: 'No podés modificar documentos de otro socio' }, { status: 403 });
             }
         }

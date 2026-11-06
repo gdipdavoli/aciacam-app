@@ -22,7 +22,7 @@ export async function hasStaffRole(user: User, admin: SupabaseClient, adminOnly 
     const allowed = adminOnly ? ['admin'] : ['admin', 'staff'];
     if (allowed.includes(user.app_metadata?.role)) return true;
     const { data, error } = await admin.from('socios').select('rol')
-        .or(`auth_user_id.eq.${user.id},user_id.eq.${user.id}`).maybeSingle();
+        .eq('auth_user_id', user.id).maybeSingle();
     if (error) throw new Error('No se pudieron verificar los permisos');
     return !!data && allowed.includes(data.rol);
 }

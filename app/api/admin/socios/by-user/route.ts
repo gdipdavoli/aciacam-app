@@ -28,8 +28,7 @@ export async function GET(request: NextRequest) {
         const { data, error } = await supabaseAdmin
             .from('socios')
             .select('*')
-            // Match against auth_user_id OR user_id (for legacy)
-            .or(`auth_user_id.eq.${userId},user_id.eq.${userId}`)
+            .eq('auth_user_id', userId)
             .maybeSingle();
 
         if (error) {
