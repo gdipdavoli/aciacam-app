@@ -918,6 +918,11 @@ export const StoreService = {
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
             if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
 
+            const idempotencyKey = (socio as any).idempotencyKey || (socio as any).idempotency_key;
+            if (idempotencyKey) {
+                headers['Idempotency-Key'] = String(idempotencyKey).trim();
+            }
+
             const payload = {
                 nombre: socio.nombre,
                 apellido: socio.apellido,
@@ -937,7 +942,8 @@ export const StoreService = {
                 medico_nombre: socio.medicoNombre,
                 medico_matricula: socio.medicoMatricula,
                 diagnostico: socio.diagnosticoPrincipal,
-                fecha_ingreso_ong: socio.fechaIngresoOng
+                fecha_ingreso_ong: socio.fechaIngresoOng,
+                idempotency_key: idempotencyKey
             };
 
             let res: Response;
@@ -1018,6 +1024,45 @@ export const StoreService = {
     },
 
     updateSocio: async (id: string, updates: Partial<Socio>): Promise<void> => {
+        // If in browser, use authenticated BFF endpoint
+        if (typeof window !== 'undefined') {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
+
+            const res = await fetch(`/api/admin/socios/${id}`, {
+                method: 'PATCH',
+                headers,
+                credentials: 'include',
+                body: JSON.stringify({
+                    nombre: updates.nombre,
+                    apellido: updates.apellido,
+                    dni: updates.dni,
+                    telefono: updates.telefono,
+                    email: updates.email,
+                    localidad: updates.localidad,
+                    domicilio: updates.direccion,
+                    fecha_nacimiento: updates.fechaNacimiento,
+                    envios_habilitados: updates.envios_habilitados,
+                    rol: updates.rol,
+                    status: updates.status,
+                    reprocann_num_tramite: updates.reprocann?.numeroTramite,
+                    reprocann_fecha_alta: updates.reprocann?.fechaAlta,
+                    reprocann_fecha_vencimiento: updates.reprocann?.fechaVencimiento,
+                    reprocann_tipo: (updates.reprocann as any)?.tipo,
+                    medico_nombre: updates.medicoNombre,
+                    medico_matricula: updates.medicoMatricula,
+                    diagnostico: updates.diagnosticoPrincipal,
+                })
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: 'Error al actualizar socio' }));
+                throw new Error(err.error || 'Error al actualizar socio');
+            }
+            return;
+        }
+
         if (!supabase) return;
 
         const dbUpdates: any = {};

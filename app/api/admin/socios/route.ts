@@ -91,10 +91,42 @@ export async function POST(request: Request) {
             medico_nombre,
             medico_matricula,
             diagnostico,
-            fecha_ingreso_ong
+            fecha_ingreso_ong,
+            idempotency_key,
+            idempotencyKey: bodyIdempotencyKey
         } = body;
 
-        // Validaciones mínimas obligatorias
+        // Clave de idempotencia única para cada operación de alta
+        const clientHeaderKey = request.headers.get('Idempotency-Key') || request.headers.get('x-idempotency-key');
+        const effectiveIdempotencyKey = (clientHeaderKey || idempotency_key || bodyIdempotencyKey || '').trim();
+
+        // 1. COMPROBACIÓN DE IDEMPOTENCIA: Si la misma operación se reintenta, recuperar el socio resultante
+        if (effectiveIdempotencyKey) {
+            const { data: existingAudit } = await supabaseAdmin
+                .from('audit_logs')
+                .select('entity_id, details, created_at')
+                .eq('action', 'CREATE_SOCIO')
+                .contains('details', { idempotency_key: effectiveIdempotencyKey })
+                .maybeSingle();
+
+            if (existingAudit && existingAudit.entity_id) {
+                const { data: createdSocio } = await supabaseAdmin
+                    .from('socios')
+                    .select('*')
+                    .eq('id', existingAudit.entity_id)
+                    .maybeSingle();
+
+                if (createdSocio) {
+                    console.log(`[Idempotencia] Reintento de operación ${effectiveIdempotencyKey}: recuperando socio ${createdSocio.id}`);
+                    return NextResponse.json({ ...createdSocio, _idempotent_replay: true }, {
+                        status: 200,
+                        headers: { 'X-Idempotent-Replay': 'true' }
+                    });
+                }
+            }
+        }
+
+        // 2. Validaciones mínimas obligatorias
         if (!nombre || !apellido || !dni || !email || !telefono) {
             return NextResponse.json({
                 error: 'Campos requeridos faltantes: nombre, apellido, dni, email, telefono'
@@ -104,27 +136,32 @@ export async function POST(request: Request) {
         const cleanEmail = String(email).trim().toLowerCase();
         const cleanDni = String(dni).trim();
 
-        // Control de duplicados por DNI o Email con ventana de idempotencia (reintentos de red)
-        const { data: existingSocio } = await supabaseAdmin
+        // 3. Control de duplicados por DNI o Email ANTES de procesar inserción
+        const { data: duplicateSocio } = await supabaseAdmin
             .from('socios')
             .select('id, email, dni, created_at')
             .or(`email.eq.${cleanEmail},dni.eq.${cleanDni}`)
             .maybeSingle();
 
-        if (existingSocio) {
-            // Si el socio existente tiene el mismo DNI y Email y fue creado en los últimos 2 minutos,
-            // recuperarlo directamente para manejar de forma segura reintentos por error de red en el cliente
-            const createdAtTime = new Date(existingSocio.created_at).getTime();
+        if (duplicateSocio) {
+            // Reintento rápido del mismo cliente sin idempotency_key (fallback por ventana de 2 minutos)
+            const createdAtTime = new Date(duplicateSocio.created_at).getTime();
             const nowTime = Date.now();
-            if (existingSocio.dni === cleanDni && existingSocio.email === cleanEmail && (nowTime - createdAtTime) < 120000) {
-                console.log(`[Idempotencia] Recuperando socio existente recién creado (ID: ${existingSocio.id})`);
-                return NextResponse.json(existingSocio, { status: 200 });
+            if (duplicateSocio.dni === cleanDni && duplicateSocio.email === cleanEmail && (nowTime - createdAtTime) < 120000) {
+                console.log(`[Idempotencia] Recuperando socio existente recién creado (ID: ${duplicateSocio.id})`);
+                return NextResponse.json(duplicateSocio, { status: 200 });
             }
 
-            const field = existingSocio.email === cleanEmail ? 'email' : 'DNI';
+            const field = duplicateSocio.email === cleanEmail ? 'email' : 'DNI';
             return NextResponse.json({
                 error: `Ya existe un socio registrado con el ${field} proporcionado (${field === 'email' ? cleanEmail : cleanDni})`
             }, { status: 409 });
+        }
+
+        // 4. Verificación de fecha de nacimiento
+        const finalFechaNac = String(fecha_nacimiento || fechaNacimiento || '').trim();
+        if (finalFechaNac && !isValidCalendarDate(finalFechaNac)) {
+            return NextResponse.json({ error: 'La fecha de nacimiento es inválida o no corresponde al calendario civil gregoriano' }, { status: 400 });
         }
 
         const now = new Date().toISOString();
@@ -134,7 +171,6 @@ export async function POST(request: Request) {
             dni: cleanDni,
             email: cleanEmail,
             telefono: String(telefono).trim(),
-            // Delivery habilitado por defecto (true) conforme a requerimiento
             envios_habilitados: envios_habilitados !== undefined ? Boolean(envios_habilitados) : true,
             rol: rol || 'socio',
             status: status || 'draft',
@@ -142,19 +178,13 @@ export async function POST(request: Request) {
             updated_at: now
         };
 
+        if (finalFechaNac) {
+            dbRow.fecha_nacimiento = finalFechaNac; // Persistencia directa en public.socios.fecha_nacimiento
+        }
+
         const finalDomicilio = domicilio || direccion;
         if (finalDomicilio) dbRow.domicilio = String(finalDomicilio).trim();
         if (localidad) dbRow.localidad = String(localidad).trim();
-
-        // Validación estricta de fecha de nacimiento
-        const finalFechaNac = (fecha_nacimiento || fechaNacimiento || '').trim();
-        let validFechaNac: string | null = null;
-        if (finalFechaNac) {
-            if (!isValidCalendarDate(finalFechaNac)) {
-                return NextResponse.json({ error: 'La fecha de nacimiento es inválida o no corresponde al calendario civil gregoriano' }, { status: 400 });
-            }
-            validFechaNac = finalFechaNac;
-        }
 
         if (reprocann_num_tramite && String(reprocann_num_tramite).trim()) {
             dbRow.reprocann_num_tramite = String(reprocann_num_tramite).trim();
@@ -174,6 +204,7 @@ export async function POST(request: Request) {
         if (diagnostico && String(diagnostico).trim()) dbRow.diagnostico = String(diagnostico).trim();
         if (fecha_ingreso_ong && String(fecha_ingreso_ong).trim()) dbRow.fecha_ingreso_ong = String(fecha_ingreso_ong).trim();
 
+        // 5. Inserción protegida en base de datos
         const { data: newSocio, error: insErr } = await supabaseAdmin
             .from('socios')
             .insert(dbRow)
@@ -182,10 +213,16 @@ export async function POST(request: Request) {
 
         if (insErr) {
             console.error('Error inserting socio in /api/admin/socios:', insErr);
+            // Capturar posible colisión por carrera concurrente
+            if (insErr.code === '23505' || insErr.message?.includes('duplicate key')) {
+                return NextResponse.json({
+                    error: `Ya existe un socio registrado con el DNI o correo proporcionado`
+                }, { status: 409 });
+            }
             return NextResponse.json({ error: insErr.message }, { status: 500 });
         }
 
-        // Registro de Auditoría Administrativa incluyendo fecha de nacimiento validada
+        // 6. Registro de Auditoría Administrativa con vinculación de clave de idempotencia
         try {
             await supabaseAdmin.from('audit_logs').insert({
                 user_id: access.user!.id,
@@ -193,11 +230,12 @@ export async function POST(request: Request) {
                 entity_type: 'socios',
                 entity_id: newSocio.id,
                 details: {
+                    idempotency_key: effectiveIdempotencyKey || null,
                     nombre: newSocio.nombre,
                     apellido: newSocio.apellido,
                     dni: newSocio.dni,
                     email: newSocio.email,
-                    fecha_nacimiento: validFechaNac,
+                    fecha_nacimiento: newSocio.fecha_nacimiento,
                     envios_habilitados: newSocio.envios_habilitados,
                     created_by_email: access.user!.email,
                     reprocann_num_tramite: newSocio.reprocann_num_tramite

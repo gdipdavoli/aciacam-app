@@ -55,6 +55,7 @@ export interface Socio {
     vinculacion?: string;
     activo?: boolean;
     envios_habilitados?: boolean;
+    idempotencyKey?: string;
 
     // Location
     direccion?: string; // Domicilio

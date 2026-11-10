@@ -44,6 +44,7 @@ interface FormData {
     direccion: string;
     localidad: string;
     enviosHabilitados: boolean; // Delivery habilitado por defecto
+    idempotencyKey: string; // Clave de idempotencia única por operación
 
     // Paso 2: Situación REPROCANN (4 alternativas)
     situacionReprocann: SituacionReprocann;
@@ -68,6 +69,7 @@ const INITIAL_FORM: FormData = {
     direccion: '',
     localidad: '',
     enviosHabilitados: true, // Default true conforme a requerimiento
+    idempotencyKey: '',
 
     situacionReprocann: 'vigente',
     numeroTramite: '',
@@ -102,13 +104,21 @@ export default function NewSocioWizardPage() {
     // 1. Cargar borrador de localStorage
     useEffect(() => {
         const saved = localStorage.getItem(STORAGE_KEY);
+        const freshKey = `alta_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
-                setFormData(prev => ({ ...prev, ...parsed }));
+                setFormData(prev => ({ 
+                    ...prev, 
+                    ...parsed,
+                    idempotencyKey: parsed.idempotencyKey || freshKey
+                }));
             } catch (e) {
                 console.error("Error al cargar borrador de socio", e);
+                setFormData(prev => ({ ...prev, idempotencyKey: freshKey }));
             }
+        } else {
+            setFormData(prev => ({ ...prev, idempotencyKey: freshKey }));
         }
         setIsLoaded(true);
     }, []);
@@ -132,7 +142,8 @@ export default function NewSocioWizardPage() {
     const handleClearDraft = () => {
         if (window.confirm("¿Seguro que deseás descartar el borrador actual? Se restablecerán todos los campos.")) {
             localStorage.removeItem(STORAGE_KEY);
-            setFormData(INITIAL_FORM);
+            const freshKey = `alta_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+            setFormData({ ...INITIAL_FORM, idempotencyKey: freshKey });
             setReprocannFile(null);
             setConsentimientoMedicoFile(null);
             setConstanciaTramiteFile(null);
@@ -273,6 +284,7 @@ export default function NewSocioWizardPage() {
                 localidad: formData.localidad.trim() || undefined,
                 fechaNacimiento: formData.fechaNacimiento,
                 envios_habilitados: formData.enviosHabilitados,
+                idempotencyKey: formData.idempotencyKey,
                 rol: 'socio',
                 status: asDraft ? 'draft' : 'active',
                 reprocann: {
