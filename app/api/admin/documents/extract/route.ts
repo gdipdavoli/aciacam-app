@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { authenticate, hasStaffRole } from '@/app/lib/api-auth';
 import { 
-    extractTextFromPdfBuffer, 
+    extractTextFromPdfBufferAsync, 
     extractDataFromDocumentText, 
+    consolidateDocumentExtractions,
     validateIdentityMatch,
     UnifiedDocumentExtraction 
 } from '@/app/lib/ocr-contract';
@@ -37,78 +38,148 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Solo el personal administrativo puede procesar extracción documental' }, { status: 403 });
         }
 
-        // 2. Parsear FormData
+        // 2. Parsear FormData: admite archivo único ('file') o múltiples ('files')
         const formData = await req.formData();
-        const file = formData.get('file') as File | null;
         const targetSocioDni = formData.get('socioDni') as string | null;
 
-        if (!file) {
+        const filesToProcess: File[] = [];
+        const filesMulti = formData.getAll('files') as File[];
+        const singleFile = formData.get('file') as File | null;
+
+        if (filesMulti && filesMulti.length > 0) {
+            for (const f of filesMulti) {
+                if (f && typeof f.size === 'number') filesToProcess.push(f);
+            }
+        } else if (singleFile && typeof singleFile.size === 'number') {
+            filesToProcess.push(singleFile);
+        }
+
+        if (filesToProcess.length === 0) {
             return NextResponse.json({ error: 'No se suministró ningún archivo para procesar' }, { status: 400 });
         }
 
-        // Validación de tamaño (máximo 15MB)
-        if (file.size > 15 * 1024 * 1024) {
-            return NextResponse.json({ error: 'El archivo excede el límite permitido de 15MB' }, { status: 400 });
+        // 3. Procesar cada archivo individualmente con aislamiento de fallas
+        const processedItems: Array<{ filename: string; extraction: UnifiedDocumentExtraction }> = [];
+
+        for (const file of filesToProcess) {
+            // Validación de tamaño (máximo 15MB)
+            if (file.size > 15 * 1024 * 1024) {
+                processedItems.push({
+                    filename: file.name,
+                    extraction: {
+                        documentType: 'desconocido',
+                        confidence: { overall: 0, fields: {} },
+                        isLegible: false,
+                        extractionSource: 'local_text_layer',
+                        sourceDescription: 'Archivo excedió el límite de tamaño',
+                        warnings: ['El archivo excede el límite máximo permitido de 15MB'],
+                        errors: ['Tamaño no admitido (> 15MB)'],
+                        humanValidated: false,
+                        totalPages: 0,
+                        requiresVisualOcr: false
+                    }
+                });
+                continue;
+            }
+
+            const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+            if (isPdf) {
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const uint8 = new Uint8Array(arrayBuffer);
+                    const { text, totalPages, isLikelyImageOnly } = await extractTextFromPdfBufferAsync(uint8);
+                    const docExtraction = extractDataFromDocumentText(text, file.name, totalPages);
+
+                    if (isLikelyImageOnly && !docExtraction.requiresVisualOcr) {
+                        docExtraction.requiresVisualOcr = true;
+                        docExtraction.hasImageOnlyLayer = true;
+                    }
+
+                    processedItems.push({
+                        filename: file.name,
+                        extraction: docExtraction
+                    });
+                } catch (pdfErr: any) {
+                    // Manejo grácil de PDF corrupto o malformado
+                    processedItems.push({
+                        filename: file.name,
+                        extraction: {
+                            documentType: 'desconocido',
+                            confidence: { overall: 0, fields: {} },
+                            isLegible: false,
+                            extractionSource: 'local_text_layer',
+                            sourceDescription: 'Error en decodificación de estructura PDF',
+                            warnings: [`No se pudo leer la estructura del PDF (${pdfErr.message || 'archivo dañado o formato no estándar'}). Requiere carga manual.`],
+                            errors: ['Archivo PDF no estructurado o dañado'],
+                            humanValidated: false,
+                            totalPages: 0,
+                            requiresVisualOcr: false
+                        }
+                    });
+                }
+            } else {
+                // Archivo de imagen rasterizada (JPEG/PNG)
+                processedItems.push({
+                    filename: file.name,
+                    extraction: {
+                        documentType: 'desconocido',
+                        confidence: { overall: 0, fields: {} },
+                        isLegible: false,
+                        extractionSource: 'local_text_layer',
+                        sourceDescription: 'Archivo de imagen rasterizada (requiere entrada manual o visión multimodal)',
+                        warnings: [
+                            'El archivo es una imagen sin capa de texto digital embebida.',
+                            'Por favor complete o verifique los datos del socio manualmente.'
+                        ],
+                        errors: [],
+                        humanValidated: false,
+                        totalPages: 1,
+                        requiresVisualOcr: true,
+                        hasImageOnlyLayer: true
+                    }
+                });
+            }
         }
 
-        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-        let extraction: UnifiedDocumentExtraction;
+        // 4. Consolidar resultados multi-documento y detectar discrepancias
+        const consolidation = consolidateDocumentExtractions(processedItems);
 
-        // 3. Evaluar integración con Agent Core si estuviera activo
-        const agentCoreEnabled = process.env.AGENT_CORE_ENABLED === 'true';
+        // 5. Determinar extracción primaria (la de mayor confianza o la primera válida)
+        const primaryExtraction = processedItems.length > 0 
+            ? (processedItems.find(p => p.extraction.isLegible)?.extraction || processedItems[0].extraction)
+            : consolidation.documentSummaries[0]?.extraction;
 
-        if (agentCoreEnabled) {
-            // Placeholder adapter hacia Agent Core (cuando se autorice su activación de solo lectura)
-            // Por directiva arquitectónica, actualmente Agent Core permanece con kill-switch activo
-        }
-
-        // 4. Extracción Local de Capa de Texto Digital (Optimización local server-side)
-        if (isPdf) {
-            const buffer = Buffer.from(await file.arrayBuffer());
-            const textContent = extractTextFromPdfBuffer(buffer);
-            extraction = extractDataFromDocumentText(textContent, file.name);
-        } else {
-            // Archivo de imagen (JPEG/PNG) sin motor de visión externo activo
-            extraction = {
-                documentType: 'desconocido',
-                confidence: { overall: 0, fields: {} },
-                isLegible: false,
-                extractionSource: 'local_text_layer',
-                sourceDescription: 'Archivo de imagen rasterizada (requiere entrada manual o visión multimodal)',
-                warnings: [
-                    'El archivo es una imagen o documento sin capa de texto digital embebida.',
-                    'Por favor complete o verifique los datos del socio manualmente.'
-                ],
-                errors: [],
-                humanValidated: false
-            };
-        }
-
-        // 5. Cotejo de Identidad si se suministró DNI objetivo del socio
+        // 6. Cotejo de Identidad si se suministró DNI objetivo del socio
         let identityCheck: any = null;
-        if (targetSocioDni && extraction.dni) {
-            const check = validateIdentityMatch(extraction.dni, targetSocioDni);
+        const candidateDni = consolidation.consolidated.dni || primaryExtraction?.dni;
+        if (targetSocioDni && candidateDni) {
+            const check = validateIdentityMatch(candidateDni, targetSocioDni);
             identityCheck = {
                 matches: check.match,
                 docDni: check.normalizedDoc,
                 socioDni: check.normalizedPartner,
                 warning: !check.match ? 'Discrepancia detectada: el DNI del documento no coincide con el DNI del socio seleccionado.' : null
             };
-            if (!check.match) {
-                extraction.warnings.push(`DISCREPANCIA DE IDENTIDAD: DNI del documento (${check.normalizedDoc}) difiere del socio (${check.normalizedPartner})`);
+            if (!check.match && primaryExtraction) {
+                primaryExtraction.warnings.push(`DISCREPANCIA DE IDENTIDAD: DNI del documento (${check.normalizedDoc}) difiere del socio (${check.normalizedPartner})`);
             }
         }
 
         return NextResponse.json({
             success: true,
-            extraction,
+            extraction: primaryExtraction,
+            extractions: processedItems.map(p => ({ filename: p.filename, ...p.extraction })),
+            consolidated: consolidation.consolidated,
+            conflicts: consolidation.conflicts,
+            documentSummaries: consolidation.documentSummaries,
             identityCheck
         }, {
             headers: { 'Cache-Control': 'no-store' }
         });
 
     } catch (e: any) {
-        console.error('Error en extracción documental:', e);
+        console.error('Error en endpoint de extracción documental:', e);
         return NextResponse.json({ 
             error: e.message || 'Error al procesar la extracción documental' 
         }, { status: 500 });

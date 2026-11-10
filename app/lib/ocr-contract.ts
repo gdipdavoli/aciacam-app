@@ -14,6 +14,7 @@
 
 import { isValidCalendarDate } from '@/app/lib/date-format';
 import * as zlib from 'zlib';
+import { extractText } from 'unpdf';
 
 export type ExtractionSource = 'agent_core_gemini' | 'local_text_layer' | 'manual';
 
@@ -53,6 +54,51 @@ export interface UnifiedDocumentExtraction {
     humanValidated: boolean;
     validatedBy?: string;
     validatedAt?: string;
+
+    // UX-03C.1: Diagnóstico granular y soporte multi-documento
+    totalPages?: number;
+    requiresVisualOcr?: boolean;
+    hasImageOnlyLayer?: boolean;
+    detectedFieldsCount?: number;
+}
+
+export interface DocumentConflict {
+    field: string;
+    label: string;
+    fileA: string;
+    valueA: string;
+    fileB: string;
+    valueB: string;
+}
+
+export interface ConsolidatedDocumentResult {
+    consolidated: Partial<{
+        nombre: string;
+        apellido: string;
+        dni: string;
+        fechaNacimiento: string;
+        numeroTramite: string;
+        fechaAlta: string;
+        fechaVencimiento: string;
+        tipoVinculacion: string;
+        medicoNombre: string;
+        medicoMatricula: string;
+        diagnosticoPrincipal: string;
+        fuenteExtraccion: string;
+        camposExtraidos: string[];
+    }>;
+    conflicts: DocumentConflict[];
+    documentSummaries: Array<{
+        filename: string;
+        docType: DetectedDocType;
+        totalPages: number;
+        requiresVisualOcr: boolean;
+        isLegible: boolean;
+        detectedFields: string[];
+        warnings: string[];
+        confidence: number;
+        extraction: UnifiedDocumentExtraction;
+    }>;
 }
 
 // Backward compatibility alias
@@ -146,7 +192,7 @@ export function validateIdentityMatch(docDni?: string | null, partnerDni?: strin
 
 /**
  * Extrae la capa de texto de un Buffer PDF decodificando streams no comprimidos
- * y streams comprimidos con FlateDecode mediante zlib.
+ * y streams comprimidos con FlateDecode mediante zlib. (Método síncrono para fallback).
  */
 export function extractTextFromPdfBuffer(buffer: Buffer): string {
     const raw = buffer.toString('binary');
@@ -201,43 +247,113 @@ export function extractTextFromPdfBuffer(buffer: Buffer): string {
 }
 
 /**
+ * Extrae texto digital de un PDF de forma asíncrona mediante unpdf (PDF.js oficial).
+ * Soporta documentos multipágina, fuentes con ToUnicode CMaps y compresión estándar.
+ */
+export async function extractTextFromPdfBufferAsync(buffer: Buffer | Uint8Array): Promise<{
+    text: string;
+    totalPages: number;
+    isLikelyImageOnly: boolean;
+}> {
+    try {
+        let uint8: Uint8Array;
+        if (Buffer.isBuffer(buffer)) {
+            uint8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        } else if (buffer instanceof Uint8Array) {
+            uint8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        } else {
+            const buf = Buffer.from(buffer as any);
+            uint8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+        }
+        const { text, totalPages } = await extractText(uint8, { mergePages: true });
+        const rawText: any = text;
+        let mergedText = (typeof rawText === 'string' ? rawText : Array.isArray(rawText) ? rawText.join('\n') : '').trim();
+
+        // Reparación de encoding si secuencias UTF-8 fueron leídas como Latin-1 / WinAnsi
+        if (mergedText.includes('Ã') || mergedText.includes('Â')) {
+            try {
+                const repaired = Buffer.from(mergedText, 'latin1').toString('utf8');
+                if (!repaired.includes('\uFFFD')) {
+                    mergedText = repaired;
+                }
+            } catch {
+                // mantener texto original si falla conversión
+            }
+        }
+
+        const numPages = totalPages || 1;
+
+        // Si hay menos de 220 caracteres en total o menos de 75 caracteres promedio por página,
+        // es un documento que depende primordialmente de imágenes rasterizadas (ej. credencial con carnet incrustado)
+        const isLikelyImageOnly = mergedText.length < 220 || (numPages > 0 && mergedText.length / numPages < 75);
+
+        return {
+            text: mergedText,
+            totalPages: numPages,
+            isLikelyImageOnly
+        };
+    } catch (e: any) {
+        // Fallback a parser binario básico de streams si unpdf encuentra una estructura no estándar
+        const fallbackBuf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+        const fallbackText = extractTextFromPdfBuffer(fallbackBuf);
+        return {
+            text: fallbackText,
+            totalPages: 1,
+            isLikelyImageOnly: fallbackText.length < 150
+        };
+    }
+}
+
+/**
  * Analiza el texto extraído de un documento para identificar campos canónicos.
  */
-export function extractDataFromDocumentText(text: string, filename?: string): UnifiedDocumentExtraction {
+export function extractDataFromDocumentText(text: string, filename?: string, totalPages = 1): UnifiedDocumentExtraction {
     const warnings: string[] = [];
     const errors: string[] = [];
     const fieldsConf: Record<string, number> = {};
 
     const cleanText = text || '';
     const fnLower = (filename || '').toLowerCase();
+    const textLower = cleanText.toLowerCase();
 
     // 1. Detección de tipo de documento
     let docType: DetectedDocType = 'desconocido';
-    const textLower = cleanText.toLowerCase();
 
-    if (textLower.includes('reprocann') || textLower.includes('programa de cannabis') || fnLower.includes('reprocann')) {
-        docType = 'reprocann';
-    } else if (textLower.includes('consentimiento') || textLower.includes('declaracion jurada') || fnLower.includes('consentimiento')) {
+    if (textLower.includes('consentimiento') || textLower.includes('declaracion jurada') || textLower.includes('declaración jurada') || fnLower.includes('consentimiento')) {
         docType = 'consentimiento';
-    } else if (textLower.includes('constancia') || textLower.includes('tramite en curso') || fnLower.includes('constancia')) {
+    } else if (textLower.includes('constancia') || textLower.includes('tramite en curso') || textLower.includes('trámite en curso') || fnLower.includes('constancia')) {
         docType = 'constancia_tramite';
     } else if (textLower.includes('registro nacional de las personas') || textLower.includes('renaper') || fnLower.includes('dni')) {
         docType = 'dni';
+    } else if (textLower.includes('reprocann') || textLower.includes('programa de cannabis') || textLower.includes('credencial') || textLower.includes('carnet') || fnLower.includes('reprocann') || fnLower.includes('credencial')) {
+        docType = 'reprocann';
     }
 
-    // 2. Extracción de Trámite REPROCANN
+    // 2. Detección de credencial o documento basado en imagen rasterizada
+    const isCredentialKeyword = textLower.includes('credencial') || 
+                                textLower.includes('carnet') || 
+                                textLower.includes('certificado de inscripci') || 
+                                fnLower.includes('credencial') || 
+                                fnLower.includes('carnet');
+    const isSparseText = cleanText.length < 250;
+    const isLikelyImageCredential = (isCredentialKeyword && isSparseText) || (docType === 'reprocann' && cleanText.length < 160);
+
+    if (isLikelyImageCredential) {
+        warnings.push('Credencial REPROCANN con imagen rasterizada incrustada. El archivo carece de capa de texto digital legible para los datos principales del carnet; requiere verificación visual o procesamiento por visión multimodal en Agent Core. No se sobrescribieron datos previos.');
+    }
+
+    // 3. Extracción de Trámite REPROCANN
     let numeroTramite: string | undefined;
     const tramiteRegexes = [
-        /(?:tr[aá]mite|n[uú]mero de tr[aá]mite|nro\s*tr[aá]mite|c[oó]digo)[\s:\.#]*([A-Z0-9\-_]{4,20})/i,
-        /TR-[\w\-]{4,20}/i,
-        /(?:solicitud|expediente)[\s:\.#]*([A-Z0-9\-_]{5,20})/i
+        /(?:tr[aá\W]?mite|n[uú\W]?mero de tr[aá\W]?mite|nro\s*tr[aá\W]?mite|c[oó\W]?digo|n[°º\W]?\s*de\s*solicitud|solicitud|expediente)[\s:\.#]*([A-Z0-9\-_]{4,25})/i,
+        /TR-[\w\-]{4,25}/i
     ];
     for (const r of tramiteRegexes) {
         const m = cleanText.match(r);
         if (m) {
             const candidate = (m[1] || m[0]).trim();
             const upper = candidate.toUpperCase();
-            if (!['PENDIENTE', 'RECHAZADO', 'CANCELADO', 'VENCIDO', 'EN_TRAMITE', 'EN TRAMITE', 'PRELIMINAR', 'BORRADOR'].includes(upper)) {
+            if (!['PENDIENTE', 'RECHAZADO', 'CANCELADO', 'VENCIDO', 'EN_TRAMITE', 'EN TRAMITE', 'PRELIMINAR', 'BORRADOR', 'VIGENTE'].includes(upper)) {
                 numeroTramite = candidate;
                 fieldsConf['numeroTramite'] = 0.95;
                 break;
@@ -245,7 +361,7 @@ export function extractDataFromDocumentText(text: string, filename?: string): Un
         }
     }
 
-    // 3. Extracción de DNI
+    // 4. Extracción de DNI
     let dni: string | undefined;
     const dniRegexes = [
         /(?:dni|d\.n\.i\.|documento|identidad)[\s:\.#]*([0-9]{1,2}\.?[0-9]{3}\.?[0-9]{3})/i,
@@ -263,42 +379,42 @@ export function extractDataFromDocumentText(text: string, filename?: string): Un
         }
     }
 
-    // 4. Extracción de Titular (Nombre y Apellido)
+    // 5. Extracción de Titular (Nombre y Apellido)
     let titular: { nombre?: string; apellido?: string } | undefined;
-    const titularMatch = cleanText.match(/(?:titular|nombre y apellido|apellido y nombre|socio|paciente)[\s:\.#]*([A-ZÁÉÍÓÚÑa-záéíóúñ]+)\s+([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)?)/i);
-    if (titularMatch) {
-        titular = {
-            apellido: titularMatch[1].trim(),
-            nombre: titularMatch[2].trim()
-        };
-        fieldsConf['titular'] = 0.85;
-    }
-
-    // 5. Extracción de Fechas (Emisión y Vencimiento)
-    let fechaEmision: string | undefined;
-    let fechaVencimiento: string | undefined;
-
-    const emisionMatch = cleanText.match(/(?:emisi[oó]n|alta|otorgado|fecha de emisi[oó]n)[\s:\.#]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/i);
-    if (emisionMatch) {
-        const norm = normalizeCalendarDate(emisionMatch[1]);
-        if (norm) {
-            fechaEmision = norm;
-            fieldsConf['fechaEmision'] = 0.9;
-        }
-    }
-
-    const vencimientoMatch = cleanText.match(/(?:vencimiento|v[aá]lido hasta|vigencia hasta|vence)[\s:\.#]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/i);
-    if (vencimientoMatch) {
-        const norm = normalizeCalendarDate(vencimientoMatch[1]);
-        if (norm) {
-            fechaVencimiento = norm;
-            fieldsConf['fechaVencimiento'] = 0.9;
+    const titularLineMatch = cleanText.match(/(?:^|[\r\n])\s*(?:apellido y nombre|nombre y apellido|paciente|titular|socio)[\s:\.#]*([^\r\n]+)/i);
+    if (titularLineMatch) {
+        const rawVal = titularLineMatch[1].trim();
+        if (rawVal.includes(',')) {
+            const parts = rawVal.split(',').map(p => p.trim());
+            if (parts[0] && parts[1]) {
+                titular = {
+                    apellido: parts[0],
+                    nombre: parts[1]
+                };
+                fieldsConf['titular'] = 0.9;
+            }
+        } else {
+            const words = rawVal.split(/\s+/).filter(w => /^[A-ZÁÉÍÓÚÑa-záéíóúñ]+$/.test(w));
+            if (words.length >= 2) {
+                if (/nombre y apellido/i.test(titularLineMatch[0])) {
+                    titular = {
+                        nombre: words[0],
+                        apellido: words.slice(1).join(' ')
+                    };
+                } else {
+                    titular = {
+                        apellido: words[0],
+                        nombre: words.slice(1).join(' ')
+                    };
+                }
+                fieldsConf['titular'] = 0.85;
+            }
         }
     }
 
     // 6. Extracción de Fecha de Nacimiento
     let fechaNacimiento: string | undefined;
-    const nacMatch = cleanText.match(/(?:nacimiento|nacido el|fecha de nacimiento)[\s:\.#]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/i);
+    const nacMatch = cleanText.match(/(?:nacimiento|nacido el|fecha de nacimiento|f\.\s*nac\.?)[\s:\.#]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/i);
     if (nacMatch) {
         const norm = normalizeCalendarDate(nacMatch[1]);
         if (norm) {
@@ -307,10 +423,41 @@ export function extractDataFromDocumentText(text: string, filename?: string): Un
         }
     }
 
-    // 7. Extracción de Médico y Matrícula
+    // 7. Detección de Firmas Digitales vs Fechas de Emisión y Vencimiento
+    const hasDigitalSignature = /firmad[oa] digitalmente|firma digital|validez de la firma|firmado por/i.test(cleanText);
+    if (hasDigitalSignature) {
+        warnings.push('Se detectó firma digital en el documento. Por normativa de seguridad, su marca temporal no se asume como fecha de vencimiento REPROCANN.');
+    }
+
+    // Fecha de Emisión
+    let fechaEmision: string | undefined;
+    const emisionMatch = cleanText.match(/(?:emisi[oó]n|alta|otorgado|fecha de emisi[oó]n|solicitado el)[\s:\.#]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/i);
+    if (emisionMatch) {
+        const norm = normalizeCalendarDate(emisionMatch[1]);
+        if (norm) {
+            fechaEmision = norm;
+            fieldsConf['fechaEmision'] = 0.9;
+        }
+    }
+
+    // Fecha de Vencimiento
+    // En consentimientos informados no hay vencimiento oficial de credencial: no asignar.
+    let fechaVencimiento: string | undefined;
+    if (docType !== 'consentimiento') {
+        const vencimientoMatch = cleanText.match(/(?:vencimiento|v[aá\W]?lido hasta|vigencia hasta|vence el|vence)[\s:\.#]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/i);
+        if (vencimientoMatch) {
+            const norm = normalizeCalendarDate(vencimientoMatch[1]);
+            if (norm) {
+                fechaVencimiento = norm;
+                fieldsConf['fechaVencimiento'] = 0.9;
+            }
+        }
+    }
+
+    // 8. Extracción de Médico y Matrícula
     let medico: { nombre?: string; matricula?: string } | undefined;
-    const medicoMatch = cleanText.match(/(?:profesional\s*m[eé]dico|m[eé]dico\s*tratante|m[eé]dico|profesional|dr\.|dra\.)[\s:\.#]*([A-ZÁÉÍÓÚÑa-záéíóúñ\.\s]{3,35}?)(?=\s*matr|\s*m\.n|\s*m\.p|\s*firma|\s*diagn|\s*,|$)/i);
-    const matriculaMatch = cleanText.match(/(?:matr[ií]cula|m\.n\.|m\.p\.|mp|mn)[\s:\.#]*((?:(?:MN|MP|M\.N\.|M\.P\.)\s*)?[0-9A-Z\-]{3,12})/i);
+    const medicoMatch = cleanText.match(/(?:profesional\s*m.*?dico\s*tratante|profesional\s*m.*?dico|m.*?dico\s*tratante|m.*?dico|profesional|dr\.|dra\.)[\s:\.#]*([A-ZÁÉÍÓÚÑa-záéíóúñ\.\s]{3,35}?)(?=\s*matr|\s*m\.n|\s*m\.p|\s*firma|\s*diagn|\s*,|\r|\n|$)/i);
+    const matriculaMatch = cleanText.match(/(?:matr.*?cula|m\.n\.|m\.p\.|mp|mn)[\s:\.#]*((?:(?:MN|MP|M\.N\.|M\.P\.)\s*)?[0-9A-Z\-]{3,12})/i);
 
     if (medicoMatch || matriculaMatch) {
         medico = {
@@ -321,22 +468,23 @@ export function extractDataFromDocumentText(text: string, filename?: string): Un
         if (medico.matricula) fieldsConf['medicoMatricula'] = 0.85;
     }
 
-    // 8. Extracción de Diagnóstico o Indicación Clínica
+    // 9. Extracción de Diagnóstico o Indicación Clínica
     let diagnostico: string | undefined;
-    const diagMatch = cleanText.match(/(?:diagn[oó]stico|patolog[ií]a|indicaci[oó]n cl[ií]nica|cuadro)[\s:\.#]*([A-ZÁÉÍÓÚÑa-záéíóúñ0-9\s,\.\-]{3,60})(?=\s*tratamiento|\s*m[eé]dico|\s*firma|$)/i);
+    const diagMatch = cleanText.match(/(?:diagn.*?stico|patolog.*?a|indicaci.*?n cl.*?nica|cuadro)[\s:\.#]*([^\r\n]{3,80}?)(?=\s*plan|\s*tratamiento|\s*m.*?dico|\s*firma|\r|\n|$)/i);
     if (diagMatch) {
         diagnostico = diagMatch[1].trim();
         fieldsConf['diagnostico'] = 0.75;
     }
 
-    // 9. Cálculo de legibilidad y confianza general
+    // 10. Cálculo de legibilidad y confianza general
     const detectedFieldKeys = Object.keys(fieldsConf);
-    const isLegible = detectedFieldKeys.length > 0;
+    const detectedFieldsCount = detectedFieldKeys.length;
+    const isLegible = detectedFieldsCount > 0 && !isLikelyImageCredential;
     const overallConf = isLegible 
-        ? Math.min(1.0, detectedFieldKeys.reduce((acc, k) => acc + fieldsConf[k], 0) / detectedFieldKeys.length)
-        : 0.0;
+        ? Math.min(1.0, detectedFieldKeys.reduce((acc, k) => acc + fieldsConf[k], 0) / detectedFieldsCount)
+        : (isLikelyImageCredential ? 0.1 : 0.0);
 
-    if (!isLegible) {
+    if (!isLegible && !isLikelyImageCredential) {
         warnings.push('No se detectó capa de texto digital legible. El archivo podría ser un escaneo o imagen rasterizada. Requiere completar los datos manualmente.');
     }
 
@@ -361,10 +509,102 @@ export function extractDataFromDocumentText(text: string, filename?: string): Un
         },
         isLegible,
         extractionSource: 'local_text_layer',
-        sourceDescription: 'Extracción de capa de texto digital (Optimización local)',
+        sourceDescription: 'Extracción de capa de texto digital (Optimización local con unpdf)',
         warnings,
         errors,
-        humanValidated: false
+        humanValidated: false,
+        totalPages,
+        requiresVisualOcr: isLikelyImageCredential,
+        hasImageOnlyLayer: isLikelyImageCredential,
+        detectedFieldsCount
+    };
+}
+
+/**
+ * Consolida múltiples extracciones documentales, detecta discrepancias o conflictos
+ * y produce un resumen granular para control humano en el wizard.
+ */
+export function consolidateDocumentExtractions(
+    items: Array<{ filename: string; extraction: UnifiedDocumentExtraction }>
+): ConsolidatedDocumentResult {
+    const consolidated: any = {};
+    const conflicts: DocumentConflict[] = [];
+    const documentSummaries: ConsolidatedDocumentResult['documentSummaries'] = [];
+    const fieldsOrigin: Record<string, { filename: string; value: any }> = {};
+
+    for (const item of items) {
+        const { filename, extraction } = item;
+        const detectedFields: string[] = [];
+
+        if (extraction.titular?.nombre) detectedFields.push('nombre');
+        if (extraction.titular?.apellido) detectedFields.push('apellido');
+        if (extraction.dni) detectedFields.push('dni');
+        if (extraction.fechaNacimiento) detectedFields.push('fechaNacimiento');
+        if (extraction.numeroTramite) detectedFields.push('numeroTramite');
+        if (extraction.fechaEmision) detectedFields.push('fechaAlta');
+        if (extraction.fechaVencimiento) detectedFields.push('fechaVencimiento');
+        if (extraction.medico?.nombre) detectedFields.push('medicoNombre');
+        if (extraction.medico?.matricula) detectedFields.push('medicoMatricula');
+        if (extraction.diagnostico) detectedFields.push('diagnosticoPrincipal');
+
+        documentSummaries.push({
+            filename,
+            docType: extraction.documentType,
+            totalPages: extraction.totalPages || 1,
+            requiresVisualOcr: extraction.requiresVisualOcr || false,
+            isLegible: extraction.isLegible,
+            detectedFields,
+            warnings: extraction.warnings || [],
+            confidence: extraction.confidence.overall,
+            extraction
+        });
+
+        // Si el documento carece de texto digital legible (imagen rasterizada), no participa en consolidación ni genera conflictos falsos
+        if (extraction.requiresVisualOcr && detectedFields.length === 0) {
+            continue;
+        }
+
+        const assignOrConflict = (fieldKey: string, fieldLabel: string, newVal: any) => {
+            if (!newVal) return;
+            const existing = fieldsOrigin[fieldKey];
+            if (!existing) {
+                fieldsOrigin[fieldKey] = { filename, value: newVal };
+                consolidated[fieldKey] = newVal;
+            } else {
+                const normExisting = String(existing.value).trim().toLowerCase();
+                const normNew = String(newVal).trim().toLowerCase();
+                if (normExisting !== normNew) {
+                    conflicts.push({
+                        field: fieldKey,
+                        label: fieldLabel,
+                        fileA: existing.filename,
+                        valueA: String(existing.value),
+                        fileB: filename,
+                        valueB: String(newVal)
+                    });
+                }
+            }
+        };
+
+        if (extraction.titular?.nombre) assignOrConflict('nombre', 'Nombre', extraction.titular.nombre);
+        if (extraction.titular?.apellido) assignOrConflict('apellido', 'Apellido', extraction.titular.apellido);
+        if (extraction.dni) assignOrConflict('dni', 'DNI', extraction.dni);
+        if (extraction.fechaNacimiento) assignOrConflict('fechaNacimiento', 'Fecha de Nacimiento', extraction.fechaNacimiento);
+        if (extraction.numeroTramite) assignOrConflict('numeroTramite', 'Número de Trámite', extraction.numeroTramite);
+        if (extraction.fechaEmision) assignOrConflict('fechaAlta', 'Fecha de Emisión / Alta', extraction.fechaEmision);
+        if (extraction.fechaVencimiento) assignOrConflict('fechaVencimiento', 'Fecha de Vencimiento', extraction.fechaVencimiento);
+        if (extraction.medico?.nombre) assignOrConflict('medicoNombre', 'Médico Tratante', extraction.medico.nombre);
+        if (extraction.medico?.matricula) assignOrConflict('medicoMatricula', 'Matrícula Médica', extraction.medico.matricula);
+        if (extraction.diagnostico) assignOrConflict('diagnosticoPrincipal', 'Diagnóstico Principal', extraction.diagnostico);
+    }
+
+    consolidated.camposExtraidos = Object.keys(fieldsOrigin);
+    consolidated.fuenteExtraccion = 'Consolidación multi-documental (unpdf + control asistido)';
+
+    return {
+        consolidated,
+        conflicts,
+        documentSummaries
     };
 }
 

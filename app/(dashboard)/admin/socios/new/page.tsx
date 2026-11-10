@@ -13,6 +13,8 @@ import {
 import { 
     UnifiedDocumentExtraction, 
     validateUnifiedExtraction,
+    consolidateDocumentExtractions,
+    DocumentConflict,
     normalizeDni 
 } from '@/app/lib/ocr-contract';
 import { 
@@ -125,6 +127,7 @@ export default function NewSocioWizardPage() {
     const [attachedDocs, setAttachedDocs] = useState<AttachedDocState[]>([]);
     const [isExtracting, setIsExtracting] = useState<boolean>(false);
     const [extractionSummary, setExtractionSummary] = useState<UnifiedDocumentExtraction | null>(null);
+    const [conflicts, setConflicts] = useState<DocumentConflict[]>([]);
 
     const [loading, setLoading] = useState(false);
     const [isLoaded, setIsLoaded] = useState(false);
@@ -177,13 +180,14 @@ export default function NewSocioWizardPage() {
             setFormData({ ...INITIAL_FORM, idempotencyKey: freshKey });
             setAttachedDocs([]);
             setExtractionSummary(null);
+            setConflicts([]);
             setCurrentStep(1);
             setValidationError(null);
             setBannerError(null);
         }
     };
 
-    // Subida y procesamiento de documentos iniciales (Paso 1)
+    // Subida y procesamiento de documentos (Paso 1)
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, defaultTipo = 'reprocann') => {
         const files = e.target.files;
         if (!files || files.length === 0) return;
@@ -214,122 +218,120 @@ export default function NewSocioWizardPage() {
             });
         }
 
-        setAttachedDocs(prev => [...prev, ...newDocs]);
+        // Reset input value para permitir re-selección
+        e.target.value = '';
+
+        const combinedDocs = [...attachedDocs, ...newDocs];
+        setAttachedDocs(combinedDocs);
         setValidationError(null);
 
-        // Si se agregó un documento, procesar extracción asistida sobre el primero relevante
+        // Procesar extracción de los documentos nuevos y consolidar con los existentes
         if (newDocs.length > 0) {
-            await runExtractionForDoc(newDocs[0]);
+            await processAndConsolidateDocs(combinedDocs, newDocs);
         }
     };
 
-    // Ejecuta la extracción asistida a través del BFF seguro
-    const runExtractionForDoc = async (doc: AttachedDocState) => {
+    // Ejecuta la extracción de documentos nuevos y consolida el resultado general
+    const processAndConsolidateDocs = async (allDocs: AttachedDocState[], docsToProcess: AttachedDocState[]) => {
         setIsExtracting(true);
         setBannerError(null);
 
         try {
-            const formDataReq = new FormData();
-            formDataReq.append('file', doc.file);
+            const updatedDocs = [...allDocs];
 
-            const res = await fetch('/api/admin/documents/extract', {
-                method: 'POST',
-                body: formDataReq
-            });
+            // 1. Procesar cada documento nuevo
+            for (const doc of docsToProcess) {
+                try {
+                    const formDataReq = new FormData();
+                    formDataReq.append('file', doc.file);
 
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.error || 'Error al procesar el archivo');
+                    const res = await fetch('/api/admin/documents/extract', {
+                        method: 'POST',
+                        body: formDataReq
+                    });
+
+                    if (res.ok) {
+                        const data = await res.json();
+                        const ext: UnifiedDocumentExtraction = data.extraction;
+
+                        const idx = updatedDocs.findIndex(d => d.id === doc.id);
+                        if (idx >= 0) {
+                            updatedDocs[idx] = {
+                                ...updatedDocs[idx],
+                                extraction: ext,
+                                fechaEmision: ext.fechaEmision || updatedDocs[idx].fechaEmision,
+                                fechaVencimiento: ext.fechaVencimiento || updatedDocs[idx].fechaVencimiento,
+                                numeroTramite: ext.numeroTramite || updatedDocs[idx].numeroTramite,
+                                tipo: ext.documentType !== 'desconocido' ? ext.documentType : updatedDocs[idx].tipo
+                            };
+                        }
+                    } else {
+                        const errData = await res.json().catch(() => ({}));
+                        console.warn(`Error en extracción de ${doc.file.name}:`, errData.error);
+                    }
+                } catch (docErr: any) {
+                    console.warn(`Fallo en procesamiento de archivo ${doc.file.name}:`, docErr.message);
+                }
             }
 
-            const data = await res.json();
-            const ext: UnifiedDocumentExtraction = data.extraction;
+            setAttachedDocs(updatedDocs);
 
-            setExtractionSummary(ext);
+            // 2. Consolidar todas las extracciones disponibles
+            const itemsToConsolidate = updatedDocs
+                .filter(d => d.extraction)
+                .map(d => ({
+                    filename: d.file.name,
+                    extraction: d.extraction!
+                }));
 
-            // Actualizar documento adjunto con la extracción
-            setAttachedDocs(prev => prev.map(d => {
-                if (d.id === doc.id) {
-                    return {
-                        ...d,
-                        extraction: ext,
-                        fechaEmision: ext.fechaEmision || d.fechaEmision,
-                        fechaVencimiento: ext.fechaVencimiento || d.fechaVencimiento,
-                        numeroTramite: ext.numeroTramite || d.numeroTramite,
-                        tipo: ext.documentType !== 'desconocido' ? ext.documentType : d.tipo
-                    };
-                }
-                return d;
-            }));
+            if (itemsToConsolidate.length > 0) {
+                const consolidation = consolidateDocumentExtractions(itemsToConsolidate);
+                setConflicts(consolidation.conflicts);
 
-            // Precargar datos del formulario con los campos extraídos
-            const extractedFieldNames: string[] = [];
-            setFormData(prev => {
-                const updated = { ...prev };
-                if (ext.titular?.nombre && !prev.nombre) {
-                    updated.nombre = ext.titular.nombre;
-                    extractedFieldNames.push('nombre');
-                }
-                if (ext.titular?.apellido && !prev.apellido) {
-                    updated.apellido = ext.titular.apellido;
-                    extractedFieldNames.push('apellido');
-                }
-                if (ext.dni && !prev.dni) {
-                    updated.dni = ext.dni;
-                    extractedFieldNames.push('dni');
-                }
-                if (ext.fechaNacimiento && !prev.fechaNacimiento) {
-                    updated.fechaNacimiento = ext.fechaNacimiento;
-                    extractedFieldNames.push('fechaNacimiento');
-                }
-                if (ext.numeroTramite && !prev.numeroTramite) {
-                    updated.numeroTramite = ext.numeroTramite;
-                    extractedFieldNames.push('numeroTramite');
-                }
-                if (ext.fechaEmision && !prev.fechaAlta) {
-                    updated.fechaAlta = ext.fechaEmision;
-                    extractedFieldNames.push('fechaAlta');
-                }
-                if (ext.fechaVencimiento && !prev.fechaVencimiento) {
-                    updated.fechaVencimiento = ext.fechaVencimiento;
-                    extractedFieldNames.push('fechaVencimiento');
-                }
-                if (ext.medico?.nombre && !prev.medicoNombre) {
-                    updated.medicoNombre = ext.medico.nombre;
-                    extractedFieldNames.push('medicoNombre');
-                }
-                if (ext.medico?.matricula && !prev.medicoMatricula) {
-                    updated.medicoMatricula = ext.medico.matricula;
-                    extractedFieldNames.push('medicoMatricula');
-                }
-                if (ext.diagnostico && !prev.diagnosticoPrincipal) {
-                    updated.diagnosticoPrincipal = ext.diagnostico;
-                    extractedFieldNames.push('diagnosticoPrincipal');
-                }
+                // Extracción representativa
+                const primaryExt = itemsToConsolidate.find(i => i.extraction.isLegible && !i.extraction.requiresVisualOcr)?.extraction
+                    || itemsToConsolidate[0].extraction;
+                setExtractionSummary(primaryExt);
 
-                // Ajustar situación si se detectaron fechas
-                if (ext.fechaVencimiento) {
-                    const today = getSanLuisCivilToday();
-                    const todayStr = `${today.year}-${String(today.month).padStart(2, '0')}-${String(today.day).padStart(2, '0')}`;
-                    if (ext.fechaVencimiento >= todayStr) {
-                        updated.situacionReprocann = 'vigente';
-                    } else {
-                        updated.situacionReprocann = 'vencido';
+                // 3. Precargar formulario con campos consolidados sin sobreescribir datos cargados manualmente
+                const c = consolidation.consolidated;
+                const extractedFieldNames: string[] = [];
+
+                setFormData(prev => {
+                    const updated = { ...prev };
+                    if (c.nombre && !prev.nombre) { updated.nombre = c.nombre; extractedFieldNames.push('nombre'); }
+                    if (c.apellido && !prev.apellido) { updated.apellido = c.apellido; extractedFieldNames.push('apellido'); }
+                    if (c.dni && !prev.dni) { updated.dni = c.dni; extractedFieldNames.push('dni'); }
+                    if (c.fechaNacimiento && !prev.fechaNacimiento) { updated.fechaNacimiento = c.fechaNacimiento; extractedFieldNames.push('fechaNacimiento'); }
+                    if (c.numeroTramite && !prev.numeroTramite) { updated.numeroTramite = c.numeroTramite; extractedFieldNames.push('numeroTramite'); }
+                    if (c.fechaAlta && !prev.fechaAlta) { updated.fechaAlta = c.fechaAlta; extractedFieldNames.push('fechaAlta'); }
+                    if (c.fechaVencimiento && !prev.fechaVencimiento) { updated.fechaVencimiento = c.fechaVencimiento; extractedFieldNames.push('fechaVencimiento'); }
+                    if (c.medicoNombre && !prev.medicoNombre) { updated.medicoNombre = c.medicoNombre; extractedFieldNames.push('medicoNombre'); }
+                    if (c.medicoMatricula && !prev.medicoMatricula) { updated.medicoMatricula = c.medicoMatricula; extractedFieldNames.push('medicoMatricula'); }
+                    if (c.diagnosticoPrincipal && !prev.diagnosticoPrincipal) { updated.diagnosticoPrincipal = c.diagnosticoPrincipal; extractedFieldNames.push('diagnosticoPrincipal'); }
+
+                    if (c.fechaVencimiento) {
+                        const today = getSanLuisCivilToday();
+                        const todayStr = `${today.year}-${String(today.month).padStart(2, '0')}-${String(today.day).padStart(2, '0')}`;
+                        if (c.fechaVencimiento >= todayStr) {
+                            updated.situacionReprocann = 'vigente';
+                        } else {
+                            updated.situacionReprocann = 'vencido';
+                        }
                     }
-                }
 
-                updated.fuenteExtraccion = ext.sourceDescription;
-                updated.camposExtraidos = Array.from(new Set([...(prev.camposExtraidos || []), ...extractedFieldNames]));
+                    updated.fuenteExtraccion = c.fuenteExtraccion || primaryExt.sourceDescription;
+                    updated.camposExtraidos = Array.from(new Set([...(prev.camposExtraidos || []), ...extractedFieldNames]));
 
-                return updated;
-            });
+                    return updated;
+                });
+            }
 
-            // Pasar al paso 2 de lectura asistida
+            // Pasar automáticamente al paso 2
             setCurrentStep(2);
 
         } catch (e: any) {
             console.warn("Fallo de extracción asistida:", e.message);
-            // No bloqueamos: permitimos continuar manualmente
             setBannerError(`Nota: ${e.message}. Podés ingresar o corregir los datos manualmente.`);
             setCurrentStep(2);
         } finally {
@@ -338,7 +340,22 @@ export default function NewSocioWizardPage() {
     };
 
     const handleRemoveDoc = (id: string) => {
-        setAttachedDocs(prev => prev.filter(d => d.id !== id));
+        setAttachedDocs(prev => {
+            const filtered = prev.filter(d => d.id !== id);
+            const items = filtered
+                .filter(d => d.extraction)
+                .map(d => ({ filename: d.file.name, extraction: d.extraction! }));
+            
+            if (items.length > 0) {
+                const consolidation = consolidateDocumentExtractions(items);
+                setConflicts(consolidation.conflicts);
+                setExtractionSummary(items[0].extraction);
+            } else {
+                setConflicts([]);
+                setExtractionSummary(null);
+            }
+            return filtered;
+        });
     };
 
     // Validación por paso
@@ -868,111 +885,268 @@ export default function NewSocioWizardPage() {
                 )}
 
                 {/* ========================================================
-                    PASO 2: LECTURA ASISTIDA Y RESULTADOS
+                    PASO 2: LECTURA ASISTIDA Y RESULTADOS MULTI-DOCUMENTO
                    ======================================================== */}
                 {currentStep === 2 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                         <div>
                             <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.3rem' }}>
-                                Paso 2: Lectura Asistida del Documento
+                                Paso 2: Lectura Asistida y Desglose Documental
                             </h2>
                             <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.9rem' }}>
-                                Revisá los datos detectados antes de incorporarlos al formulario. Podrás editarlos o completarlos en el paso siguiente.
+                                Revisá el análisis por archivo y la propuesta consolidada antes de continuar. La validación humana es obligatoria.
                             </p>
                         </div>
 
-                        {/* Fuente de extracción */}
-                        <div style={{
-                            padding: '1rem',
-                            borderRadius: 'var(--radius)',
-                            border: '1px solid hsl(var(--primary) / 0.3)',
-                            backgroundColor: 'hsl(var(--primary) / 0.05)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.75rem'
-                        }}>
-                            <Sparkles size={20} style={{ color: 'hsl(var(--primary))' }} />
-                            <div>
-                                <p style={{ fontSize: '0.85rem', fontWeight: 600, color: 'hsl(var(--primary))' }}>
-                                    {extractionSummary?.sourceDescription || 'Extracción de capa de texto digital (Optimización local server-side)'}
-                                </p>
-                                <p style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>
-                                    La extracción automática es una asistencia orientativa. La revisión y confirmación humana por parte de Staff/Admin es obligatoria.
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Cuadrícula de datos extraídos */}
-                        <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-                            gap: '1rem'
-                        }}>
-                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Tipo de Documento</span>
-                                <p style={{ fontWeight: 600, textTransform: 'capitalize' }}>
-                                    {extractionSummary?.documentType || 'No determinado'}
-                                </p>
-                            </div>
-
-                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Titular Detectado</span>
-                                <p style={{ fontWeight: 600 }}>
-                                    {extractionSummary?.titular?.apellido || extractionSummary?.titular?.nombre
-                                        ? `${extractionSummary.titular.nombre || ''} ${extractionSummary.titular.apellido || ''}`.trim()
-                                        : 'No detectado'}
-                                </p>
-                            </div>
-
-                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>DNI Detectado</span>
-                                <p style={{ fontWeight: 600 }}>
-                                    {extractionSummary?.dni || 'No detectado'}
-                                </p>
-                            </div>
-
-                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>N° Trámite REPROCANN</span>
-                                <p style={{ fontWeight: 600 }}>
-                                    {extractionSummary?.numeroTramite || 'No detectado'}
-                                </p>
-                            </div>
-
-                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Vencimiento Declarado</span>
-                                <p style={{ fontWeight: 600 }}>
-                                    {extractionSummary?.fechaVencimiento ? formatCalendarDate(extractionSummary.fechaVencimiento) : 'No detectado'}
-                                </p>
-                            </div>
-
-                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Médico Tratante</span>
-                                <p style={{ fontWeight: 600 }}>
-                                    {extractionSummary?.medico?.nombre 
-                                        ? `${extractionSummary.medico.nombre} (Mat: ${extractionSummary.medico.matricula || '-'})`
-                                        : 'No detectado'}
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Advertencias si las hubiere */}
-                        {extractionSummary?.warnings && extractionSummary.warnings.length > 0 && (
+                        {/* Alerta de Conflictos / Discrepancias entre documentos si las hubiere */}
+                        {conflicts.length > 0 && (
                             <div style={{
-                                padding: '0.75rem 1rem',
+                                padding: '1rem',
                                 borderRadius: 'var(--radius)',
-                                backgroundColor: 'hsl(var(--warning) / 0.1)',
-                                border: '1px solid hsl(var(--warning) / 0.3)',
-                                fontSize: '0.85rem',
-                                color: 'hsl(var(--warning-foreground, 38 92% 50%))'
+                                backgroundColor: 'hsl(var(--destructive) / 0.1)',
+                                border: '1px solid hsl(var(--destructive) / 0.4)',
+                                color: 'hsl(var(--destructive))'
                             }}>
-                                <p style={{ fontWeight: 600, marginBottom: '0.2rem' }}>Observaciones de lectura:</p>
-                                <ul style={{ paddingLeft: '1.2rem', margin: 0 }}>
-                                    {extractionSummary.warnings.map((w, idx) => (
-                                        <li key={idx}>{w}</li>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+                                    <AlertCircle size={18} />
+                                    <span>Discrepancia detectada entre documentos adjuntos ({conflicts.length})</span>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem' }}>
+                                    {conflicts.map((conf, idx) => (
+                                        <div key={idx} style={{ padding: '0.4rem 0.6rem', backgroundColor: 'hsl(var(--card))', borderRadius: '4px', border: '1px solid hsl(var(--border))' }}>
+                                            <strong>{conf.label}:</strong> "{conf.valueA}" ({conf.fileA}) ≠ "{conf.valueB}" ({conf.fileB}).
+                                            <span style={{ marginLeft: '0.5rem', color: 'hsl(var(--muted-foreground))' }}>
+                                                Se preservó el valor de {conf.fileA}. Podés editarlo en el paso siguiente.
+                                            </span>
+                                        </div>
                                     ))}
-                                </ul>
+                                </div>
                             </div>
                         )}
+
+                        {/* Desglose Documento por Documento */}
+                        <div>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <FileText size={18} style={{ color: 'hsl(var(--primary))' }} />
+                                Documentos analizados ({attachedDocs.length})
+                            </h3>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                {attachedDocs.map((doc, idx) => {
+                                    const ext = doc.extraction;
+                                    const isImageOnly = ext?.requiresVisualOcr || ext?.hasImageOnlyLayer;
+                                    const isSuccess = ext?.isLegible && !isImageOnly;
+
+                                    return (
+                                        <div key={doc.id || idx} style={{
+                                            padding: '1rem 1.25rem',
+                                            border: '1px solid hsl(var(--border))',
+                                            borderRadius: 'var(--radius)',
+                                            backgroundColor: 'hsl(var(--card))'
+                                        }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                        <p style={{ fontWeight: 600, fontSize: '0.95rem' }}>{doc.file.name}</p>
+                                                        <span style={{
+                                                            padding: '0.15rem 0.5rem',
+                                                            borderRadius: '9999px',
+                                                            fontSize: '0.75rem',
+                                                            backgroundColor: 'hsl(var(--secondary))',
+                                                            textTransform: 'uppercase',
+                                                            fontWeight: 600
+                                                        }}>
+                                                            {ext?.documentType || doc.tipo}
+                                                        </span>
+                                                    </div>
+                                                    <p style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))', marginTop: '0.2rem' }}>
+                                                        {ext?.totalPages || 1} página(s) • {(doc.file.size / 1024).toFixed(1)} KB • {ext?.sourceDescription || 'Extracción local'}
+                                                    </p>
+                                                </div>
+
+                                                <div>
+                                                    {isSuccess ? (
+                                                        <span style={{
+                                                            padding: '0.25rem 0.6rem',
+                                                            borderRadius: '9999px',
+                                                            fontSize: '0.75rem',
+                                                            fontWeight: 600,
+                                                            backgroundColor: 'hsl(var(--success, 142 76% 36%) / 0.15)',
+                                                            color: 'hsl(var(--success, 142 76% 36%))'
+                                                        }}>
+                                                            ✓ Capa de texto digital ({ext?.detectedFieldsCount || 0} campos)
+                                                        </span>
+                                                    ) : isImageOnly ? (
+                                                        <span style={{
+                                                            padding: '0.25rem 0.6rem',
+                                                            borderRadius: '9999px',
+                                                            fontSize: '0.75rem',
+                                                            fontWeight: 600,
+                                                            backgroundColor: 'hsl(var(--warning) / 0.15)',
+                                                            color: 'hsl(var(--warning-foreground, 38 92% 50%))'
+                                                        }}>
+                                                            ⚠️ Imagen rasterizada (Requiere OCR visual)
+                                                        </span>
+                                                    ) : (
+                                                        <span style={{
+                                                            padding: '0.25rem 0.6rem',
+                                                            borderRadius: '9999px',
+                                                            fontSize: '0.75rem',
+                                                            fontWeight: 500,
+                                                            backgroundColor: 'hsl(var(--muted))',
+                                                            color: 'hsl(var(--muted-foreground))'
+                                                        }}>
+                                                            Sin datos de texto legibles
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Campos detectados en este documento */}
+                                            {ext && (
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                                                    {ext.titular?.nombre && (
+                                                        <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', backgroundColor: 'hsl(var(--muted) / 0.5)', borderRadius: '4px' }}>
+                                                            <strong>Titular:</strong> {ext.titular.nombre} {ext.titular.apellido || ''}
+                                                        </span>
+                                                    )}
+                                                    {ext.dni && (
+                                                        <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', backgroundColor: 'hsl(var(--muted) / 0.5)', borderRadius: '4px' }}>
+                                                            <strong>DNI:</strong> {ext.dni}
+                                                        </span>
+                                                    )}
+                                                    {ext.fechaNacimiento && (
+                                                        <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', backgroundColor: 'hsl(var(--muted) / 0.5)', borderRadius: '4px' }}>
+                                                            <strong>Nacimiento:</strong> {formatCalendarDate(ext.fechaNacimiento)}
+                                                        </span>
+                                                    )}
+                                                    {ext.numeroTramite && (
+                                                        <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', backgroundColor: 'hsl(var(--muted) / 0.5)', borderRadius: '4px' }}>
+                                                            <strong>Trámite:</strong> {ext.numeroTramite}
+                                                        </span>
+                                                    )}
+                                                    {ext.medico?.nombre && (
+                                                        <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', backgroundColor: 'hsl(var(--muted) / 0.5)', borderRadius: '4px' }}>
+                                                            <strong>Médico:</strong> {ext.medico.nombre} {ext.medico.matricula ? `(${ext.medico.matricula})` : ''}
+                                                        </span>
+                                                    )}
+                                                    {ext.diagnostico && (
+                                                        <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', backgroundColor: 'hsl(var(--muted) / 0.5)', borderRadius: '4px' }}>
+                                                            <strong>Diagnóstico:</strong> {ext.diagnostico}
+                                                        </span>
+                                                    )}
+                                                    {ext.fechaVencimiento && (
+                                                        <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', backgroundColor: 'hsl(var(--muted) / 0.5)', borderRadius: '4px' }}>
+                                                            <strong>Vencimiento:</strong> {formatCalendarDate(ext.fechaVencimiento)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {/* Advertencias específicas del archivo */}
+                                            {ext?.warnings && ext.warnings.length > 0 && (
+                                                <div style={{ fontSize: '0.8rem', color: 'hsl(var(--warning-foreground, 38 92% 50%))', backgroundColor: 'hsl(var(--warning) / 0.08)', padding: '0.5rem 0.75rem', borderRadius: '4px', marginTop: '0.5rem' }}>
+                                                    {ext.warnings.map((w, wIdx) => (
+                                                        <div key={wIdx}>• {w}</div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Cuadrícula de Datos Consolidados (Propuesta a aplicar en Paso 3) */}
+                        <div>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <Sparkles size={18} style={{ color: 'hsl(var(--primary))' }} />
+                                Propuesta Consolidada para Ficha del Socio
+                            </h3>
+
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                                gap: '1rem'
+                            }}>
+                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Titular Propuesto</span>
+                                    <p style={{ fontWeight: 600 }}>
+                                        {formData.nombre || formData.apellido 
+                                            ? `${formData.nombre} ${formData.apellido}`.trim() 
+                                            : 'No detectado'}
+                                    </p>
+                                </div>
+
+                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>DNI Propuesto</span>
+                                    <p style={{ fontWeight: 600 }}>
+                                        {formData.dni || 'No detectado'}
+                                    </p>
+                                </div>
+
+                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Fecha de Nacimiento</span>
+                                    <p style={{ fontWeight: 600 }}>
+                                        {formData.fechaNacimiento ? formatCalendarDate(formData.fechaNacimiento) : 'No detectada'}
+                                    </p>
+                                </div>
+
+                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>N° Trámite REPROCANN</span>
+                                    <p style={{ fontWeight: 600 }}>
+                                        {formData.numeroTramite || 'No detectado'}
+                                    </p>
+                                </div>
+
+                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Vencimiento REPROCANN</span>
+                                    <p style={{ fontWeight: 600 }}>
+                                        {formData.fechaVencimiento 
+                                            ? formatCalendarDate(formData.fechaVencimiento) 
+                                            : 'No detectado (completar manualmente si posee credencial vigente)'}
+                                    </p>
+                                </div>
+
+                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Médico Tratante</span>
+                                    <p style={{ fontWeight: 600 }}>
+                                        {formData.medicoNombre 
+                                            ? `${formData.medicoNombre} ${formData.medicoMatricula ? `(Mat: ${formData.medicoMatricula})` : ''}` 
+                                            : 'No detectado'}
+                                    </p>
+                                </div>
+
+                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Diagnóstico / Patología</span>
+                                    <p style={{ fontWeight: 600 }}>
+                                        {formData.diagnosticoPrincipal || 'No detectado'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Botón rápido para volver y agregar más documentos */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '0.5rem' }}>
+                            <button
+                                type="button"
+                                onClick={() => setCurrentStep(1)}
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.4rem',
+                                    padding: '0.5rem 0.9rem',
+                                    backgroundColor: 'hsl(var(--secondary))',
+                                    color: 'hsl(var(--secondary-foreground))',
+                                    border: '1px solid hsl(var(--border))',
+                                    borderRadius: 'var(--radius)',
+                                    fontSize: '0.85rem',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <FileUp size={15} /> Adjuntar más documentos en Paso 1
+                            </button>
+                        </div>
                     </div>
                 )}
 
