@@ -133,6 +133,22 @@ export async function PATCH(
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
 
+        // Audit log de actualización administrativa
+        try {
+            await supabaseAdmin.from('audit_logs').insert({
+                user_id: access.user!.id,
+                action: 'SOCIO_UPDATED',
+                entity_type: 'socios',
+                entity_id: id,
+                details: {
+                    updated_by: access.user!.email || access.user!.id,
+                    updated_fields: Object.keys(allowedUpdates)
+                }
+            });
+        } catch (auditErr) {
+            console.warn('Could not register audit log for socio update:', auditErr);
+        }
+
         return NextResponse.json(updated);
     } catch (e: any) {
         return NextResponse.json({ error: e.message || 'Error interno' }, { status: 500 });

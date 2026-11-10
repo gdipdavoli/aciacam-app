@@ -10,7 +10,8 @@ import { StorageService } from '@/services/storageService';
 import type { TipoDocumento, EstadoVerificacion } from '@/services/documentacionService';
 import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento, Pago, Notificacion } from '@/types';
 import { formatCalendarDate, calculateDaysRemaining, formatTimestamp } from '@/app/lib/date-format';
-import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus, CreditCard, Send, Bell, MessageSquare, Clock, AlertCircle, XCircle } from 'lucide-react';
+import { UnifiedDocumentExtraction } from '@/app/lib/ocr-contract';
+import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus, CreditCard, Send, Bell, MessageSquare, Clock, AlertCircle, XCircle, Sparkles, FileUp, CheckSquare } from 'lucide-react';
 
 const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
     consentimiento: { needsFecha: false, needsMonto: false, hasExpiration: false },
@@ -614,6 +615,409 @@ const DocumentEditModal = ({ socioId, docKey, docLabel, initialData, config, onC
     );
 };
 
+// --- COMPONENT: UpdateFromDocumentModal (Sprint UX-03C) ---
+const UpdateFromDocumentModal = ({ socio, onClose, onUpdated }: { socio: Socio; onClose: () => void; onUpdated: () => void }) => {
+    const [file, setFile] = useState<File | null>(null);
+    const [docType, setDocType] = useState<string>('reprocann');
+    const [isExtracting, setIsExtracting] = useState<boolean>(false);
+    const [extraction, setExtraction] = useState<UnifiedDocumentExtraction | null>(null);
+    const [identityCheck, setIdentityCheck] = useState<{ matches: boolean; docDni?: string; socioDni?: string; warning?: string } | null>(null);
+    const [selectedFields, setSelectedFields] = useState<Record<string, boolean>>({});
+    const [verificacionEstado, setVerificacionEstado] = useState<'aprobado' | 'pendiente'>('aprobado');
+    const [verificacionObs, setVerificacionObs] = useState<string>('');
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const selected = e.target.files?.[0];
+        if (!selected) return;
+        setFile(selected);
+        setError(null);
+        setIsExtracting(true);
+
+        try {
+            const fd = new FormData();
+            fd.append('file', selected);
+            if (socio.dni) fd.append('socioDni', socio.dni);
+
+            const res = await fetch('/api/admin/documents/extract', {
+                method: 'POST',
+                body: fd
+            });
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || 'Error al procesar extracción');
+            }
+            const data = await res.json();
+            const ext: UnifiedDocumentExtraction = data.extraction;
+            setExtraction(ext);
+            setIdentityCheck(data.identityCheck);
+
+            if (ext.documentType && ext.documentType !== 'desconocido') {
+                setDocType(ext.documentType);
+            }
+
+            // Detect field diffs
+            const diffs: Record<string, boolean> = {};
+            if (ext.numeroTramite && ext.numeroTramite !== socio.reprocann?.numeroTramite) diffs.numeroTramite = true;
+            if (ext.fechaEmision && ext.fechaEmision !== socio.reprocann?.fechaAlta) diffs.fechaAlta = true;
+            if (ext.fechaVencimiento && ext.fechaVencimiento !== socio.reprocann?.fechaVencimiento) diffs.fechaVencimiento = true;
+            if (ext.medico?.nombre && ext.medico?.nombre !== socio.medicoNombre) diffs.medicoNombre = true;
+            if (ext.medico?.matricula && ext.medico?.matricula !== socio.medicoMatricula) diffs.medicoMatricula = true;
+            if (ext.diagnostico && ext.diagnostico !== socio.diagnosticoPrincipal) diffs.diagnosticoPrincipal = true;
+            if (ext.fechaNacimiento && ext.fechaNacimiento !== socio.fechaNacimiento) diffs.fechaNacimiento = true;
+
+            setSelectedFields(diffs);
+        } catch (err: any) {
+            setError(err.message || 'Error al procesar documento');
+        } finally {
+            setIsExtracting(false);
+        }
+    };
+
+    const toggleField = (key: string) => {
+        setSelectedFields(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
+    const handleApply = async () => {
+        if (!file) return;
+        if (identityCheck && !identityCheck.matches) {
+            alert('No se pueden aplicar cambios automáticos debido a una discrepancia de DNI.');
+            return;
+        }
+
+        setSaving(true);
+        setError(null);
+
+        try {
+            // 1. Prepare updates for socio
+            const updates: Partial<Socio> = {};
+            if (selectedFields.numeroTramite && extraction?.numeroTramite) {
+                updates.reprocann = { ...(socio.reprocann || {}), numeroTramite: extraction.numeroTramite } as any;
+            }
+            if (selectedFields.fechaAlta && extraction?.fechaEmision) {
+                updates.reprocann = { ...(updates.reprocann || socio.reprocann || {}), fechaAlta: extraction.fechaEmision } as any;
+            }
+            if (selectedFields.fechaVencimiento && extraction?.fechaVencimiento) {
+                updates.reprocann = { ...(updates.reprocann || socio.reprocann || {}), fechaVencimiento: extraction.fechaVencimiento } as any;
+            }
+            if (selectedFields.medicoNombre && extraction?.medico?.nombre) {
+                updates.medicoNombre = extraction.medico.nombre;
+            }
+            if (selectedFields.medicoMatricula && extraction?.medico?.matricula) {
+                updates.medicoMatricula = extraction.medico.matricula;
+            }
+            if (selectedFields.diagnosticoPrincipal && extraction?.diagnostico) {
+                updates.diagnosticoPrincipal = extraction.diagnostico;
+            }
+            if (selectedFields.fechaNacimiento && extraction?.fechaNacimiento) {
+                updates.fechaNacimiento = extraction.fechaNacimiento;
+            }
+
+            if (Object.keys(updates).length > 0) {
+                await StoreService.updateSocio(socio.id, updates);
+            }
+
+            // 2. Upload document with versioning and immediate verification
+            await StorageService.uploadSocioDocument({
+                socioId: socio.id,
+                docType,
+                file,
+                fechaEmision: extraction?.fechaEmision || socio.reprocann?.fechaAlta,
+                fechaVencimiento: extraction?.fechaVencimiento || socio.reprocann?.fechaVencimiento,
+                numeroTramite: extraction?.numeroTramite || socio.reprocann?.numeroTramite,
+                verificacionEstado,
+                verificacionObs
+            });
+
+            onUpdated();
+            onClose();
+        } catch (e: any) {
+            setError(e.message || 'Error al aplicar cambios');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const hasIdentityMismatch = Boolean(identityCheck && !identityCheck.matches);
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100
+        }}>
+            <div 
+                className="bg-card w-full max-w-2xl rounded-2xl border p-6 shadow-2xl mx-4 overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-150"
+                onClick={e => e.stopPropagation()}
+            >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <Sparkles size={22} style={{ color: 'hsl(var(--primary))' }} />
+                        <div>
+                            <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }}>Actualizar datos desde documento</h3>
+                            <p style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>
+                                Socio: <strong>{socio.nombre} {socio.apellido}</strong> (DNI: {socio.dni})
+                            </p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
+                </div>
+
+                {error && (
+                    <div style={{
+                        padding: '0.75rem 1rem',
+                        marginBottom: '1rem',
+                        borderRadius: 'var(--radius)',
+                        backgroundColor: 'hsl(var(--destructive) / 0.1)',
+                        color: 'hsl(var(--destructive))',
+                        border: '1px solid hsl(var(--destructive) / 0.3)',
+                        fontSize: '0.85rem'
+                    }}>
+                        {error}
+                    </div>
+                )}
+
+                {/* Subida de archivo */}
+                <div style={{
+                    border: '2px dashed hsl(var(--border))',
+                    borderRadius: 'var(--radius)',
+                    padding: '1.5rem',
+                    textAlign: 'center',
+                    backgroundColor: 'hsl(var(--muted) / 0.2)',
+                    marginBottom: '1.5rem'
+                }}>
+                    <input
+                        type="file"
+                        id="modalDocFile"
+                        accept=".pdf,image/jpeg,image/png,image/webp"
+                        onChange={handleFileChange}
+                        style={{ display: 'none' }}
+                    />
+                    <label 
+                        htmlFor="modalDocFile"
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            padding: '0.6rem 1.2rem',
+                            backgroundColor: 'hsl(var(--primary))',
+                            color: 'hsl(var(--primary-foreground))',
+                            borderRadius: 'var(--radius)',
+                            fontWeight: 600,
+                            fontSize: '0.85rem',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <FileUp size={16} /> {file ? `Cambiar Archivo (${file.name})` : 'Seleccionar Documento (PDF/Imagen)'}
+                    </label>
+
+                    {isExtracting && (
+                        <p style={{ marginTop: '0.8rem', fontSize: '0.85rem', color: 'hsl(var(--primary))', fontWeight: 500 }}>
+                            Analizando documento y cotejando identidad...
+                        </p>
+                    )}
+                </div>
+
+                {/* Alerta de bloqueo por discrepancia de identidad */}
+                {hasIdentityMismatch && (
+                    <div style={{
+                        padding: '1rem',
+                        borderRadius: 'var(--radius)',
+                        backgroundColor: 'hsl(var(--destructive) / 0.15)',
+                        border: '1px solid hsl(var(--destructive))',
+                        color: 'hsl(var(--destructive))',
+                        marginBottom: '1.5rem'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, marginBottom: '0.3rem' }}>
+                            <AlertCircle size={20} />
+                            DISCREPANCIA CRÍTICA DE IDENTIDAD
+                        </div>
+                        <p style={{ fontSize: '0.85rem', lineHeight: 1.4 }}>
+                            El DNI detectado en el documento (<strong>{identityCheck?.docDni}</strong>) no coincide con el DNI del socio actual (<strong>{socio.dni}</strong>).
+                            Por seguridad, la aplicación automática de los cambios está <strong>bloqueada</strong> para evitar sobrescribir la ficha con datos de otra persona.
+                        </p>
+                    </div>
+                )}
+
+                {/* Tabla comparativa de cambios */}
+                {extraction && !isExtracting && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
+                        <div style={{
+                            fontSize: '0.75rem',
+                            color: 'hsl(var(--muted-foreground))',
+                            backgroundColor: 'hsl(var(--muted) / 0.3)',
+                            padding: '0.5rem 0.75rem',
+                            borderRadius: 'var(--radius)'
+                        }}>
+                            {extraction.sourceDescription} • Tipo detectado: <strong style={{ textTransform: 'capitalize' }}>{extraction.documentType}</strong>
+                        </div>
+
+                        <h4 style={{ fontSize: '0.9rem', fontWeight: 600 }}>Cotejo de datos y cambios propuestos:</h4>
+
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                            <thead>
+                                <tr style={{ borderBottom: '1px solid hsl(var(--border))', textAlign: 'left', color: 'hsl(var(--muted-foreground))' }}>
+                                    <th style={{ padding: '0.5rem' }}>Aplicar</th>
+                                    <th style={{ padding: '0.5rem' }}>Campo</th>
+                                    <th style={{ padding: '0.5rem' }}>Valor Actual</th>
+                                    <th style={{ padding: '0.5rem' }}>Nuevo Detectado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {[
+                                    { key: 'numeroTramite', label: 'N° Trámite REPROCANN', curr: socio.reprocann?.numeroTramite, next: extraction.numeroTramite },
+                                    { key: 'fechaAlta', label: 'Fecha Emisión', curr: socio.reprocann?.fechaAlta ? formatCalendarDate(socio.reprocann.fechaAlta) : null, next: extraction.fechaEmision ? formatCalendarDate(extraction.fechaEmision) : null },
+                                    { key: 'fechaVencimiento', label: 'Fecha Vencimiento', curr: socio.reprocann?.fechaVencimiento ? formatCalendarDate(socio.reprocann.fechaVencimiento) : null, next: extraction.fechaVencimiento ? formatCalendarDate(extraction.fechaVencimiento) : null },
+                                    { key: 'medicoNombre', label: 'Médico Tratante', curr: socio.medicoNombre, next: extraction.medico?.nombre },
+                                    { key: 'medicoMatricula', label: 'Matrícula Profesional', curr: socio.medicoMatricula, next: extraction.medico?.matricula },
+                                    { key: 'diagnosticoPrincipal', label: 'Diagnóstico Clínico', curr: socio.diagnosticoPrincipal, next: extraction.diagnostico },
+                                    { key: 'fechaNacimiento', label: 'Fecha Nacimiento', curr: socio.fechaNacimiento ? formatCalendarDate(socio.fechaNacimiento) : null, next: extraction.fechaNacimiento ? formatCalendarDate(extraction.fechaNacimiento) : null },
+                                ].map(row => {
+                                    const hasValue = !!row.next;
+                                    const isDiff = row.next && row.next !== row.curr;
+                                    return (
+                                        <tr key={row.key} style={{
+                                            borderBottom: '1px solid hsl(var(--border))',
+                                            backgroundColor: isDiff ? 'hsl(var(--primary) / 0.04)' : 'transparent'
+                                        }}>
+                                            <td style={{ padding: '0.5rem' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={!!selectedFields[row.key]}
+                                                    disabled={hasIdentityMismatch || !hasValue}
+                                                    onChange={() => toggleField(row.key)}
+                                                    style={{ cursor: hasValue && !hasIdentityMismatch ? 'pointer' : 'not-allowed' }}
+                                                />
+                                            </td>
+                                            <td style={{ padding: '0.5rem', fontWeight: 500 }}>{row.label}</td>
+                                            <td style={{ padding: '0.5rem', color: 'hsl(var(--muted-foreground))' }}>{row.curr || '-'}</td>
+                                            <td style={{ padding: '0.5rem', fontWeight: isDiff ? 600 : 400, color: isDiff ? 'hsl(var(--primary))' : 'inherit' }}>
+                                                {row.next || <span style={{ opacity: 0.5 }}>No detectado</span>}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+
+                        {/* Opciones de verificación para la nueva versión documental */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.5rem' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '0.3rem' }}>
+                                    Tipo Documental
+                                </label>
+                                <select
+                                    value={docType}
+                                    onChange={(e) => setDocType(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '0.5rem',
+                                        borderRadius: 'var(--radius)',
+                                        border: '1px solid hsl(var(--border))',
+                                        backgroundColor: 'hsl(var(--background))',
+                                        fontSize: '0.85rem'
+                                    }}
+                                >
+                                    <option value="reprocann">Certificado REPROCANN</option>
+                                    <option value="consentimiento">Consentimiento Médico</option>
+                                    <option value="constancia_tramite">Constancia de Trámite</option>
+                                    <option value="declaracion_jurada">Declaración Jurada</option>
+                                    <option value="dni">DNI</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '0.3rem' }}>
+                                    Estado de Verificación
+                                </label>
+                                <select
+                                    value={verificacionEstado}
+                                    onChange={(e) => setVerificacionEstado(e.target.value as any)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '0.5rem',
+                                        borderRadius: 'var(--radius)',
+                                        border: '1px solid hsl(var(--border))',
+                                        backgroundColor: 'hsl(var(--background))',
+                                        fontSize: '0.85rem'
+                                    }}
+                                >
+                                    <option value="aprobado">Aprobar de inmediato</option>
+                                    <option value="pendiente">Dejar pendiente de revisión</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 500, marginBottom: '0.3rem' }}>
+                                Observaciones de la actualización
+                            </label>
+                            <input
+                                type="text"
+                                value={verificacionObs}
+                                onChange={(e) => setVerificacionObs(e.target.value)}
+                                placeholder="Ej: Renovación REPROCANN 2026-2029 con nuevo médico"
+                                style={{
+                                    width: '100%',
+                                    padding: '0.5rem 0.8rem',
+                                    borderRadius: 'var(--radius)',
+                                    border: '1px solid hsl(var(--border))',
+                                    backgroundColor: 'hsl(var(--background))',
+                                    fontSize: '0.85rem'
+                                }}
+                            />
+                        </div>
+                    </div>
+                )}
+
+                {/* Acciones */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem', borderTop: '1px solid hsl(var(--border))', paddingTop: '1rem' }}>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '0.6rem 1rem',
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: 'var(--radius)',
+                            background: 'none',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem'
+                        }}
+                    >
+                        Cancelar
+                    </button>
+
+                    <button
+                        onClick={handleApply}
+                        disabled={saving || !file || hasIdentityMismatch}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                            padding: '0.6rem 1.2rem',
+                            backgroundColor: 'hsl(var(--primary))',
+                            color: 'hsl(var(--primary-foreground))',
+                            border: 'none',
+                            borderRadius: 'var(--radius)',
+                            fontWeight: 600,
+                            fontSize: '0.85rem',
+                            cursor: saving || !file || hasIdentityMismatch ? 'not-allowed' : 'pointer',
+                            opacity: saving || !file || hasIdentityMismatch ? 0.6 : 1
+                        }}
+                    >
+                        <Save size={16} />
+                        {saving ? 'Aplicando y Guardando...' : 'Aplicar Cambios y Guardar Versión'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export default function SocioDetailsPage() {
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
@@ -645,8 +1049,64 @@ export default function SocioDetailsPage() {
 
     const [compliance, setCompliance] = useState<any>(null);
     const [editingDocKey, setEditingDocKey] = useState<keyof DocumentacionSocio | null>(searchParams?.get('doc') as any || null);
-    // Removed docForm and selectedFile derived state from here; now handled in modal
     const [uploading, setUploading] = useState(false);
+    const [showDocUpdateModal, setShowDocUpdateModal] = useState(false);
+
+    const refreshSocioData = async () => {
+        if (!id) return;
+        try {
+            const [socioData, docsData, complianceData] = await Promise.all([
+                StoreService.getSocioById(id),
+                StoreService.getDocumentosBySocio(id),
+                fetch(`/api/socios/${id}/compliance`).then(res => res.ok ? res.json() : null)
+            ]);
+
+            if (socioData) {
+                const mappedDocs: Record<string, DocumentoSocio> = {};
+                const normalizeTipo = (tipo: string) => {
+                    if (!tipo) return 'otro';
+                    const t = tipo.toLowerCase().replace(/[\s_]+/g, '');
+                    if (t.includes('declaracion') || t.includes('jurada')) return 'declaracionJurada';
+                    if (t.includes('consentimiento')) return 'consentimiento';
+                    if (t.includes('reprocann')) return 'reprocann';
+                    if (t === 'contratoautocultivo') return 'contrato_autocultivo';
+                    if (t === 'contratomadre') return 'contrato_madre';
+                    if (t === 'contrato') return 'contrato';
+                    return tipo;
+                };
+
+                docsData.forEach(d => {
+                    const normalized = normalizeTipo(d.tipo);
+                    mappedDocs[normalized] = {
+                        estado: d.estado as EstadoDocumento,
+                        archivoPath: d.archivo_path || undefined,
+                        fechaEmision: d.fecha_emision || undefined,
+                        fechaVencimiento: d.fecha_vencimiento || undefined,
+                        monto: d.monto || undefined,
+                        observaciones: d.observaciones || undefined,
+                        verificacion_estado: d.verificacion_estado || 'pendiente',
+                        verificacion_obs: d.verificacion_obs || undefined,
+                        verificado_at: d.verificado_at || undefined,
+                        verificado_por: d.verificado_por || undefined
+                    };
+                });
+
+                const initialized = {
+                    ...socioData,
+                    reprocann: socioData.reprocann || { estado: 'pendiente' },
+                    documentacion: {
+                        ...socioData.documentacion,
+                        ...mappedDocs
+                    }
+                };
+                setSocio(initialized);
+                setOriginalSocio(JSON.parse(JSON.stringify(initialized)));
+                setCompliance(complianceData);
+            }
+        } catch (e) {
+            console.error("Error al refrescar datos del socio:", e);
+        }
+    };
 
     // Helper to update URL params
     const updateUrl = (params: Record<string, string | null>) => {
@@ -1058,6 +1518,25 @@ export default function SocioDetailsPage() {
                             Eliminar Socio
                         </button>
                     )}
+
+                    <button
+                        onClick={() => setShowDocUpdateModal(true)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                            backgroundColor: 'hsl(var(--primary))',
+                            color: 'hsl(var(--primary-foreground))',
+                            border: 'none',
+                            padding: '0.4rem 0.9rem',
+                            borderRadius: 'var(--radius)',
+                            fontSize: '0.85rem',
+                            cursor: 'pointer',
+                            fontWeight: 600
+                        }}
+                    >
+                        <Sparkles size={15} /> Actualizar datos desde documento
+                    </button>
 
                     <div style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>
                         {editingSection ? 'Modo Edición Activo' : 'Modo Lectura'}
@@ -1555,15 +2034,34 @@ export default function SocioDetailsPage() {
                         </h3>
                         <div style={{ marginLeft: 'auto' }}>
                             {editingSection !== 'reprocann' ? (
-                                <button
-                                    onClick={() => {
-                                        setEditingSection('reprocann');
-                                        updateUrl({ section: 'reprocann' });
-                                    }}
-                                    disabled={editingSection !== null}
-                                    style={{ fontSize: '0.85rem', color: editingSection ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary))', background: 'none', border: 'none', cursor: editingSection ? 'not-allowed' : 'pointer', fontWeight: 500 }}>
-                                    Editar
-                                </button>
+                                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                    <button
+                                        onClick={() => setShowDocUpdateModal(true)}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.4rem',
+                                            fontSize: '0.85rem',
+                                            color: 'hsl(var(--primary-foreground))',
+                                            backgroundColor: 'hsl(var(--primary))',
+                                            border: 'none',
+                                            padding: '0.35rem 0.8rem',
+                                            borderRadius: 'var(--radius)',
+                                            cursor: 'pointer',
+                                            fontWeight: 600
+                                        }}>
+                                        <Sparkles size={14} /> Actualizar desde documento
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setEditingSection('reprocann');
+                                            updateUrl({ section: 'reprocann' });
+                                        }}
+                                        disabled={editingSection !== null}
+                                        style={{ fontSize: '0.85rem', color: editingSection ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary))', background: 'none', border: 'none', cursor: editingSection ? 'not-allowed' : 'pointer', fontWeight: 500 }}>
+                                        Editar
+                                    </button>
+                                </div>
                             ) : (
                                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                                     <button onClick={handleCancelEdit} style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))', background: 'none', border: 'none', cursor: 'pointer' }}>Cancelar</button>
@@ -1608,6 +2106,17 @@ export default function SocioDetailsPage() {
                         }}
                         onSave={handleSaveDoc}
                         uploading={uploading}
+                    />
+                )
+            }
+
+            {/* MODAL ACTUALIZAR DATOS DESDE DOCUMENTO (UX-03C) */}
+            {
+                showDocUpdateModal && socio && (
+                    <UpdateFromDocumentModal
+                        socio={socio}
+                        onClose={() => setShowDocUpdateModal(false)}
+                        onUpdated={refreshSocioData}
                     />
                 )
             }

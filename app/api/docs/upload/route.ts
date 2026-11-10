@@ -33,6 +33,8 @@ export async function POST(req: NextRequest) {
         const fechaEmision = (formData.get('fechaEmision') as string | null) || null;
         const fechaVencimiento = (formData.get('fechaVencimiento') as string | null) || null;
         const numeroTramite = (formData.get('numeroTramite') as string | null) || null;
+        const rawVerificacionEstado = (formData.get('verificacionEstado') as string | null) || null;
+        const rawVerificacionObs = (formData.get('verificacionObs') as string | null) || null;
 
         if (!file || !socioId || !rawDocType) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -47,11 +49,16 @@ export async function POST(req: NextRequest) {
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(socioId) || !/^[a-zA-Z0-9_-]+$/.test(docType)) {
             return NextResponse.json({ error: 'Documento inválido' }, { status: 400 });
         }
-        if (!await hasStaffRole(user, supabaseAdmin)) {
+        
+        const isStaff = await hasStaffRole(user, supabaseAdmin);
+        if (!isStaff) {
             const { data: owner, error } = await supabaseAdmin.from('socios').select('auth_user_id').eq('id', socioId).maybeSingle();
             if (error) throw error;
             if (!owner || owner.auth_user_id !== user.id) {
                 return NextResponse.json({ error: 'No podés modificar documentos de otro socio' }, { status: 403 });
+            }
+            if (rawVerificacionEstado && rawVerificacionEstado !== 'pendiente') {
+                return NextResponse.json({ error: 'Solo el personal administrativo puede verificar documentos' }, { status: 403 });
             }
         }
         // Basic validation
@@ -97,13 +104,30 @@ export async function POST(req: NextRequest) {
         const newVersion = existingDoc ? (existingDoc.version || 1) + 1 : 1;
         const supersedesId = existingDoc ? existingDoc.id : null;
 
+        // Determination of verification state
+        let effectiveEstado = 'pendiente';
+        let verificadoAt: string | null = null;
+        let verificadoPor: string | null = null;
+
+        if (isStaff && rawVerificacionEstado) {
+            const cleanEstado = rawVerificacionEstado.toLowerCase().trim();
+            if (['aprobado', 'rechazado', 'en_revision', 'pendiente'].includes(cleanEstado)) {
+                effectiveEstado = cleanEstado;
+                if (cleanEstado === 'aprobado' || cleanEstado === 'rechazado') {
+                    verificadoAt = new Date().toISOString();
+                    verificadoPor = user.email || user.id;
+                }
+            }
+        }
+
         const docPayload: any = {
             socio_id: socioId,
             tipo: docType,
             archivo_path: path,
-            verificacion_estado: 'pendiente',
-            verificado_at: null,
-            verificado_por: null,
+            verificacion_estado: effectiveEstado,
+            verificacion_obs: rawVerificacionObs ? String(rawVerificacionObs).slice(0, 1000) : null,
+            verificado_at: verificadoAt,
+            verificado_por: verificadoPor,
             is_current: true,
             version: newVersion,
             supersedes_document_id: supersedesId
@@ -111,13 +135,37 @@ export async function POST(req: NextRequest) {
         if (fechaEmision) docPayload.fecha_emision = fechaEmision;
         if (fechaVencimiento) docPayload.fecha_vencimiento = fechaVencimiento;
 
-        const { error: dbError } = await supabaseAdmin
+        const { data: insertedDoc, error: dbError } = await supabaseAdmin
             .from('documentos_socio')
-            .insert(docPayload);
+            .insert(docPayload)
+            .select('id, verificacion_estado')
+            .single();
 
         if (dbError) {
             console.error("Supabase DB Insert Error:", dbError);
             return NextResponse.json({ error: "Upload successful but DB insert failed: " + dbError.message }, { status: 500 });
+        }
+
+        // Audit log for document incorporation and immediate verification if applicable
+        try {
+            await supabaseAdmin.from('audit_logs').insert({
+                user_id: user.id,
+                action: effectiveEstado === 'aprobado' ? 'DOCUMENT_VERIFIED' : 'DOCUMENT_UPLOADED',
+                entity_type: 'documentos_socio',
+                entity_id: insertedDoc?.id || socioId,
+                details: {
+                    socio_id: socioId,
+                    tipo: docType,
+                    version: newVersion,
+                    verificacion_estado: effectiveEstado,
+                    verificado_por: verificadoPor,
+                    archivo_path: path,
+                    fecha_emision: fechaEmision,
+                    fecha_vencimiento: fechaVencimiento
+                }
+            });
+        } catch (auditErr) {
+            console.warn('Could not register audit log for document upload:', auditErr);
         }
 
         // 3. If reprocann, persist trámite number and dates to socios table

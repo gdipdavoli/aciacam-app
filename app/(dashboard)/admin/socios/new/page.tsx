@@ -11,6 +11,11 @@ import {
     getSanLuisCivilToday 
 } from '@/app/lib/date-format';
 import { 
+    UnifiedDocumentExtraction, 
+    validateUnifiedExtraction,
+    normalizeDni 
+} from '@/app/lib/ocr-contract';
+import { 
     ArrowLeft, 
     ArrowRight, 
     Check, 
@@ -26,15 +31,35 @@ import {
     Truck,
     Info,
     Calendar,
-    FileCheck
+    FileCheck,
+    FileText,
+    Sparkles,
+    Eye,
+    X,
+    FileUp,
+    Clock,
+    XCircle,
+    CheckSquare
 } from 'lucide-react';
 
-const STORAGE_KEY = 'aciacam_new_socio_draft_v3';
+const STORAGE_KEY = 'aciacam_new_socio_draft_v4';
 
 export type SituacionReprocann = 'vigente' | 'vencido' | 'en_tramite' | 'no_posee';
 
+export interface AttachedDocState {
+    id: string;
+    file: File;
+    tipo: string;
+    verificacionEstado: 'aprobado' | 'pendiente' | 'rechazado';
+    verificacionObs: string;
+    fechaEmision: string;
+    fechaVencimiento: string;
+    numeroTramite: string;
+    extraction?: UnifiedDocumentExtraction;
+}
+
 interface FormData {
-    // Paso 1: Identificación y Contacto
+    // Paso 3: Identificación y Contacto
     nombre: string;
     apellido: string;
     dni: string;
@@ -46,17 +71,21 @@ interface FormData {
     enviosHabilitados: boolean; // Delivery habilitado por defecto
     idempotencyKey: string; // Clave de idempotencia única por operación
 
-    // Paso 2: Situación REPROCANN (4 alternativas)
+    // Situación REPROCANN
     situacionReprocann: SituacionReprocann;
     numeroTramite: string;
     fechaAlta: string;
     fechaVencimiento: string;
     tipoVinculacion: string;
 
-    // Paso 4: Información Médica
+    // Información Médica
     medicoNombre: string;
     medicoMatricula: string;
     diagnosticoPrincipal: string;
+
+    // Metadatos de origen
+    fuenteExtraccion?: string;
+    camposExtraidos?: string[];
 }
 
 const INITIAL_FORM: FormData = {
@@ -68,7 +97,7 @@ const INITIAL_FORM: FormData = {
     telefono: '',
     direccion: '',
     localidad: '',
-    enviosHabilitados: true, // Default true conforme a requerimiento
+    enviosHabilitados: true,
     idempotencyKey: '',
 
     situacionReprocann: 'vigente',
@@ -79,7 +108,10 @@ const INITIAL_FORM: FormData = {
 
     medicoNombre: '',
     medicoMatricula: '',
-    diagnosticoPrincipal: ''
+    diagnosticoPrincipal: '',
+
+    fuenteExtraccion: undefined,
+    camposExtraidos: []
 };
 
 export default function NewSocioWizardPage() {
@@ -89,11 +121,10 @@ export default function NewSocioWizardPage() {
     const [currentStep, setCurrentStep] = useState<number>(1);
     const [formData, setFormData] = useState<FormData>(INITIAL_FORM);
 
-    // Archivos adaptativos
-    const [reprocannFile, setReprocannFile] = useState<File | null>(null);
-    const [consentimientoMedicoFile, setConsentimientoMedicoFile] = useState<File | null>(null);
-    const [constanciaTramiteFile, setConstanciaTramiteFile] = useState<File | null>(null);
-    const [consentimientoAdhesionFile, setConsentimientoAdhesionFile] = useState<File | null>(null);
+    // Documentos adjuntados en el alta
+    const [attachedDocs, setAttachedDocs] = useState<AttachedDocState[]>([]);
+    const [isExtracting, setIsExtracting] = useState<boolean>(false);
+    const [extractionSummary, setExtractionSummary] = useState<UnifiedDocumentExtraction | null>(null);
 
     const [loading, setLoading] = useState(false);
     const [isLoaded, setIsLoaded] = useState(false);
@@ -127,7 +158,7 @@ export default function NewSocioWizardPage() {
     useEffect(() => {
         if (!isLoaded) return;
         const timeout = setTimeout(() => {
-            // Guardar solo datos de formulario (sin archivos ni credenciales)
+            // Guardar solo datos de formulario (sin archivos binarios)
             localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
         }, 600);
         return () => clearTimeout(timeout);
@@ -144,14 +175,170 @@ export default function NewSocioWizardPage() {
             localStorage.removeItem(STORAGE_KEY);
             const freshKey = `alta_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
             setFormData({ ...INITIAL_FORM, idempotencyKey: freshKey });
-            setReprocannFile(null);
-            setConsentimientoMedicoFile(null);
-            setConstanciaTramiteFile(null);
-            setConsentimientoAdhesionFile(null);
+            setAttachedDocs([]);
+            setExtractionSummary(null);
             setCurrentStep(1);
             setValidationError(null);
             setBannerError(null);
         }
+    };
+
+    // Subida y procesamiento de documentos iniciales (Paso 1)
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, defaultTipo = 'reprocann') => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        const newDocs: AttachedDocState[] = [];
+
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const docId = `doc_${Date.now()}_${i}`;
+
+            // Determinar tipo tentativo según nombre
+            let tipo = defaultTipo;
+            const fnLower = file.name.toLowerCase();
+            if (fnLower.includes('consentimiento')) tipo = 'consentimiento';
+            else if (fnLower.includes('tramite') || fnLower.includes('constancia')) tipo = 'constancia_tramite';
+            else if (fnLower.includes('dni')) tipo = 'dni';
+            else if (fnLower.includes('declaracion')) tipo = 'declaracion_jurada';
+
+            newDocs.push({
+                id: docId,
+                file,
+                tipo,
+                verificacionEstado: 'aprobado', // Propuesta por defecto para revisión administrativa
+                verificacionObs: '',
+                fechaEmision: '',
+                fechaVencimiento: '',
+                numeroTramite: ''
+            });
+        }
+
+        setAttachedDocs(prev => [...prev, ...newDocs]);
+        setValidationError(null);
+
+        // Si se agregó un documento, procesar extracción asistida sobre el primero relevante
+        if (newDocs.length > 0) {
+            await runExtractionForDoc(newDocs[0]);
+        }
+    };
+
+    // Ejecuta la extracción asistida a través del BFF seguro
+    const runExtractionForDoc = async (doc: AttachedDocState) => {
+        setIsExtracting(true);
+        setBannerError(null);
+
+        try {
+            const formDataReq = new FormData();
+            formDataReq.append('file', doc.file);
+
+            const res = await fetch('/api/admin/documents/extract', {
+                method: 'POST',
+                body: formDataReq
+            });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || 'Error al procesar el archivo');
+            }
+
+            const data = await res.json();
+            const ext: UnifiedDocumentExtraction = data.extraction;
+
+            setExtractionSummary(ext);
+
+            // Actualizar documento adjunto con la extracción
+            setAttachedDocs(prev => prev.map(d => {
+                if (d.id === doc.id) {
+                    return {
+                        ...d,
+                        extraction: ext,
+                        fechaEmision: ext.fechaEmision || d.fechaEmision,
+                        fechaVencimiento: ext.fechaVencimiento || d.fechaVencimiento,
+                        numeroTramite: ext.numeroTramite || d.numeroTramite,
+                        tipo: ext.documentType !== 'desconocido' ? ext.documentType : d.tipo
+                    };
+                }
+                return d;
+            }));
+
+            // Precargar datos del formulario con los campos extraídos
+            const extractedFieldNames: string[] = [];
+            setFormData(prev => {
+                const updated = { ...prev };
+                if (ext.titular?.nombre && !prev.nombre) {
+                    updated.nombre = ext.titular.nombre;
+                    extractedFieldNames.push('nombre');
+                }
+                if (ext.titular?.apellido && !prev.apellido) {
+                    updated.apellido = ext.titular.apellido;
+                    extractedFieldNames.push('apellido');
+                }
+                if (ext.dni && !prev.dni) {
+                    updated.dni = ext.dni;
+                    extractedFieldNames.push('dni');
+                }
+                if (ext.fechaNacimiento && !prev.fechaNacimiento) {
+                    updated.fechaNacimiento = ext.fechaNacimiento;
+                    extractedFieldNames.push('fechaNacimiento');
+                }
+                if (ext.numeroTramite && !prev.numeroTramite) {
+                    updated.numeroTramite = ext.numeroTramite;
+                    extractedFieldNames.push('numeroTramite');
+                }
+                if (ext.fechaEmision && !prev.fechaAlta) {
+                    updated.fechaAlta = ext.fechaEmision;
+                    extractedFieldNames.push('fechaAlta');
+                }
+                if (ext.fechaVencimiento && !prev.fechaVencimiento) {
+                    updated.fechaVencimiento = ext.fechaVencimiento;
+                    extractedFieldNames.push('fechaVencimiento');
+                }
+                if (ext.medico?.nombre && !prev.medicoNombre) {
+                    updated.medicoNombre = ext.medico.nombre;
+                    extractedFieldNames.push('medicoNombre');
+                }
+                if (ext.medico?.matricula && !prev.medicoMatricula) {
+                    updated.medicoMatricula = ext.medico.matricula;
+                    extractedFieldNames.push('medicoMatricula');
+                }
+                if (ext.diagnostico && !prev.diagnosticoPrincipal) {
+                    updated.diagnosticoPrincipal = ext.diagnostico;
+                    extractedFieldNames.push('diagnosticoPrincipal');
+                }
+
+                // Ajustar situación si se detectaron fechas
+                if (ext.fechaVencimiento) {
+                    const today = getSanLuisCivilToday();
+                    const todayStr = `${today.year}-${String(today.month).padStart(2, '0')}-${String(today.day).padStart(2, '0')}`;
+                    if (ext.fechaVencimiento >= todayStr) {
+                        updated.situacionReprocann = 'vigente';
+                    } else {
+                        updated.situacionReprocann = 'vencido';
+                    }
+                }
+
+                updated.fuenteExtraccion = ext.sourceDescription;
+                updated.camposExtraidos = Array.from(new Set([...(prev.camposExtraidos || []), ...extractedFieldNames]));
+
+                return updated;
+            });
+
+            // Pasar al paso 2 de lectura asistida
+            setCurrentStep(2);
+
+        } catch (e: any) {
+            console.warn("Fallo de extracción asistida:", e.message);
+            // No bloqueamos: permitimos continuar manualmente
+            setBannerError(`Nota: ${e.message}. Podés ingresar o corregir los datos manualmente.`);
+            setCurrentStep(2);
+        } finally {
+            setIsExtracting(false);
+        }
+    };
+
+    const handleRemoveDoc = (id: string) => {
+        setAttachedDocs(prev => prev.filter(d => d.id !== id));
     };
 
     // Validación por paso
@@ -162,7 +349,9 @@ export default function NewSocioWizardPage() {
         const today = getSanLuisCivilToday();
         const todayStr = `${today.year}-${String(today.month).padStart(2, '0')}-${String(today.day).padStart(2, '0')}`;
 
-        if (step === 1) {
+        // Paso 1 y Paso 2 no bloquean: siempre se puede continuar
+        if (step === 3) {
+            // Validación de datos personales
             if (!formData.nombre.trim()) { setValidationError("El nombre es obligatorio"); return false; }
             if (!formData.apellido.trim()) { setValidationError("El apellido es obligatorio"); return false; }
             if (!formData.dni.trim()) { setValidationError("El DNI es obligatorio"); return false; }
@@ -173,30 +362,16 @@ export default function NewSocioWizardPage() {
                 return false;
             }
             if (!isValidCalendarDate(formData.fechaNacimiento)) {
-                setValidationError("La fecha de nacimiento es inválida");
+                setValidationError("La fecha de nacimiento es inválida (formato YYYY-MM-DD)");
                 return false;
             }
             if (formData.fechaNacimiento > todayStr) {
                 setValidationError("La fecha de nacimiento no puede ser una fecha futura");
                 return false;
             }
-            const birthYear = parseInt(formData.fechaNacimiento.split('-')[0], 10);
-            if (birthYear < today.year - 110) {
-                setValidationError("La fecha de nacimiento ingresada no es válida");
-                return false;
-            }
 
-            if (!formData.email.trim()) { setValidationError("El correo electrónico es obligatorio"); return false; }
-            if (!formData.email.includes('@') || !formData.email.includes('.')) {
-                setValidationError("El formato de correo electrónico no es válido");
-                return false;
-            }
-            if (!formData.telefono.trim()) { setValidationError("El teléfono de contacto es obligatorio"); return false; }
-        }
-
-        if (step === 2) {
+            // Validación de situación REPROCANN
             const sit = formData.situacionReprocann;
-
             if (sit === 'vigente') {
                 if (!formData.numeroTramite.trim()) {
                     setValidationError("El número de trámite REPROCANN es obligatorio para socios vigentes");
@@ -222,10 +397,6 @@ export default function NewSocioWizardPage() {
                         setValidationError("La fecha de vencimiento es inválida");
                         return false;
                     }
-                    if (formData.fechaVencimiento > todayStr) {
-                        setValidationError("Para un REPROCANN vencido, la fecha de vencimiento debe ser anterior o igual a la fecha de hoy");
-                        return false;
-                    }
                 }
             } else if (sit === 'en_tramite') {
                 if (!formData.numeroTramite.trim()) {
@@ -233,7 +404,14 @@ export default function NewSocioWizardPage() {
                     return false;
                 }
             }
-            // 'no_posee' no tiene campos obligatorios
+        } else if (step === 4) {
+            // Si algún documento fue rechazado, exigir observación/motivo
+            for (const doc of attachedDocs) {
+                if (doc.verificacionEstado === 'rechazado' && !doc.verificacionObs.trim()) {
+                    setValidationError(`El documento ${doc.file.name} fue marcado como rechazado. Debe indicar el motivo.`);
+                    return false;
+                }
+            }
         }
 
         return true;
@@ -251,9 +429,9 @@ export default function NewSocioWizardPage() {
         setCurrentStep(prev => Math.max(prev - 1, 1));
     };
 
-    // Envío del formulario
+    // Envío atómico del alta con documentos aprobados de inmediato
     const handleSubmit = async (shouldInvite = false, asDraft = false) => {
-        if (!validateStep(1) || !validateStep(2)) {
+        if (!validateStep(3) || !validateStep(4)) {
             return;
         }
 
@@ -262,7 +440,7 @@ export default function NewSocioWizardPage() {
         setBannerSuccess(null);
 
         try {
-            // Sanitización de fechas para PostgreSQL DATE
+            // 1. Sanitización de fechas
             const finalFechaAlta = (formData.situacionReprocann === 'vigente' || formData.situacionReprocann === 'vencido') && formData.fechaAlta
                 ? formData.fechaAlta
                 : undefined;
@@ -273,7 +451,7 @@ export default function NewSocioWizardPage() {
                 ? formData.numeroTramite.trim()
                 : undefined;
 
-            // 1. Crear el socio en base de datos mediante el endpoint autenticado
+            // 2. Crear el socio en base de datos mediante el endpoint autenticado BFF
             const newSocio = await StoreService.createSocio({
                 nombre: formData.nombre.trim(),
                 apellido: formData.apellido.trim(),
@@ -303,100 +481,73 @@ export default function NewSocioWizardPage() {
                 throw new Error("No se pudo obtener el identificador del nuevo socio registrado");
             }
 
-            // 2. Subir archivos adjuntos adaptativos si fueron cargados
-            if (reprocannFile) {
+            // 3. Persistir cada documento adjunto con su estado de aprobación explícito
+            for (const doc of attachedDocs) {
                 try {
                     await StorageService.uploadSocioDocument({
                         socioId: newSocio.id,
-                        docType: 'reprocann',
-                        file: reprocannFile
+                        docType: doc.tipo,
+                        file: doc.file,
+                        fechaEmision: doc.fechaEmision || finalFechaAlta,
+                        fechaVencimiento: doc.fechaVencimiento || finalFechaVencimiento,
+                        numeroTramite: doc.numeroTramite || finalNumeroTramite,
+                        verificacionEstado: doc.verificacionEstado,
+                        verificacionObs: doc.verificacionObs
                     });
-                } catch (e: any) {
-                    console.warn("No se pudo adjuntar el certificado REPROCANN:", e.message);
+                } catch (docErr: any) {
+                    console.warn(`Error al adjuntar documento ${doc.file.name}:`, docErr.message);
                 }
             }
 
-            if (consentimientoMedicoFile) {
+            // 4. Enviar invitación por email si fue solicitada
+            if (shouldInvite && newSocio.email) {
                 try {
-                    await StorageService.uploadSocioDocument({
-                        socioId: newSocio.id,
-                        docType: 'consentimiento_medico',
-                        file: consentimientoMedicoFile
+                    await fetch(`/api/admin/socios/${newSocio.id}/invite`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
                     });
-                } catch (e: any) {
-                    console.warn("No se pudo adjuntar el consentimiento médico:", e.message);
+                } catch (inviteErr) {
+                    console.warn("No se pudo enviar el correo de activación automática:", inviteErr);
                 }
             }
 
-            if (constanciaTramiteFile) {
-                try {
-                    await StorageService.uploadSocioDocument({
-                        socioId: newSocio.id,
-                        docType: 'constancia_tramite',
-                        file: constanciaTramiteFile
-                    });
-                } catch (e: any) {
-                    console.warn("No se pudo adjuntar la constancia de trámite:", e.message);
-                }
-            }
-
-            if (consentimientoAdhesionFile) {
-                try {
-                    await StorageService.uploadSocioDocument({
-                        socioId: newSocio.id,
-                        docType: 'consentimiento_adhesion',
-                        file: consentimientoAdhesionFile
-                    });
-                } catch (e: any) {
-                    console.warn("No se pudo adjuntar el consentimiento de adhesión ACIACAM:", e.message);
-                }
-            }
-
-            // 3. Enviar invitación por email si fue solicitado
-            let inviteWarning = '';
-            if (shouldInvite) {
-                try {
-                    await StoreService.inviteSocio(newSocio.id);
-                } catch (inviteErr: any) {
-                    console.error("Fallo al enviar correo de invitación:", inviteErr);
-                    inviteWarning = `Socio creado exitosamente, pero no se pudo enviar el correo: ${inviteErr.message}`;
-                }
-            }
-
-            // 4. Limpiar borrador de localStorage ÚNICAMENTE tras confirmación exitosa
+            // 5. Limpieza de borrador tras éxito
             localStorage.removeItem(STORAGE_KEY);
+            setBannerSuccess(`Socio ${newSocio.nombre} ${newSocio.apellido} registrado exitosamente. Documentación verificada.`);
 
-            const successMsg = inviteWarning || (shouldInvite 
-                ? '¡Socio creado exitosamente y correo de invitación enviado!' 
-                : 'Socio registrado correctamente.');
-            setBannerSuccess(successMsg);
-
-            // Redirección a la ficha tras breve pausa visual
             setTimeout(() => {
                 router.push(`/admin/socios/${newSocio.id}`);
-            }, 1000);
+            }, 1200);
 
-        } catch (err: any) {
-            console.error("Error al registrar socio:", err);
-            // El borrador se preserva intacto en localStorage
-            setBannerError(err.message || 'Error desconocido al registrar el socio. El borrador fue conservado para que puedas reintentar.');
+        } catch (e: any) {
+            console.error("Error al registrar nuevo socio:", e);
+            // Conservar el borrador ante fallos
+            setBannerError(e.message || "Ocurrió un error inesperado al procesar el alta.");
         } finally {
             setLoading(false);
         }
     };
 
     const steps = [
-        { num: 1, title: 'Identificación', icon: User },
-        { num: 2, title: 'REPROCANN', icon: ShieldCheck },
-        { num: 3, title: 'Documentación', icon: Upload },
-        { num: 4, title: 'Médico', icon: Stethoscope },
-        { num: 5, title: 'Confirmación', icon: Check }
+        { num: 1, title: 'Documentos', icon: Upload },
+        { num: 2, title: 'Lectura Asistida', icon: Sparkles },
+        { num: 3, title: 'Datos del Socio', icon: User },
+        { num: 4, title: 'Aprobación', icon: ShieldCheck },
+        { num: 5, title: 'Confirmación', icon: Send }
     ];
 
+    if (!isLoaded) {
+        return (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
+                <p style={{ color: 'hsl(var(--muted-foreground))' }}>Cargando asistente de alta...</p>
+            </div>
+        );
+    }
+
     return (
-        <div style={{ maxWidth: '850px', margin: '0 auto', paddingBottom: '3rem' }}>
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+        <div style={{ maxWidth: '900px', margin: '0 auto', paddingBottom: '5rem' }}>
+            {/* Header y Acciones Rápidas */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                 <button
                     onClick={() => router.back()}
                     style={{
@@ -431,10 +582,10 @@ export default function NewSocioWizardPage() {
             </div>
 
             <h1 style={{ fontSize: '1.8rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                Alta Progresiva de Socio
+                Alta Inteligente y Gestión Documental
             </h1>
             <p style={{ color: 'hsl(var(--muted-foreground))', marginBottom: '2rem', fontSize: '0.95rem' }}>
-                Registrá nuevos socios o aspirantes contemplando todas las situaciones regulatorias. Los cambios se guardan automáticamente como borrador.
+                Cargá la documentación para autocompletar la ficha con lectura asistida, revisá los datos con control humano y aprobá los documentos en una sola operación.
             </p>
 
             {/* Stepper Progress Bar */}
@@ -491,18 +642,18 @@ export default function NewSocioWizardPage() {
                 })}
             </div>
 
-            {/* Banners de validación o error en pantalla (no intrusivos) */}
+            {/* Banners de validación o error */}
             {validationError && (
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.6rem',
                     padding: '0.75rem 1rem',
+                    marginBottom: '1.5rem',
                     borderRadius: 'var(--radius)',
                     backgroundColor: 'hsl(var(--destructive) / 0.1)',
                     color: 'hsl(var(--destructive))',
                     border: '1px solid hsl(var(--destructive) / 0.3)',
-                    marginBottom: '1.5rem',
                     fontSize: '0.9rem'
                 }}>
                     <AlertCircle size={18} />
@@ -513,21 +664,18 @@ export default function NewSocioWizardPage() {
             {bannerError && (
                 <div style={{
                     display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '0.75rem',
-                    padding: '1rem',
-                    borderRadius: 'var(--radius)',
-                    backgroundColor: '#fee2e2',
-                    color: '#991b1b',
-                    border: '1px solid #f87171',
+                    alignItems: 'center',
+                    gap: '0.6rem',
+                    padding: '0.75rem 1rem',
                     marginBottom: '1.5rem',
-                    fontSize: '0.92rem'
+                    borderRadius: 'var(--radius)',
+                    backgroundColor: 'hsl(var(--warning) / 0.15)',
+                    color: 'hsl(var(--warning-foreground, 38 92% 50%))',
+                    border: '1px solid hsl(var(--warning) / 0.4)',
+                    fontSize: '0.9rem'
                 }}>
-                    <AlertCircle size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
-                    <div>
-                        <div style={{ fontWeight: 700, marginBottom: '0.2rem' }}>Error al registrar el socio</div>
-                        <div>{bannerError}</div>
-                    </div>
+                    <AlertCircle size={18} />
+                    <span>{bannerError}</span>
                 </div>
             )}
 
@@ -535,328 +683,576 @@ export default function NewSocioWizardPage() {
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.75rem',
-                    padding: '1rem',
-                    borderRadius: 'var(--radius)',
-                    backgroundColor: '#dcfce7',
-                    color: '#166534',
-                    border: '1px solid #86efac',
+                    gap: '0.6rem',
+                    padding: '0.75rem 1rem',
                     marginBottom: '1.5rem',
-                    fontSize: '0.92rem',
-                    fontWeight: 600
+                    borderRadius: 'var(--radius)',
+                    backgroundColor: 'hsl(var(--success, 142 76% 36%) / 0.15)',
+                    color: 'hsl(var(--success, 142 76% 36%))',
+                    border: '1px solid hsl(var(--success, 142 76% 36%) / 0.4)',
+                    fontSize: '0.9rem'
                 }}>
-                    <CheckCircle size={20} />
+                    <CheckCircle size={18} />
                     <span>{bannerSuccess}</span>
                 </div>
             )}
 
-            {/* Contenido del Paso Actual */}
+            {/* Contenedor Principal del Wizard */}
             <div style={{
                 backgroundColor: 'hsl(var(--card))',
                 borderRadius: 'var(--radius)',
                 border: '1px solid hsl(var(--border))',
                 padding: '2rem',
-                boxShadow: 'var(--shadow-sm)'
+                boxShadow: '0 4px 12px rgba(0,0,0,0.03)'
             }}>
 
-                {/* ============================================================== */}
-                {/* PASO 1: Identificación y Contacto */}
-                {/* ============================================================== */}
+                {/* ========================================================
+                    PASO 1: DOCUMENTACIÓN INICIAL
+                   ======================================================== */}
                 {currentStep === 1 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                        <div style={{ borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.75rem' }}>
-                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Identificación y Contacto</h2>
-                            <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.85rem' }}>
-                                Datos personales del socio. Todos los campos marcados con * son obligatorios.
+                        <div>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.3rem' }}>
+                                Paso 1: Carga de Documentación Inicial
+                            </h2>
+                            <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.9rem' }}>
+                                Adjuntá el Certificado REPROCANN, consentimiento informado o constancia de trámite para autocompletar la ficha.
                             </p>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                    Nombre *
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.nombre}
-                                    onChange={(e) => handleChange('nombre', e.target.value)}
-                                    placeholder="Ej: Juan"
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.6rem 0.8rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid hsl(var(--input))',
-                                        backgroundColor: 'hsl(var(--background))'
-                                    }}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                    Apellido *
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.apellido}
-                                    onChange={(e) => handleChange('apellido', e.target.value)}
-                                    placeholder="Ej: Pérez"
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.6rem 0.8rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid hsl(var(--input))',
-                                        backgroundColor: 'hsl(var(--background))'
-                                    }}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                    DNI / Pasaporte *
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.dni}
-                                    onChange={(e) => handleChange('dni', e.target.value)}
-                                    placeholder="Ej: 32456789"
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.6rem 0.8rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid hsl(var(--input))',
-                                        backgroundColor: 'hsl(var(--background))'
-                                    }}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                    Fecha de Nacimiento * (Fecha Calendario)
-                                </label>
-                                <input
-                                    type="date"
-                                    value={formData.fechaNacimiento}
-                                    onChange={(e) => handleChange('fechaNacimiento', e.target.value)}
-                                    max={getSanLuisCivilToday().year + '-12-31'}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.6rem 0.8rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid hsl(var(--input))',
-                                        backgroundColor: 'hsl(var(--background))'
-                                    }}
-                                />
-                                {formData.fechaNacimiento && isValidCalendarDate(formData.fechaNacimiento) && (
-                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>
-                                        Fecha civil registrada: {formatCalendarDate(formData.fechaNacimiento)}
-                                    </span>
-                                )}
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                    Correo Electrónico *
-                                </label>
-                                <input
-                                    type="email"
-                                    value={formData.email}
-                                    onChange={(e) => handleChange('email', e.target.value)}
-                                    placeholder="juan.perez@ejemplo.com"
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.6rem 0.8rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid hsl(var(--input))',
-                                        backgroundColor: 'hsl(var(--background))'
-                                    }}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                    Teléfono / WhatsApp *
-                                </label>
-                                <input
-                                    type="tel"
-                                    value={formData.telefono}
-                                    onChange={(e) => handleChange('telefono', e.target.value)}
-                                    placeholder="+54 9 266 4000000"
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.6rem 0.8rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid hsl(var(--input))',
-                                        backgroundColor: 'hsl(var(--background))'
-                                    }}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                    Domicilio
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.direccion}
-                                    onChange={(e) => handleChange('direccion', e.target.value)}
-                                    placeholder="Calle, número, piso, dpto"
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.6rem 0.8rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid hsl(var(--input))',
-                                        backgroundColor: 'hsl(var(--background))'
-                                    }}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                    Localidad / Ciudad
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.localidad}
-                                    onChange={(e) => handleChange('localidad', e.target.value)}
-                                    placeholder="Ej: San Luis, Villa Mercedes"
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.6rem 0.8rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid hsl(var(--input))',
-                                        backgroundColor: 'hsl(var(--background))'
-                                    }}
-                                />
-                            </div>
-                        </div>
-
-                        {/* Control de Delivery Habilitado por Defecto */}
+                        {/* Zona Drag & Drop / Input */}
                         <div style={{
-                            marginTop: '0.5rem',
-                            padding: '1rem',
+                            border: '2px dashed hsl(var(--border))',
                             borderRadius: 'var(--radius)',
-                            backgroundColor: 'hsl(var(--muted) / 0.4)',
-                            border: '1px solid hsl(var(--border))',
+                            padding: '2.5rem 1.5rem',
+                            textAlign: 'center',
+                            backgroundColor: 'hsl(var(--muted) / 0.2)',
                             display: 'flex',
-                            alignItems: 'flex-start',
-                            gap: '0.75rem'
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '1rem'
                         }}>
-                            <input
-                                type="checkbox"
-                                id="enviosHabilitados"
-                                checked={formData.enviosHabilitados}
-                                onChange={(e) => handleChange('enviosHabilitados', e.target.checked)}
-                                style={{
-                                    width: '18px',
-                                    height: '18px',
-                                    marginTop: '2px',
-                                    cursor: 'pointer'
-                                }}
-                            />
-                            <div style={{ flex: 1 }}>
-                                <label htmlFor="enviosHabilitados" style={{ fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                    <Truck size={16} /> Permitir delivery: Sí (habilitado por defecto)
-                                </label>
-                                <p style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))', marginTop: '0.2rem' }}>
-                                    Habilita la posibilidad de seleccionar entrega a domicilio en los pedidos del socio. Administración puede desactivarlo expresamente si no aplica.
+                            <div style={{
+                                width: '56px',
+                                height: '56px',
+                                borderRadius: '50%',
+                                backgroundColor: 'hsl(var(--primary) / 0.1)',
+                                color: 'hsl(var(--primary))',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                <Upload size={28} />
+                            </div>
+
+                            <div>
+                                <p style={{ fontWeight: 600, fontSize: '1rem', marginBottom: '0.3rem' }}>
+                                    Seleccioná o arrastrá el certificado digital o consentimiento
+                                </p>
+                                <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.85rem' }}>
+                                    Formatos admitidos: PDF, JPG, PNG (hasta 15MB)
                                 </p>
                             </div>
+
+                            <label style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                padding: '0.6rem 1.2rem',
+                                backgroundColor: 'hsl(var(--primary))',
+                                color: 'hsl(var(--primary-foreground))',
+                                borderRadius: 'var(--radius)',
+                                fontWeight: 600,
+                                fontSize: '0.9rem',
+                                cursor: 'pointer'
+                            }}>
+                                <FileUp size={16} /> Seleccionar Archivo
+                                <input
+                                    type="file"
+                                    multiple
+                                    accept=".pdf,image/jpeg,image/png,image/webp"
+                                    onChange={(e) => handleFileSelect(e, 'reprocann')}
+                                    style={{ display: 'none' }}
+                                />
+                            </label>
+
+                            {isExtracting && (
+                                <p style={{ color: 'hsl(var(--primary))', fontSize: '0.85rem', fontWeight: 500 }}>
+                                    Procesando lectura asistida del documento...
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Documentos seleccionados actualmente */}
+                        {attachedDocs.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'hsl(var(--muted-foreground))' }}>
+                                    Documentos adjuntos ({attachedDocs.length})
+                                </label>
+                                {attachedDocs.map((doc) => (
+                                    <div key={doc.id} style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        padding: '0.75rem 1rem',
+                                        borderRadius: 'var(--radius)',
+                                        border: '1px solid hsl(var(--border))',
+                                        backgroundColor: 'hsl(var(--card))'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                            <FileText size={20} style={{ color: 'hsl(var(--primary))' }} />
+                                            <div>
+                                                <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{doc.file.name}</p>
+                                                <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.75rem' }}>
+                                                    {(doc.file.size / 1024).toFixed(1)} KB • Tipo: {doc.tipo}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRemoveDoc(doc.id)}
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                color: 'hsl(var(--destructive))',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Opción destacada: Continuar sin documento */}
+                        <div style={{
+                            padding: '1.25rem',
+                            borderRadius: 'var(--radius)',
+                            border: '1px solid hsl(var(--border))',
+                            backgroundColor: 'hsl(var(--muted) / 0.1)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '1rem',
+                            marginTop: '0.5rem'
+                        }}>
+                            <div>
+                                <h3 style={{ fontSize: '0.95rem', fontWeight: 600 }}>¿La persona todavía no inició el trámite?</h3>
+                                <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.85rem' }}>
+                                    Podés dar de alta un socio o aspirante sin documentación para completar sus datos personales y regularizarlo más adelante.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    handleChange('situacionReprocann', 'no_posee');
+                                    setCurrentStep(3);
+                                }}
+                                style={{
+                                    padding: '0.6rem 1rem',
+                                    backgroundColor: 'hsl(var(--secondary))',
+                                    color: 'hsl(var(--secondary-foreground))',
+                                    border: '1px solid hsl(var(--border))',
+                                    borderRadius: 'var(--radius)',
+                                    fontWeight: 500,
+                                    fontSize: '0.85rem',
+                                    cursor: 'pointer',
+                                    whiteSpace: 'nowrap'
+                                }}
+                            >
+                                Continuar sin documento →
+                            </button>
                         </div>
                     </div>
                 )}
 
-                {/* ============================================================== */}
-                {/* PASO 2: Situación REPROCANN (4 alternativas) */}
-                {/* ============================================================== */}
+                {/* ========================================================
+                    PASO 2: LECTURA ASISTIDA Y RESULTADOS
+                   ======================================================== */}
                 {currentStep === 2 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                        <div style={{ borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.75rem' }}>
-                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Situación REPROCANN</h2>
-                            <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.85rem' }}>
-                                Seleccioná la situación regulatoria oficial ante el Ministerio de Salud.
+                        <div>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.3rem' }}>
+                                Paso 2: Lectura Asistida del Documento
+                            </h2>
+                            <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.9rem' }}>
+                                Revisá los datos detectados antes de incorporarlos al formulario. Podrás editarlos o completarlos en el paso siguiente.
                             </p>
                         </div>
 
-                        {/* 4 Opciones Visuales */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
-                            {[
-                                { id: 'vigente', title: 'Vigente', desc: 'Con certificado oficial activo' },
-                                { id: 'vencido', title: 'Vencido', desc: 'Vigencia expirada, a renovar' },
-                                { id: 'en_tramite', title: 'En Trámite', desc: 'Gestión iniciada en Mi Argentina' },
-                                { id: 'no_posee', title: 'No posee / A gestionar', desc: 'Aspirante sin trámite iniciado' }
-                            ].map(opt => {
-                                const isSelected = formData.situacionReprocann === opt.id;
-                                return (
-                                    <div
-                                        key={opt.id}
-                                        onClick={() => handleChange('situacionReprocann', opt.id)}
-                                        style={{
-                                            border: `2px solid ${isSelected ? 'hsl(var(--primary))' : 'hsl(var(--border))'}`,
-                                            backgroundColor: isSelected ? 'hsl(var(--primary) / 0.05)' : 'hsl(var(--card))',
-                                            borderRadius: 'var(--radius)',
-                                            padding: '1rem',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.15s ease'
-                                        }}
-                                    >
-                                        <div style={{ fontWeight: 600, fontSize: '0.95rem', color: isSelected ? 'hsl(var(--primary))' : 'inherit' }}>
-                                            {opt.title}
-                                        </div>
-                                        <div style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))', marginTop: '0.25rem' }}>
-                                            {opt.desc}
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                        {/* Fuente de extracción */}
+                        <div style={{
+                            padding: '1rem',
+                            borderRadius: 'var(--radius)',
+                            border: '1px solid hsl(var(--primary) / 0.3)',
+                            backgroundColor: 'hsl(var(--primary) / 0.05)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.75rem'
+                        }}>
+                            <Sparkles size={20} style={{ color: 'hsl(var(--primary))' }} />
+                            <div>
+                                <p style={{ fontSize: '0.85rem', fontWeight: 600, color: 'hsl(var(--primary))' }}>
+                                    {extractionSummary?.sourceDescription || 'Extracción de capa de texto digital (Optimización local server-side)'}
+                                </p>
+                                <p style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>
+                                    La extracción automática es una asistencia orientativa. La revisión y confirmación humana por parte de Staff/Admin es obligatoria.
+                                </p>
+                            </div>
                         </div>
 
-                        {/* Formulario según la situación elegida */}
-                        {formData.situacionReprocann === 'vigente' && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.5rem' }}>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Cuadrícula de datos extraídos */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                            gap: '1rem'
+                        }}>
+                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Tipo de Documento</span>
+                                <p style={{ fontWeight: 600, textTransform: 'capitalize' }}>
+                                    {extractionSummary?.documentType || 'No determinado'}
+                                </p>
+                            </div>
+
+                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Titular Detectado</span>
+                                <p style={{ fontWeight: 600 }}>
+                                    {extractionSummary?.titular?.apellido || extractionSummary?.titular?.nombre
+                                        ? `${extractionSummary.titular.nombre || ''} ${extractionSummary.titular.apellido || ''}`.trim()
+                                        : 'No detectado'}
+                                </p>
+                            </div>
+
+                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>DNI Detectado</span>
+                                <p style={{ fontWeight: 600 }}>
+                                    {extractionSummary?.dni || 'No detectado'}
+                                </p>
+                            </div>
+
+                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>N° Trámite REPROCANN</span>
+                                <p style={{ fontWeight: 600 }}>
+                                    {extractionSummary?.numeroTramite || 'No detectado'}
+                                </p>
+                            </div>
+
+                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Vencimiento Declarado</span>
+                                <p style={{ fontWeight: 600 }}>
+                                    {extractionSummary?.fechaVencimiento ? formatCalendarDate(extractionSummary.fechaVencimiento) : 'No detectado'}
+                                </p>
+                            </div>
+
+                            <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Médico Tratante</span>
+                                <p style={{ fontWeight: 600 }}>
+                                    {extractionSummary?.medico?.nombre 
+                                        ? `${extractionSummary.medico.nombre} (Mat: ${extractionSummary.medico.matricula || '-'})`
+                                        : 'No detectado'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Advertencias si las hubiere */}
+                        {extractionSummary?.warnings && extractionSummary.warnings.length > 0 && (
+                            <div style={{
+                                padding: '0.75rem 1rem',
+                                borderRadius: 'var(--radius)',
+                                backgroundColor: 'hsl(var(--warning) / 0.1)',
+                                border: '1px solid hsl(var(--warning) / 0.3)',
+                                fontSize: '0.85rem',
+                                color: 'hsl(var(--warning-foreground, 38 92% 50%))'
+                            }}>
+                                <p style={{ fontWeight: 600, marginBottom: '0.2rem' }}>Observaciones de lectura:</p>
+                                <ul style={{ paddingLeft: '1.2rem', margin: 0 }}>
+                                    {extractionSummary.warnings.map((w, idx) => (
+                                        <li key={idx}>{w}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ========================================================
+                    PASO 3: REVISIÓN Y CONFIRMACIÓN DE DATOS
+                   ======================================================== */}
+                {currentStep === 3 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                        <div>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.3rem' }}>
+                                Paso 3: Revisión y Confirmación de Datos
+                            </h2>
+                            <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.9rem' }}>
+                                Verificá o completá la información del socio. Los valores extraídos se indican con una etiqueta informativa.
+                            </p>
+                        </div>
+
+                        {/* Sección 1: Datos Personales */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 600, borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.5rem' }}>
+                                1. Identificación y Contacto
+                            </h3>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        Nombre *
+                                        {formData.camposExtraidos?.includes('nombre') && (
+                                            <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'hsl(var(--primary))' }}>[Extraído]</span>
+                                        )}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formData.nombre}
+                                        onChange={(e) => handleChange('nombre', e.target.value)}
+                                        placeholder="Ej. Juan"
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.6rem 0.8rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: '1px solid hsl(var(--border))',
+                                            backgroundColor: 'hsl(var(--background))'
+                                        }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        Apellido *
+                                        {formData.camposExtraidos?.includes('apellido') && (
+                                            <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'hsl(var(--primary))' }}>[Extraído]</span>
+                                        )}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formData.apellido}
+                                        onChange={(e) => handleChange('apellido', e.target.value)}
+                                        placeholder="Ej. Pérez"
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.6rem 0.8rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: '1px solid hsl(var(--border))',
+                                            backgroundColor: 'hsl(var(--background))'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        DNI *
+                                        {formData.camposExtraidos?.includes('dni') && (
+                                            <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'hsl(var(--primary))' }}>[Extraído]</span>
+                                        )}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formData.dni}
+                                        onChange={(e) => handleChange('dni', e.target.value)}
+                                        placeholder="Solo números (sin puntos)"
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.6rem 0.8rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: '1px solid hsl(var(--border))',
+                                            backgroundColor: 'hsl(var(--background))'
+                                        }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        Fecha de Nacimiento * (YYYY-MM-DD)
+                                        {formData.camposExtraidos?.includes('fechaNacimiento') && (
+                                            <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'hsl(var(--primary))' }}>[Extraído]</span>
+                                        )}
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={formData.fechaNacimiento}
+                                        onChange={(e) => handleChange('fechaNacimiento', e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.6rem 0.8rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: '1px solid hsl(var(--border))',
+                                            backgroundColor: 'hsl(var(--background))'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        Correo Electrónico
+                                    </label>
+                                    <input
+                                        type="email"
+                                        value={formData.email}
+                                        onChange={(e) => handleChange('email', e.target.value)}
+                                        placeholder="socio@ejemplo.com"
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.6rem 0.8rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: '1px solid hsl(var(--border))',
+                                            backgroundColor: 'hsl(var(--background))'
+                                        }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        Teléfono / WhatsApp
+                                    </label>
+                                    <input
+                                        type="tel"
+                                        value={formData.telefono}
+                                        onChange={(e) => handleChange('telefono', e.target.value)}
+                                        placeholder="Ej. +54 9 266 4123456"
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.6rem 0.8rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: '1px solid hsl(var(--border))',
+                                            backgroundColor: 'hsl(var(--background))'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        Domicilio
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formData.direccion}
+                                        onChange={(e) => handleChange('direccion', e.target.value)}
+                                        placeholder="Calle y número"
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.6rem 0.8rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: '1px solid hsl(var(--border))',
+                                            backgroundColor: 'hsl(var(--background))'
+                                        }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        Localidad
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formData.localidad}
+                                        onChange={(e) => handleChange('localidad', e.target.value)}
+                                        placeholder="San Luis / Merlo"
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.6rem 0.8rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: '1px solid hsl(var(--border))',
+                                            backgroundColor: 'hsl(var(--background))'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Delivery habilitado por defecto */}
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.75rem',
+                                padding: '0.75rem 1rem',
+                                borderRadius: 'var(--radius)',
+                                backgroundColor: 'hsl(var(--muted) / 0.15)',
+                                border: '1px solid hsl(var(--border))'
+                            }}>
+                                <input
+                                    type="checkbox"
+                                    id="enviosHabilitados"
+                                    checked={formData.enviosHabilitados}
+                                    onChange={(e) => handleChange('enviosHabilitados', e.target.checked)}
+                                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                />
+                                <label htmlFor="enviosHabilitados" style={{ fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    <Truck size={16} /> <strong>Habilitar servicio de delivery / envíos</strong> (activado por defecto)
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* Sección 2: Situación REPROCANN */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 600, borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.5rem' }}>
+                                2. Situación Regulatoria REPROCANN
+                            </h3>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
+                                {[
+                                    { id: 'vigente', label: 'Vigente' },
+                                    { id: 'vencido', label: 'Vencido' },
+                                    { id: 'en_tramite', label: 'En Trámite' },
+                                    { id: 'no_posee', label: 'No Posee' }
+                                ].map(opt => (
+                                    <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() => handleChange('situacionReprocann', opt.id)}
+                                        style={{
+                                            padding: '0.6rem 0.4rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: formData.situacionReprocann === opt.id 
+                                                ? '2px solid hsl(var(--primary))' 
+                                                : '1px solid hsl(var(--border))',
+                                            backgroundColor: formData.situacionReprocann === opt.id 
+                                                ? 'hsl(var(--primary) / 0.1)' 
+                                                : 'hsl(var(--card))',
+                                            color: formData.situacionReprocann === opt.id 
+                                                ? 'hsl(var(--primary))' 
+                                                : 'inherit',
+                                            fontWeight: formData.situacionReprocann === opt.id ? 600 : 400,
+                                            fontSize: '0.85rem',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {formData.situacionReprocann !== 'no_posee' && (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                            Número de Trámite REPROCANN *
+                                        <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                            N° de Trámite *
                                         </label>
                                         <input
                                             type="text"
                                             value={formData.numeroTramite}
                                             onChange={(e) => handleChange('numeroTramite', e.target.value)}
-                                            placeholder="Ej: 123456 o CÓDIGO-OFICIAL"
+                                            placeholder="Código o número"
                                             style={{
                                                 width: '100%',
                                                 padding: '0.6rem 0.8rem',
                                                 borderRadius: 'var(--radius)',
-                                                border: '1px solid hsl(var(--input))',
+                                                border: '1px solid hsl(var(--border))',
                                                 backgroundColor: 'hsl(var(--background))'
                                             }}
                                         />
                                     </div>
 
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                            Tipo de Vinculación
-                                        </label>
-                                        <select
-                                            value={formData.tipoVinculacion}
-                                            onChange={(e) => handleChange('tipoVinculacion', e.target.value)}
-                                            style={{
-                                                width: '100%',
-                                                padding: '0.6rem 0.8rem',
-                                                borderRadius: 'var(--radius)',
-                                                border: '1px solid hsl(var(--input))',
-                                                backgroundColor: 'hsl(var(--background))'
-                                            }}
-                                        >
-                                            <option value="ong">ONG / Cultivo Colectivo ACIACAM</option>
-                                            <option value="autocultivo">Autocultivo Individual</option>
-                                            <option value="familiar">Familiar / Tercero Cultivador</option>
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                            Fecha de Emisión / Alta (Opcional)
+                                        <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                            Fecha de Emisión (YYYY-MM-DD)
                                         </label>
                                         <input
                                             type="date"
@@ -866,15 +1262,15 @@ export default function NewSocioWizardPage() {
                                                 width: '100%',
                                                 padding: '0.6rem 0.8rem',
                                                 borderRadius: 'var(--radius)',
-                                                border: '1px solid hsl(var(--input))',
+                                                border: '1px solid hsl(var(--border))',
                                                 backgroundColor: 'hsl(var(--background))'
                                             }}
                                         />
                                     </div>
 
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                            Fecha de Vencimiento *
+                                        <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                            Fecha de Vencimiento (YYYY-MM-DD)
                                         </label>
                                         <input
                                             type="date"
@@ -884,439 +1280,383 @@ export default function NewSocioWizardPage() {
                                                 width: '100%',
                                                 padding: '0.6rem 0.8rem',
                                                 borderRadius: 'var(--radius)',
-                                                border: '1px solid hsl(var(--input))',
+                                                border: '1px solid hsl(var(--border))',
                                                 backgroundColor: 'hsl(var(--background))'
                                             }}
                                         />
                                     </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Sección 3: Información Médica */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+                            <h3 style={{ fontSize: '1rem', fontWeight: 600, borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.5rem' }}>
+                                3. Información Médica
+                            </h3>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        Médico Tratante
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formData.medicoNombre}
+                                        onChange={(e) => handleChange('medicoNombre', e.target.value)}
+                                        placeholder="Nombre y apellido del profesional"
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.6rem 0.8rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: '1px solid hsl(var(--border))',
+                                            backgroundColor: 'hsl(var(--background))'
+                                        }}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        Matrícula Profesional
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formData.medicoMatricula}
+                                        onChange={(e) => handleChange('medicoMatricula', e.target.value)}
+                                        placeholder="M.N. o M.P."
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.6rem 0.8rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: '1px solid hsl(var(--border))',
+                                            backgroundColor: 'hsl(var(--background))'
+                                        }}
+                                    />
                                 </div>
                             </div>
-                        )}
 
-                        {formData.situacionReprocann === 'vencido' && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.5rem' }}>
-                                <div style={{
-                                    padding: '0.75rem 1rem',
-                                    borderRadius: 'var(--radius)',
-                                    backgroundColor: '#fffbeb',
-                                    color: '#92400e',
-                                    border: '1px solid #fcd34d',
-                                    fontSize: '0.85rem'
-                                }}>
-                                    <Info size={16} style={{ display: 'inline', marginRight: '0.4rem', verticalAlign: 'text-bottom' }} />
-                                    El socio se registrará con estado regulatorio <strong>Vencido</strong>. Las dispensas no estarán habilitadas hasta presentar una autorización renovada y vigente.
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                            Número de Trámite Anterior *
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.numeroTramite}
-                                            onChange={(e) => handleChange('numeroTramite', e.target.value)}
-                                            placeholder="Número del certificado expirado"
-                                            style={{
-                                                width: '100%',
-                                                padding: '0.6rem 0.8rem',
-                                                borderRadius: 'var(--radius)',
-                                                border: '1px solid hsl(var(--input))',
-                                                backgroundColor: 'hsl(var(--background))'
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                            Fecha en que Venció (Vencimiento)
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={formData.fechaVencimiento}
-                                            onChange={(e) => handleChange('fechaVencimiento', e.target.value)}
-                                            style={{
-                                                width: '100%',
-                                                padding: '0.6rem 0.8rem',
-                                                borderRadius: 'var(--radius)',
-                                                border: '1px solid hsl(var(--input))',
-                                                backgroundColor: 'hsl(var(--background))'
-                                            }}
-                                        />
-                                    </div>
-                                </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
+                                    Diagnóstico / Indicación Clínica
+                                </label>
+                                <input
+                                    type="text"
+                                    value={formData.diagnosticoPrincipal}
+                                    onChange={(e) => handleChange('diagnosticoPrincipal', e.target.value)}
+                                    placeholder="Patología o motivo de prescripción"
+                                    style={{
+                                        width: '100%',
+                                        padding: '0.6rem 0.8rem',
+                                        borderRadius: 'var(--radius)',
+                                        border: '1px solid hsl(var(--border))',
+                                        backgroundColor: 'hsl(var(--background))'
+                                    }}
+                                />
                             </div>
-                        )}
+                        </div>
+                    </div>
+                )}
 
-                        {formData.situacionReprocann === 'en_tramite' && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.5rem' }}>
-                                <div style={{
-                                    padding: '0.75rem 1rem',
-                                    borderRadius: 'var(--radius)',
-                                    backgroundColor: '#eff6ff',
-                                    color: '#1e40af',
-                                    border: '1px solid #bfdbfe',
-                                    fontSize: '0.85rem'
-                                }}>
-                                    <Info size={16} style={{ display: 'inline', marginRight: '0.4rem', verticalAlign: 'text-bottom' }} />
-                                    El trámite se encuentra iniciado en Mi Argentina. En el paso siguiente podrás adjuntar el consentimiento informado médico y/o la constancia de inicio. El estado regulatorio permanecerá como <strong>En Trámite</strong> sin habilitar dispensas.
-                                </div>
+                {/* ========================================================
+                    PASO 4: REVISIÓN Y APROBACIÓN DOCUMENTAL
+                   ======================================================== */}
+                {currentStep === 4 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                        <div>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.3rem' }}>
+                                Paso 4: Revisión y Aprobación Documental
+                            </h2>
+                            <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.9rem' }}>
+                                Como administrador, revisá y aprobá los documentos antes de confirmar el alta. Los documentos aprobados quedarán en estado <strong>APROBADO</strong> inmediatamente.
+                            </p>
+                        </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                            Número de Trámite Oficial * (Código Mi Argentina)
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.numeroTramite}
-                                            onChange={(e) => handleChange('numeroTramite', e.target.value)}
-                                            placeholder="Código de trámite iniciado"
-                                            style={{
-                                                width: '100%',
-                                                padding: '0.6rem 0.8rem',
-                                                borderRadius: 'var(--radius)',
-                                                border: '1px solid hsl(var(--input))',
-                                                backgroundColor: 'hsl(var(--background))'
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                            Tipo de Vinculación Solicitada
-                                        </label>
-                                        <select
-                                            value={formData.tipoVinculacion}
-                                            onChange={(e) => handleChange('tipoVinculacion', e.target.value)}
-                                            style={{
-                                                width: '100%',
-                                                padding: '0.6rem 0.8rem',
-                                                borderRadius: 'var(--radius)',
-                                                border: '1px solid hsl(var(--input))',
-                                                backgroundColor: 'hsl(var(--background))'
-                                            }}
-                                        >
-                                            <option value="ong">ONG / Cultivo Colectivo ACIACAM</option>
-                                            <option value="autocultivo">Autocultivo Individual</option>
-                                            <option value="familiar">Familiar / Tercero</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {formData.situacionReprocann === 'no_posee' && (
+                        {attachedDocs.length === 0 ? (
                             <div style={{
-                                padding: '1.25rem',
+                                padding: '2rem',
+                                textAlign: 'center',
+                                border: '1px dashed hsl(var(--border))',
                                 borderRadius: 'var(--radius)',
-                                backgroundColor: 'hsl(var(--muted) / 0.4)',
-                                border: '1px solid hsl(var(--border))',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '0.5rem'
+                                color: 'hsl(var(--muted-foreground))'
                             }}>
-                                <div style={{ fontWeight: 600, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                    <Info size={18} color="hsl(var(--primary))" /> Aspirante sin REPROCANN
-                                </div>
-                                <p style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>
-                                    No se exigirá número de trámite ni fechas en esta etapa. El socio quedará registrado como aspirante y el equipo de ACIACAM lo acompañará para iniciar la vinculación médica y oficial cuando lo requiera.
-                                </p>
+                                <FileText size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
+                                <p>No se adjuntaron documentos para este socio.</p>
+                                <p style={{ fontSize: '0.8rem' }}>Podés continuar al resumen para confirmar el alta.</p>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                                {attachedDocs.map((doc, idx) => (
+                                    <div key={doc.id} style={{
+                                        border: '1px solid hsl(var(--border))',
+                                        borderRadius: 'var(--radius)',
+                                        padding: '1.25rem',
+                                        backgroundColor: 'hsl(var(--card))',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '1rem'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                                <FileCheck size={24} style={{ color: doc.verificacionEstado === 'aprobado' ? 'hsl(var(--success, 142 76% 36%))' : 'hsl(var(--primary))' }} />
+                                                <div>
+                                                    <p style={{ fontWeight: 600, fontSize: '0.95rem' }}>{doc.file.name}</p>
+                                                    <p style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>
+                                                        Tipo: <strong>{doc.tipo}</strong> • {(doc.file.size / 1024).toFixed(1)} KB
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* Selector de estado de verificación */}
+                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setAttachedDocs(prev => prev.map((d, i) => i === idx ? { ...d, verificacionEstado: 'aprobado' } : d));
+                                                    }}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '0.3rem',
+                                                        padding: '0.4rem 0.8rem',
+                                                        borderRadius: 'var(--radius)',
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: 600,
+                                                        cursor: 'pointer',
+                                                        border: doc.verificacionEstado === 'aprobado' ? '2px solid hsl(var(--success, 142 76% 36%))' : '1px solid hsl(var(--border))',
+                                                        backgroundColor: doc.verificacionEstado === 'aprobado' ? 'hsl(var(--success, 142 76% 36%) / 0.15)' : 'hsl(var(--background))',
+                                                        color: doc.verificacionEstado === 'aprobado' ? 'hsl(var(--success, 142 76% 36%))' : 'inherit'
+                                                    }}
+                                                >
+                                                    <CheckCircle size={14} /> Aprobar
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setAttachedDocs(prev => prev.map((d, i) => i === idx ? { ...d, verificacionEstado: 'pendiente' } : d));
+                                                    }}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '0.3rem',
+                                                        padding: '0.4rem 0.8rem',
+                                                        borderRadius: 'var(--radius)',
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: 600,
+                                                        cursor: 'pointer',
+                                                        border: doc.verificacionEstado === 'pendiente' ? '2px solid hsl(var(--warning, 38 92% 50%))' : '1px solid hsl(var(--border))',
+                                                        backgroundColor: doc.verificacionEstado === 'pendiente' ? 'hsl(var(--warning, 38 92% 50%) / 0.15)' : 'hsl(var(--background))',
+                                                        color: doc.verificacionEstado === 'pendiente' ? 'hsl(var(--warning, 38 92% 50%))' : 'inherit'
+                                                    }}
+                                                >
+                                                    <Clock size={14} /> Dejar Pendiente
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setAttachedDocs(prev => prev.map((d, i) => i === idx ? { ...d, verificacionEstado: 'rechazado' } : d));
+                                                    }}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '0.3rem',
+                                                        padding: '0.4rem 0.8rem',
+                                                        borderRadius: 'var(--radius)',
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: 600,
+                                                        cursor: 'pointer',
+                                                        border: doc.verificacionEstado === 'rechazado' ? '2px solid hsl(var(--destructive))' : '1px solid hsl(var(--border))',
+                                                        backgroundColor: doc.verificacionEstado === 'rechazado' ? 'hsl(var(--destructive) / 0.15)' : 'hsl(var(--background))',
+                                                        color: doc.verificacionEstado === 'rechazado' ? 'hsl(var(--destructive))' : 'inherit'
+                                                    }}
+                                                >
+                                                    <XCircle size={14} /> Rechazar
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Observaciones de verificación (obligatorio si es rechazado) */}
+                                        <div>
+                                            <label style={{ display: 'block', marginBottom: '0.3rem', fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>
+                                                {doc.verificacionEstado === 'rechazado' ? 'Motivo del rechazo *' : 'Observaciones administrativas de verificación'}
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={doc.verificacionObs}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setAttachedDocs(prev => prev.map((d, i) => i === idx ? { ...d, verificacionObs: val } : d));
+                                                }}
+                                                placeholder={doc.verificacionEstado === 'rechazado' ? 'Indicar motivo por el cual se rechaza el documento' : 'Opcional'}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '0.5rem 0.8rem',
+                                                    borderRadius: 'var(--radius)',
+                                                    border: '1px solid hsl(var(--border))',
+                                                    backgroundColor: 'hsl(var(--background))',
+                                                    fontSize: '0.85rem'
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* ============================================================== */}
-                {/* PASO 3: Carga de Documentación Adaptativa */}
-                {/* ============================================================== */}
-                {currentStep === 3 && (
+                {/* ========================================================
+                    PASO 5: RESUMEN Y CONFIRMACIÓN
+                   ======================================================== */}
+                {currentStep === 5 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                        <div style={{ borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.75rem' }}>
-                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Carga de Documentación</h2>
-                            <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.85rem' }}>
-                                Documentación adaptada a la situación: <strong>{formData.situacionReprocann.toUpperCase()}</strong>. Los archivos quedarán en revisión administrativa.
+                        <div>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.3rem' }}>
+                                Paso 5: Resumen y Confirmación de Alta
+                            </h2>
+                            <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.9rem' }}>
+                                Revisá los datos finales antes de registrar al socio. Los documentos aprobados quedarán vigentes de inmediato.
                             </p>
                         </div>
 
-                        {/* Documentación para Vigente o Vencido */}
-                        {(formData.situacionReprocann === 'vigente' || formData.situacionReprocann === 'vencido') && (
-                            <div style={{
-                                padding: '1.25rem',
-                                borderRadius: 'var(--radius)',
-                                border: '1px solid hsl(var(--border))',
-                                backgroundColor: 'hsl(var(--background))'
-                            }}>
-                                <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                    <FileCheck size={18} color="hsl(var(--primary))" />
-                                    {formData.situacionReprocann === 'vigente' ? 'Certificado REPROCANN (PDF o Imagen)' : 'Certificado REPROCANN Anterior (Opcional)'}
-                                </div>
-                                <p style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))', marginBottom: '0.75rem' }}>
-                                    Certificado emitido por el Ministerio de Salud de la Nación.
-                                </p>
-                                <input
-                                    type="file"
-                                    accept=".pdf,image/png,image/jpeg"
-                                    onChange={(e) => setReprocannFile(e.target.files?.[0] || null)}
-                                    style={{ fontSize: '0.85rem' }}
-                                />
-                                {reprocannFile && (
-                                    <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'hsl(var(--primary))', fontWeight: 600 }}>
-                                        ✓ Archivo seleccionado: {reprocannFile.name} ({(reprocannFile.size / 1024).toFixed(1)} KB)
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Documentación para En Trámite */}
-                        {formData.situacionReprocann === 'en_tramite' && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                <div style={{
-                                    padding: '1.25rem',
-                                    borderRadius: 'var(--radius)',
-                                    border: '1px solid hsl(var(--border))',
-                                    backgroundColor: 'hsl(var(--background))'
-                                }}>
-                                    <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                        <Stethoscope size={18} color="hsl(var(--primary))" /> Consentimiento Informado Médico (REPROCANN)
-                                    </div>
-                                    <p style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))', marginBottom: '0.75rem' }}>
-                                        Consentimiento clínico firmado junto al médico tratante para el trámite oficial.
-                                    </p>
-                                    <input
-                                        type="file"
-                                        accept=".pdf,image/png,image/jpeg"
-                                        onChange={(e) => setConsentimientoMedicoFile(e.target.files?.[0] || null)}
-                                        style={{ fontSize: '0.85rem' }}
-                                    />
-                                    {consentimientoMedicoFile && (
-                                        <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'hsl(var(--primary))', fontWeight: 600 }}>
-                                            ✓ Archivo seleccionado: {consentimientoMedicoFile.name} ({(consentimientoMedicoFile.size / 1024).toFixed(1)} KB)
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div style={{
-                                    padding: '1.25rem',
-                                    borderRadius: 'var(--radius)',
-                                    border: '1px solid hsl(var(--border))',
-                                    backgroundColor: 'hsl(var(--background))'
-                                }}>
-                                    <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                        <Upload size={18} color="hsl(var(--primary))" /> Constancia de Trámite Iniciado (Opcional)
-                                    </div>
-                                    <p style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))', marginBottom: '0.75rem' }}>
-                                        Captura de pantalla o comprobante de inicio emitido por Mi Argentina.
-                                    </p>
-                                    <input
-                                        type="file"
-                                        accept=".pdf,image/png,image/jpeg"
-                                        onChange={(e) => setConstanciaTramiteFile(e.target.files?.[0] || null)}
-                                        style={{ fontSize: '0.85rem' }}
-                                    />
-                                    {constanciaTramiteFile && (
-                                        <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'hsl(var(--primary))', fontWeight: 600 }}>
-                                            ✓ Archivo seleccionado: {constanciaTramiteFile.name} ({(constanciaTramiteFile.size / 1024).toFixed(1)} KB)
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Documentación para No Posee */}
-                        {formData.situacionReprocann === 'no_posee' && (
-                            <div style={{
-                                padding: '1.25rem',
-                                borderRadius: 'var(--radius)',
-                                backgroundColor: 'hsl(var(--muted) / 0.3)',
-                                border: '1px solid hsl(var(--border))',
-                                fontSize: '0.85rem',
-                                color: 'hsl(var(--muted-foreground))'
-                            }}>
-                                <Info size={16} style={{ display: 'inline', marginRight: '0.4rem', verticalAlign: 'text-bottom' }} />
-                                No es obligatorio adjuntar documentación en esta instancia. Podés continuar al siguiente paso y completar los datos cuando el aspirante comience la gestión.
-                            </div>
-                        )}
-
-                        {/* Convenio Institucional / Adhesión ACIACAM (común a todos los escenarios) */}
+                        {/* Ficha Resumen Socio */}
                         <div style={{
                             padding: '1.25rem',
+                            border: '1px solid hsl(var(--border))',
                             borderRadius: 'var(--radius)',
-                            border: '1px dashed hsl(var(--border))',
-                            backgroundColor: 'hsl(var(--card))'
+                            backgroundColor: 'hsl(var(--card))',
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                            gap: '1rem'
                         }}>
-                            <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <FileCheck size={18} color="hsl(var(--muted-foreground))" /> Convenio Institucional de Adhesión ACIACAM (Opcional)
+                            <div>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Socio</span>
+                                <p style={{ fontWeight: 600 }}>{formData.nombre} {formData.apellido}</p>
                             </div>
-                            <p style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))', marginBottom: '0.75rem' }}>
-                                Estatuto y términos asociativos firmados con la asociación (no confundir con el consentimiento médico).
-                            </p>
-                            <input
-                                type="file"
-                                accept=".pdf,image/png,image/jpeg"
-                                onChange={(e) => setConsentimientoAdhesionFile(e.target.files?.[0] || null)}
-                                style={{ fontSize: '0.85rem' }}
-                            />
-                            {consentimientoAdhesionFile && (
-                                <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'hsl(var(--primary))', fontWeight: 600 }}>
-                                    ✓ Archivo seleccionado: {consentimientoAdhesionFile.name} ({(consentimientoAdhesionFile.size / 1024).toFixed(1)} KB)
+                            <div>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>DNI</span>
+                                <p style={{ fontWeight: 600 }}>{formData.dni}</p>
+                            </div>
+                            <div>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Fecha de Nacimiento</span>
+                                <p style={{ fontWeight: 600 }}>{formatCalendarDate(formData.fechaNacimiento)}</p>
+                            </div>
+                            <div>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Situación REPROCANN</span>
+                                <p style={{ fontWeight: 600, textTransform: 'capitalize' }}>{formData.situacionReprocann.replace('_', ' ')}</p>
+                            </div>
+                            <div>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Delivery / Envíos</span>
+                                <p style={{ fontWeight: 600 }}>{formData.enviosHabilitados ? 'Habilitado' : 'Deshabilitado'}</p>
+                            </div>
+                            <div>
+                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Email</span>
+                                <p style={{ fontWeight: 600 }}>{formData.email || '-'}</p>
+                            </div>
+                        </div>
+
+                        {/* Resumen de Documentos y Estados de Aprobación */}
+                        <div>
+                            <h3 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+                                Documentación a Registrar ({attachedDocs.length})
+                            </h3>
+                            {attachedDocs.length === 0 ? (
+                                <p style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>Sin documentos adjuntos.</p>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    {attachedDocs.map(doc => (
+                                        <div key={doc.id} style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            padding: '0.6rem 1rem',
+                                            borderRadius: 'var(--radius)',
+                                            border: '1px solid hsl(var(--border))',
+                                            fontSize: '0.85rem'
+                                        }}>
+                                            <span><strong>{doc.file.name}</strong> ({doc.tipo})</span>
+                                            <span style={{
+                                                padding: '0.2rem 0.6rem',
+                                                borderRadius: '9999px',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 600,
+                                                backgroundColor: doc.verificacionEstado === 'aprobado' ? 'hsl(var(--success, 142 76% 36%) / 0.15)' : 'hsl(var(--muted))',
+                                                color: doc.verificacionEstado === 'aprobado' ? 'hsl(var(--success, 142 76% 36%))' : 'inherit'
+                                            }}>
+                                                {doc.verificacionEstado === 'aprobado' ? '✓ APROBADO' : (doc.verificacionEstado === 'rechazado' ? '✕ RECHAZADO' : '⏳ PENDIENTE')}
+                                            </span>
+                                        </div>
+                                    ))}
                                 </div>
+                            )}
+                        </div>
+
+                        {/* Botones de Confirmación Final */}
+                        <div style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '1rem',
+                            marginTop: '1.5rem',
+                            paddingTop: '1.5rem',
+                            borderTop: '1px solid hsl(var(--border))'
+                        }}>
+                            <button
+                                type="button"
+                                disabled={loading}
+                                onClick={() => handleSubmit(false, false)}
+                                style={{
+                                    flex: 1,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '0.5rem',
+                                    padding: '0.8rem 1.5rem',
+                                    backgroundColor: 'hsl(var(--primary))',
+                                    color: 'hsl(var(--primary-foreground))',
+                                    borderRadius: 'var(--radius)',
+                                    fontWeight: 600,
+                                    fontSize: '0.95rem',
+                                    cursor: loading ? 'not-allowed' : 'pointer',
+                                    border: 'none'
+                                }}
+                            >
+                                <Save size={18} />
+                                {loading ? 'Registrando y Verificando...' : 'Confirmar Alta y Guardar'}
+                            </button>
+
+                            {formData.email && (
+                                <button
+                                    type="button"
+                                    disabled={loading}
+                                    onClick={() => handleSubmit(true, false)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem',
+                                        padding: '0.8rem 1.5rem',
+                                        backgroundColor: 'hsl(var(--secondary))',
+                                        color: 'hsl(var(--secondary-foreground))',
+                                        borderRadius: 'var(--radius)',
+                                        fontWeight: 600,
+                                        fontSize: '0.95rem',
+                                        cursor: loading ? 'not-allowed' : 'pointer',
+                                        border: '1px solid hsl(var(--border))'
+                                    }}
+                                >
+                                    <Send size={18} />
+                                    Confirmar y Enviar Invitación
+                                </button>
                             )}
                         </div>
                     </div>
                 )}
 
-                {/* ============================================================== */}
-                {/* PASO 4: Información Médica */}
-                {/* ============================================================== */}
-                {currentStep === 4 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                        <div style={{ borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.75rem' }}>
-                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Información Médica</h2>
-                            <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.85rem' }}>
-                                Registro del profesional prescriptor y patología para seguimiento fitoterapéutico.
-                            </p>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                    Médico Tratante
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.medicoNombre}
-                                    onChange={(e) => handleChange('medicoNombre', e.target.value)}
-                                    placeholder="Dr./Dra. Nombre y Apellido"
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.6rem 0.8rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid hsl(var(--input))',
-                                        backgroundColor: 'hsl(var(--background))'
-                                    }}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                    Matrícula Profesional
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.medicoMatricula}
-                                    onChange={(e) => handleChange('medicoMatricula', e.target.value)}
-                                    placeholder="MN / MP N°"
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.6rem 0.8rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid hsl(var(--input))',
-                                        backgroundColor: 'hsl(var(--background))'
-                                    }}
-                                />
-                            </div>
-
-                            <div className="md:col-span-2">
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem' }}>
-                                    Diagnóstico Principal / Patología
-                                </label>
-                                <textarea
-                                    value={formData.diagnosticoPrincipal}
-                                    onChange={(e) => handleChange('diagnosticoPrincipal', e.target.value)}
-                                    placeholder="Ej: Dolor crónico, insomnio, etc."
-                                    rows={3}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.6rem 0.8rem',
-                                        borderRadius: 'var(--radius)',
-                                        border: '1px solid hsl(var(--input))',
-                                        backgroundColor: 'hsl(var(--background))',
-                                        fontFamily: 'inherit',
-                                        resize: 'vertical'
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* ============================================================== */}
-                {/* PASO 5: Revisión y Confirmación */}
-                {/* ============================================================== */}
-                {currentStep === 5 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                        <div style={{ borderBottom: '1px solid hsl(var(--border))', paddingBottom: '0.75rem' }}>
-                            <h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>Revisión y Confirmación</h2>
-                            <p style={{ color: 'hsl(var(--muted-foreground))', fontSize: '0.85rem' }}>
-                                Verificá la información antes de guardar el registro en el sistema.
-                            </p>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Resumen Personal */}
-                            <div style={{ padding: '1rem', backgroundColor: 'hsl(var(--muted) / 0.3)', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
-                                <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                    <User size={16} /> Identificación y Contacto
-                                </div>
-                                <div style={{ fontSize: '0.85rem', lineHeight: '1.5' }}>
-                                    <div><strong>Nombre:</strong> {formData.nombre} {formData.apellido}</div>
-                                    <div><strong>DNI:</strong> {formData.dni}</div>
-                                    <div><strong>Nacimiento:</strong> {formatCalendarDate(formData.fechaNacimiento)}</div>
-                                    <div><strong>Email:</strong> {formData.email}</div>
-                                    <div><strong>Teléfono:</strong> {formData.telefono}</div>
-                                    {formData.direccion && <div><strong>Domicilio:</strong> {formData.direccion} ({formData.localidad || 'S/D'})</div>}
-                                    <div><strong>Delivery:</strong> {formData.enviosHabilitados ? '✓ Habilitado' : '✗ Deshabilitado'}</div>
-                                </div>
-                            </div>
-
-                            {/* Resumen Regulatorio */}
-                            <div style={{ padding: '1rem', backgroundColor: 'hsl(var(--muted) / 0.3)', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
-                                <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                    <ShieldCheck size={16} /> Situación REPROCANN
-                                </div>
-                                <div style={{ fontSize: '0.85rem', lineHeight: '1.5' }}>
-                                    <div><strong>Situación:</strong> {formData.situacionReprocann.toUpperCase()}</div>
-                                    {formData.numeroTramite && <div><strong>N° Trámite:</strong> {formData.numeroTramite}</div>}
-                                    {formData.fechaAlta && <div><strong>Emisión:</strong> {formatCalendarDate(formData.fechaAlta)}</div>}
-                                    {formData.fechaVencimiento && <div><strong>Vencimiento:</strong> {formatCalendarDate(formData.fechaVencimiento)}</div>}
-                                    {formData.tipoVinculacion && <div><strong>Vinculación:</strong> {formData.tipoVinculacion}</div>}
-                                </div>
-                            </div>
-
-                            {/* Resumen Documental */}
-                            <div style={{ padding: '1rem', backgroundColor: 'hsl(var(--muted) / 0.3)', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
-                                <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                    <Upload size={16} /> Documentos Adjuntos
-                                </div>
-                                <div style={{ fontSize: '0.85rem', lineHeight: '1.5' }}>
-                                    <div><strong>Certificado REPROCANN:</strong> {reprocannFile ? reprocannFile.name : 'No adjuntado'}</div>
-                                    <div><strong>Consentimiento Médico:</strong> {consentimientoMedicoFile ? consentimientoMedicoFile.name : 'No adjuntado'}</div>
-                                    <div><strong>Constancia Trámite:</strong> {constanciaTramiteFile ? constanciaTramiteFile.name : 'No adjuntado'}</div>
-                                    <div><strong>Adhesión ACIACAM:</strong> {consentimientoAdhesionFile ? consentimientoAdhesionFile.name : 'No adjuntado'}</div>
-                                </div>
-                            </div>
-
-                            {/* Resumen Médico */}
-                            <div style={{ padding: '1rem', backgroundColor: 'hsl(var(--muted) / 0.3)', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
-                                <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                    <Stethoscope size={16} /> Información Médica
-                                </div>
-                                <div style={{ fontSize: '0.85rem', lineHeight: '1.5' }}>
-                                    <div><strong>Médico:</strong> {formData.medicoNombre || 'No informado'}</div>
-                                    <div><strong>Matrícula:</strong> {formData.medicoMatricula || 'No informada'}</div>
-                                    <div><strong>Diagnóstico:</strong> {formData.diagnosticoPrincipal || 'No informado'}</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Footer Controls / Navigation */}
+                {/* Navegación entre Pasos (Inferior) */}
                 <div style={{
                     display: 'flex',
-                    alignItems: 'center',
                     justifyContent: 'space-between',
+                    alignItems: 'center',
                     marginTop: '2rem',
                     paddingTop: '1.5rem',
                     borderTop: '1px solid hsl(var(--border))'
@@ -1325,26 +1665,24 @@ export default function NewSocioWizardPage() {
                         <button
                             type="button"
                             onClick={handlePrev}
-                            disabled={loading}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '0.4rem',
-                                padding: '0.6rem 1.2rem',
+                                padding: '0.6rem 1rem',
+                                background: 'none',
                                 border: '1px solid hsl(var(--border))',
                                 borderRadius: 'var(--radius)',
-                                backgroundColor: 'transparent',
                                 cursor: 'pointer',
-                                fontSize: '0.9rem'
+                                fontSize: '0.85rem',
+                                color: 'inherit'
                             }}
                         >
                             <ArrowLeft size={16} /> Anterior
                         </button>
-                    ) : (
-                        <div />
-                    )}
+                    ) : <div />}
 
-                    {currentStep < 5 ? (
+                    {currentStep < 5 && (
                         <button
                             type="button"
                             onClick={handleNext}
@@ -1352,86 +1690,21 @@ export default function NewSocioWizardPage() {
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '0.4rem',
-                                padding: '0.65rem 1.4rem',
+                                padding: '0.6rem 1.2rem',
                                 backgroundColor: 'hsl(var(--primary))',
                                 color: 'hsl(var(--primary-foreground))',
                                 border: 'none',
                                 borderRadius: 'var(--radius)',
                                 cursor: 'pointer',
-                                fontWeight: 600,
-                                fontSize: '0.9rem'
+                                fontSize: '0.85rem',
+                                fontWeight: 600
                             }}
                         >
                             Siguiente <ArrowRight size={16} />
                         </button>
-                    ) : (
-                        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-                            <button
-                                type="button"
-                                onClick={() => handleSubmit(false, true)}
-                                disabled={loading}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.4rem',
-                                    padding: '0.75rem 1.25rem',
-                                    border: '1px solid hsl(var(--border))',
-                                    borderRadius: 'var(--radius)',
-                                    backgroundColor: 'transparent',
-                                    cursor: loading ? 'not-allowed' : 'pointer',
-                                    fontSize: '0.9rem',
-                                    opacity: loading ? 0.6 : 1
-                                }}
-                            >
-                                <Save size={16} /> Guardar como Borrador
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => handleSubmit(false, false)}
-                                disabled={loading}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.4rem',
-                                    padding: '0.75rem 1.5rem',
-                                    backgroundColor: 'hsl(var(--secondary))',
-                                    color: 'hsl(var(--secondary-foreground))',
-                                    border: '1px solid hsl(var(--border))',
-                                    borderRadius: 'var(--radius)',
-                                    cursor: loading ? 'not-allowed' : 'pointer',
-                                    fontSize: '0.9rem',
-                                    fontWeight: 500,
-                                    opacity: loading ? 0.6 : 1
-                                }}
-                            >
-                                Guardar (Solo Crear)
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => handleSubmit(true, false)}
-                                disabled={loading}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.4rem',
-                                    padding: '0.75rem 1.75rem',
-                                    backgroundColor: 'hsl(var(--primary))',
-                                    color: 'hsl(var(--primary-foreground))',
-                                    border: 'none',
-                                    borderRadius: 'var(--radius)',
-                                    cursor: loading ? 'not-allowed' : 'pointer',
-                                    fontWeight: 700,
-                                    fontSize: '0.9rem',
-                                    opacity: loading ? 0.6 : 1
-                                }}
-                            >
-                                <Send size={16} /> {loading ? 'Registrando socio...' : 'Guardar y Enviar Invitación'}
-                            </button>
-                        </div>
                     )}
                 </div>
+
             </div>
         </div>
     );

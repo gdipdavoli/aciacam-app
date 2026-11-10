@@ -8,17 +8,40 @@ export const StorageService = {
      * Uploads a document for a partner to the private bucket.
      * Path format: {socioId}/{docType}/{timestamp}-{safeFilename}
      */
-    uploadSocioDocument: async ({ socioId, docType, file }: { socioId: string, docType: string, file: File }): Promise<{ path: string }> => {
+    uploadSocioDocument: async ({ 
+        socioId, 
+        docType, 
+        file,
+        fechaEmision,
+        fechaVencimiento,
+        numeroTramite,
+        verificacionEstado,
+        verificacionObs
+    }: { 
+        socioId: string;
+        docType: string;
+        file: File;
+        fechaEmision?: string;
+        fechaVencimiento?: string;
+        numeroTramite?: string;
+        verificacionEstado?: string;
+        verificacionObs?: string;
+    }): Promise<{ path: string }> => {
         // Validation moved to API but kept here for immediate feedback if needed, 
         // though strictly the API handles the 'real' upload.
-        if (file.size > 10 * 1024 * 1024) {
-            throw new Error('El archivo excede el tamaño máximo de 10MB');
+        if (file.size > 15 * 1024 * 1024) {
+            throw new Error('El archivo excede el tamaño máximo de 15MB');
         }
 
         const formData = new FormData();
         formData.append('file', file);
         formData.append('socioId', socioId);
         formData.append('docType', docType);
+        if (fechaEmision) formData.append('fechaEmision', fechaEmision);
+        if (fechaVencimiento) formData.append('fechaVencimiento', fechaVencimiento);
+        if (numeroTramite) formData.append('numeroTramite', numeroTramite);
+        if (verificacionEstado) formData.append('verificacionEstado', verificacionEstado);
+        if (verificacionObs) formData.append('verificacionObs', verificacionObs);
 
         // Include Authorization header and credentials
         const headers: Record<string, string> = {};
