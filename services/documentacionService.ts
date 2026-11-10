@@ -61,9 +61,14 @@ export const getDocumentosBySocio = async (socioId: string): Promise<DocumentoSo
       if (res.ok) {
         const data = await res.json();
         return data || [];
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.error('Error fetching socio documents:', err);
+        return [];
       }
     } catch (e) {
-      console.warn('Fallback to direct client for getDocumentosBySocio', e);
+      console.error('Failed to fetch /api/socios/${socioId}/documents', e);
+      return [];
     }
   }
 
@@ -177,10 +182,46 @@ export const upsertDocumentoSocio = async (
     observaciones?: string;
     uploaded_by?: UploadedBy;
     user_id?: string;
+    numero_tramite?: string;
+    numeroTramite?: string;
   }
 ): Promise<DocumentoSocio | null> => {
   const cleanTipo = (tipo === 'declaracionJurada' || tipo === 'declaracion_jurada') ? 'declaracion_jurada' : tipo;
 
+  // In browser, route all document writes through authenticated BFF endpoint
+  if (typeof window !== 'undefined') {
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+
+    const payload: any = {
+      tipo: cleanTipo,
+      ...updates
+    };
+    if (updates.numeroTramite && !updates.numero_tramite) {
+      payload.numero_tramite = updates.numeroTramite;
+    }
+
+    const res = await fetch(`/api/socios/${socioId}/documents`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Error al guardar el documento' }));
+      throw new Error(err.error || 'Error al guardar el documento');
+    }
+
+    const json = await res.json();
+    return json.document || json;
+  }
+
+  // Fallback for Node scripts / server-side execution with client
   // Check if current document exists
   const { data: existingDoc } = await supabase
     .from('documentos_socio')
@@ -237,6 +278,7 @@ export const verificarDocumento = async (
   observaciones: string | null,
   verificadoPor: string // email o nombre del admin
 ): Promise<void> => {
+  // If in browser, use authenticated API if socioId is available or direct update
   const { error } = await supabase
     .from('documentos_socio')
     .update({

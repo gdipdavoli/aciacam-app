@@ -911,7 +911,7 @@ export default function SocioDetailsPage() {
                 archivoPath: newPath
             };
 
-            // 2. Save to Store (DB Persistence via Service) - NOW PASSING ALL FIELDS
+            // 2. Save to Store (DB Persistence via authenticated BFF)
             await StoreService.upsertDocumentoSocio(
              socio.id,
              tipo as TipoDocumento,
@@ -919,11 +919,12 @@ export default function SocioDetailsPage() {
                verificacion_estado: formData.verificacion_estado as EstadoVerificacion,
                verificacion_obs: formData.verificacion_obs,
                archivo_path: newPath,
-               fecha_emision: formData.fechaEmision,
-               fecha_vencimiento: formData.fechaVencimiento,
+               fecha_emision: formData.fechaEmision || undefined,
+               fecha_vencimiento: formData.fechaVencimiento || undefined,
                monto: formData.monto,
                observaciones: formData.observaciones,
-               uploaded_by: 'admin'
+               uploaded_by: 'admin',
+               numero_tramite: (tipo === 'reprocann' && socio.reprocann?.numeroTramite) ? socio.reprocann.numeroTramite : undefined
              }
             );
 
