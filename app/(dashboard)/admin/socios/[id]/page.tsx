@@ -129,6 +129,7 @@ const Pill = ({ status }: { status: string }) => {
 
     if (good.includes(status)) { color = '#166534'; bg = '#dcfce7'; }
     else if (bad.includes(status)) { color = '#991b1b'; bg = '#fee2e2'; }
+    else if (status === 'en_revision') { color = '#6b21a8'; bg = '#f3e8ff'; }
     else if (warn.includes(status)) { color = '#b45309'; bg = '#ffedd5'; }
 
     return (

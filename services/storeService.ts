@@ -912,6 +912,46 @@ export const StoreService = {
     },
 
     createSocio: async (socio: Omit<Socio, 'id'>): Promise<Socio> => {
+        // If in browser, use authenticated BFF endpoint
+        if (typeof window !== 'undefined') {
+            const { data: { session } } = await supabase.auth.getSession();
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
+
+            const res = await fetch('/api/admin/socios', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    nombre: socio.nombre,
+                    apellido: socio.apellido,
+                    dni: socio.dni,
+                    email: socio.email,
+                    telefono: socio.telefono,
+                    domicilio: socio.direccion,
+                    localidad: socio.localidad,
+                    fecha_nacimiento: socio.fechaNacimiento,
+                    rol: socio.rol || 'socio',
+                    status: socio.status || 'draft',
+                    reprocann_num_tramite: socio.reprocann?.numeroTramite,
+                    reprocann_fecha_alta: socio.reprocann?.fechaAlta,
+                    reprocann_fecha_vencimiento: socio.reprocann?.fechaVencimiento,
+                    reprocann_tipo: (socio.reprocann as any)?.tipo,
+                    medico_nombre: socio.medicoNombre,
+                    medico_matricula: socio.medicoMatricula,
+                    diagnostico: socio.diagnosticoPrincipal,
+                    fecha_ingreso_ong: socio.fechaIngresoOng
+                })
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: 'Error al crear socio' }));
+                throw new Error(err.error || 'Error al crear socio');
+            }
+
+            const data = await res.json();
+            return mapSocioFromDB(data);
+        }
+
         if (!supabase) {
             console.warn('Supabase not configured, using mock');
             return { id: 'mock-id', ...socio } as Socio;
@@ -923,12 +963,21 @@ export const StoreService = {
             dni: socio.dni,
             email: socio.email,
             telefono: socio.telefono,
-            rol: socio.rol || 'socio' // Add role persistence
+            rol: socio.rol || 'socio',
+            status: socio.status || 'draft'
         };
 
         if (socio.direccion) dbRow.domicilio = socio.direccion;
         if (socio.localidad) dbRow.localidad = socio.localidad;
         if (socio.fechaNacimiento) dbRow.fecha_nacimiento = socio.fechaNacimiento;
+        if (socio.reprocann?.numeroTramite) dbRow.reprocann_num_tramite = socio.reprocann.numeroTramite;
+        if (socio.reprocann?.fechaAlta) dbRow.reprocann_fecha_alta = socio.reprocann.fechaAlta;
+        if (socio.reprocann?.fechaVencimiento) dbRow.reprocann_fecha_vencimiento = socio.reprocann.fechaVencimiento;
+        if ((socio.reprocann as any)?.tipo) dbRow.reprocann_tipo = (socio.reprocann as any).tipo;
+        if (socio.medicoNombre) dbRow.medico_nombre = socio.medicoNombre;
+        if (socio.medicoMatricula) dbRow.medico_matricula = socio.medicoMatricula;
+        if (socio.diagnosticoPrincipal) dbRow.diagnostico = socio.diagnosticoPrincipal;
+        if (socio.fechaIngresoOng) dbRow.fecha_ingreso_ong = socio.fechaIngresoOng;
 
         const { data, error } = await supabase
             .from('socios')
