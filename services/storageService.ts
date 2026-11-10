@@ -20,8 +20,23 @@ export const StorageService = {
         formData.append('socioId', socioId);
         formData.append('docType', docType);
 
+        // Include Authorization header and credentials
+        const headers: Record<string, string> = {};
+        if (supabase) {
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session?.access_token) {
+                    headers['Authorization'] = `Bearer ${session.access_token}`;
+                }
+            } catch (authErr) {
+                console.warn('Could not retrieve active session for document upload:', authErr);
+            }
+        }
+
         const response = await fetch('/api/docs/upload', {
             method: 'POST',
+            headers,
+            credentials: 'include',
             body: formData,
         });
 

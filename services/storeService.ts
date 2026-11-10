@@ -918,30 +918,55 @@ export const StoreService = {
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
             if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
 
-            const res = await fetch('/api/admin/socios', {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({
-                    nombre: socio.nombre,
-                    apellido: socio.apellido,
-                    dni: socio.dni,
-                    email: socio.email,
-                    telefono: socio.telefono,
-                    domicilio: socio.direccion,
-                    localidad: socio.localidad,
-                    fecha_nacimiento: socio.fechaNacimiento,
-                    rol: socio.rol || 'socio',
-                    status: socio.status || 'draft',
-                    reprocann_num_tramite: socio.reprocann?.numeroTramite,
-                    reprocann_fecha_alta: socio.reprocann?.fechaAlta,
-                    reprocann_fecha_vencimiento: socio.reprocann?.fechaVencimiento,
-                    reprocann_tipo: (socio.reprocann as any)?.tipo,
-                    medico_nombre: socio.medicoNombre,
-                    medico_matricula: socio.medicoMatricula,
-                    diagnostico: socio.diagnosticoPrincipal,
-                    fecha_ingreso_ong: socio.fechaIngresoOng
-                })
-            });
+            const payload = {
+                nombre: socio.nombre,
+                apellido: socio.apellido,
+                dni: socio.dni,
+                email: socio.email,
+                telefono: socio.telefono,
+                domicilio: socio.direccion,
+                localidad: socio.localidad,
+                fecha_nacimiento: socio.fechaNacimiento,
+                envios_habilitados: socio.envios_habilitados !== undefined ? socio.envios_habilitados : true,
+                rol: socio.rol || 'socio',
+                status: socio.status || 'draft',
+                reprocann_num_tramite: socio.reprocann?.numeroTramite,
+                reprocann_fecha_alta: socio.reprocann?.fechaAlta,
+                reprocann_fecha_vencimiento: socio.reprocann?.fechaVencimiento,
+                reprocann_tipo: (socio.reprocann as any)?.tipo,
+                medico_nombre: socio.medicoNombre,
+                medico_matricula: socio.medicoMatricula,
+                diagnostico: socio.diagnosticoPrincipal,
+                fecha_ingreso_ong: socio.fechaIngresoOng
+            };
+
+            let res: Response;
+            try {
+                res = await fetch('/api/admin/socios', {
+                    method: 'POST',
+                    headers,
+                    credentials: 'include',
+                    body: JSON.stringify(payload)
+                });
+            } catch (networkErr: any) {
+                console.warn('Fallo de red en POST /api/admin/socios, verificando si el socio ya fue creado:', networkErr);
+                // Si la conexión falló pero la petición pudo haber llegado al backend, verificar por DNI
+                if (supabase && socio.dni) {
+                    try {
+                        const { data: existing } = await supabase
+                            .from('socios')
+                            .select('*')
+                            .eq('dni', String(socio.dni).trim())
+                            .maybeSingle();
+                        if (existing) {
+                            return mapSocioFromDB(existing);
+                        }
+                    } catch (checkErr) {
+                        console.warn('No se pudo verificar existencia tras error de red:', checkErr);
+                    }
+                }
+                throw new Error(`Error de conexión al registrar el socio (${networkErr.message || 'Failed to fetch'}). El borrador permanece a salvo.`);
+            }
 
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ error: 'Error al crear socio' }));
