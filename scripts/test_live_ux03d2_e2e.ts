@@ -184,7 +184,7 @@ async function runLiveE2ESuite() {
     ]);
 
     const formDataConsent = new FormData();
-    formDataConsent.append('file', new Blob([consentPdfBytes], { type: 'application/pdf' }), 'consentimiento_sintetico.pdf');
+    formDataConsent.append('file', new Blob([Buffer.from(consentPdfBytes)], { type: 'application/pdf' }), 'consentimiento_sintetico.pdf');
 
     const reqExtractConsent = new NextRequest('http://localhost:3000/api/admin/documents/extract', {
         method: 'POST',
@@ -322,7 +322,7 @@ async function runLiveE2ESuite() {
 
     // Subir documento a Storage con verificación explícita
     const formDocUpload = new FormData();
-    formDocUpload.append('file', new Blob([consentPdfBytes], { type: 'application/pdf' }), 'consentimiento_aprobado.pdf');
+    formDocUpload.append('file', new Blob([Buffer.from(consentPdfBytes)], { type: 'application/pdf' }), 'consentimiento_aprobado.pdf');
     formDocUpload.append('socioId', createdSocio.id);
     formDocUpload.append('docType', 'consentimiento');
     formDocUpload.append('numeroTramite', '198450');
@@ -403,8 +403,8 @@ async function runLiveE2ESuite() {
         .eq('id', createdSocio.id)
         .single();
 
-    assert(verifiedSocio.status === 'draft', 'Socio creado permanece en estado draft (no admitido estatutariamente)');
-    assert(verifiedSocio.rol === 'socio', 'Rol es socio estándar');
+    assert(verifiedSocio !== null && verifiedSocio?.status === 'draft', 'Socio creado permanece en estado draft (no admitido estatutariamente)');
+    assert(verifiedSocio?.rol === 'socio', 'Rol es socio estándar');
     console.log('');
 
     // ------------------------------------------------------------------
