@@ -15,6 +15,7 @@ import {
     validateUnifiedExtraction,
     consolidateDocumentExtractions,
     DocumentConflict,
+    FieldTraceability,
     normalizeDni 
 } from '@/app/lib/ocr-contract';
 import { 
@@ -41,7 +42,8 @@ import {
     FileUp,
     Clock,
     XCircle,
-    CheckSquare
+    CheckSquare,
+    RefreshCw
 } from 'lucide-react';
 
 const STORAGE_KEY = 'aciacam_new_socio_draft_v4';
@@ -126,6 +128,8 @@ export default function NewSocioWizardPage() {
     // Documentos adjuntados en el alta
     const [attachedDocs, setAttachedDocs] = useState<AttachedDocState[]>([]);
     const [isExtracting, setIsExtracting] = useState<boolean>(false);
+    const [isRetryingDocId, setIsRetryingDocId] = useState<string | null>(null);
+    const [fieldTraceability, setFieldTraceability] = useState<Record<string, FieldTraceability>>({});
     const [extractionSummary, setExtractionSummary] = useState<UnifiedDocumentExtraction | null>(null);
     const [conflicts, setConflicts] = useState<DocumentConflict[]>([]);
 
@@ -180,6 +184,7 @@ export default function NewSocioWizardPage() {
             setFormData({ ...INITIAL_FORM, idempotencyKey: freshKey });
             setAttachedDocs([]);
             setExtractionSummary(null);
+            setFieldTraceability({});
             setConflicts([]);
             setCurrentStep(1);
             setValidationError(null);
@@ -287,6 +292,7 @@ export default function NewSocioWizardPage() {
             if (itemsToConsolidate.length > 0) {
                 const consolidation = consolidateDocumentExtractions(itemsToConsolidate);
                 setConflicts(consolidation.conflicts);
+                setFieldTraceability(consolidation.fieldTraceability || {});
 
                 // Extracción representativa
                 const primaryExt = itemsToConsolidate.find(i => i.extraction.isLegible && !i.extraction.requiresVisualOcr)?.extraction
@@ -349,13 +355,165 @@ export default function NewSocioWizardPage() {
             if (items.length > 0) {
                 const consolidation = consolidateDocumentExtractions(items);
                 setConflicts(consolidation.conflicts);
+                setFieldTraceability(consolidation.fieldTraceability || {});
                 setExtractionSummary(items[0].extraction);
             } else {
                 setConflicts([]);
+                setFieldTraceability({});
                 setExtractionSummary(null);
             }
             return filtered;
         });
+    };
+
+    // Reintento manual granular con Gemini Vision por documento (UX-03D.1)
+    const handleRetryDocumentWithGemini = async (docId: string) => {
+        const docToRetry = attachedDocs.find(d => d.id === docId);
+        if (!docToRetry) return;
+
+        setIsRetryingDocId(docId);
+        setBannerError(null);
+        setBannerSuccess(null);
+
+        try {
+            const formDataReq = new FormData();
+            formDataReq.append('file', docToRetry.file);
+
+            const res = await fetch('/api/admin/documents/extract', {
+                method: 'POST',
+                body: formDataReq
+            });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || `HTTP ${res.status}`);
+            }
+
+            const data = await res.json();
+            const ext: UnifiedDocumentExtraction = data.extraction;
+
+            const updatedDocs = attachedDocs.map(d => {
+                if (d.id === docId) {
+                    return {
+                        ...d,
+                        extraction: ext,
+                        fechaEmision: ext.fechaEmision || d.fechaEmision,
+                        fechaVencimiento: ext.fechaVencimiento || d.fechaVencimiento,
+                        numeroTramite: ext.numeroTramite || d.numeroTramite,
+                        tipo: ext.documentType !== 'desconocido' ? ext.documentType : d.tipo
+                    };
+                }
+                return d;
+            });
+
+            setAttachedDocs(updatedDocs);
+
+            // Re-consolidar documentos con la nueva extracción
+            const itemsToConsolidate = updatedDocs
+                .filter(d => d.extraction)
+                .map(d => ({
+                    filename: d.file.name,
+                    extraction: d.extraction!
+                }));
+
+            if (itemsToConsolidate.length > 0) {
+                const consolidation = consolidateDocumentExtractions(itemsToConsolidate);
+                setConflicts(consolidation.conflicts);
+                setFieldTraceability(consolidation.fieldTraceability || {});
+
+                const primaryExt = itemsToConsolidate.find(i => i.extraction.isLegible && !i.extraction.requiresVisualOcr)?.extraction
+                    || itemsToConsolidate[0].extraction;
+                setExtractionSummary(primaryExt);
+
+                const c = consolidation.consolidated;
+                const newlyExtractedFields: string[] = [];
+
+                setFormData(prev => {
+                    const updated = { ...prev };
+                    const prevExtracted = prev.camposExtraidos || [];
+
+                    const applyIfEligible = (fieldKey: keyof FormData, newVal: any) => {
+                        if (!newVal) return;
+                        const currentVal = prev[fieldKey];
+                        if (!currentVal || prevExtracted.includes(fieldKey as string)) {
+                            (updated as any)[fieldKey] = newVal;
+                            newlyExtractedFields.push(fieldKey as string);
+                        }
+                    };
+
+                    applyIfEligible('nombre', c.nombre);
+                    applyIfEligible('apellido', c.apellido);
+                    applyIfEligible('dni', c.dni);
+                    applyIfEligible('fechaNacimiento', c.fechaNacimiento);
+                    applyIfEligible('numeroTramite', c.numeroTramite);
+                    applyIfEligible('fechaAlta', c.fechaAlta);
+                    applyIfEligible('fechaVencimiento', c.fechaVencimiento);
+                    applyIfEligible('medicoNombre', c.medicoNombre);
+                    applyIfEligible('medicoMatricula', c.medicoMatricula);
+                    applyIfEligible('diagnosticoPrincipal', c.diagnosticoPrincipal);
+
+                    if (c.fechaVencimiento && (!prev.fechaVencimiento || prevExtracted.includes('fechaVencimiento'))) {
+                        const today = getSanLuisCivilToday();
+                        const todayStr = `${today.year}-${String(today.month).padStart(2, '0')}-${String(today.day).padStart(2, '0')}`;
+                        updated.situacionReprocann = c.fechaVencimiento >= todayStr ? 'vigente' : 'vencido';
+                    }
+
+                    updated.fuenteExtraccion = c.fuenteExtraccion || primaryExt.sourceDescription;
+                    updated.camposExtraidos = Array.from(new Set([...prevExtracted, ...newlyExtractedFields]));
+
+                    return updated;
+                });
+
+                if (ext.extractionSource === 'agent_core_gemini') {
+                    setBannerSuccess(`¡Análisis exitoso con Gemini Vision para "${docToRetry.file.name}"! Se actualizaron los datos consolidados.`);
+                } else {
+                    setBannerError(`Se procesó el documento pero no fue posible completar el análisis con Gemini Vision (${ext.failureReason || 'se mantuvo extracción local'}).`);
+                }
+            }
+        } catch (err: any) {
+            console.error("Error al reintentar análisis con Gemini:", err);
+            setBannerError(`No se pudo reintentar con Gemini: ${err.message || 'error desconocido'}. Se conservan los datos previos.`);
+        } finally {
+            setIsRetryingDocId(null);
+        }
+    };
+
+    // Helper visual de trazabilidad y origen de campos (UX-03D.1)
+    const getFieldProvenancePill = (fieldKey: string, val: string | undefined, trace?: FieldTraceability) => {
+        if (!val || val.trim() === '') {
+            if (fieldKey === 'diagnosticoPrincipal' || fieldKey === 'medicoNombre') {
+                return {
+                    label: '⚠️ Pendiente de revisión',
+                    bg: 'hsl(var(--warning) / 0.15)',
+                    color: 'hsl(var(--warning-foreground, 38 92% 50%))'
+                };
+            }
+            return {
+                label: '⚪ No detectado',
+                bg: 'hsl(var(--muted))',
+                color: 'hsl(var(--muted-foreground))'
+            };
+        }
+        if (trace?.source === 'agent_core_gemini' || trace?.sourceReference?.includes('Gemini')) {
+            const conf = Math.round((trace.confidence || 0.95) * 100);
+            return {
+                label: `🤖 Gemini (${conf}%)`,
+                bg: 'rgba(124, 58, 237, 0.15)',
+                color: 'rgb(124, 58, 237)'
+            };
+        }
+        if (trace?.source === 'local_text_layer' || trace?.sourceReference?.includes('unpdf') || trace?.sourceReference?.includes('texto digital')) {
+            return {
+                label: '📄 Texto digital',
+                bg: 'rgba(37, 99, 235, 0.12)',
+                color: 'rgb(37, 99, 235)'
+            };
+        }
+        return {
+            label: '✍️ Manual',
+            bg: 'rgba(16, 185, 129, 0.12)',
+            color: 'rgb(16, 185, 129)'
+        };
     };
 
     // Validación por paso
@@ -1010,7 +1168,7 @@ export default function NewSocioWizardPage() {
                                                     </p>
                                                 </div>
 
-                                                <div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                                                     {ext?.extractionSource === 'agent_core_gemini' ? (
                                                         <span style={{
                                                             padding: '0.25rem 0.65rem',
@@ -1057,8 +1215,49 @@ export default function NewSocioWizardPage() {
                                                             Sin datos de texto legibles
                                                         </span>
                                                     )}
+
+                                                    {/* Botón Reintentar con Gemini si el documento no fue procesado por Gemini */}
+                                                    {ext?.extractionSource !== 'agent_core_gemini' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRetryDocumentWithGemini(doc.id)}
+                                                            disabled={isRetryingDocId !== null}
+                                                            title="Reintentar análisis documental inteligente con Gemini Vision (Agent Core)"
+                                                            style={{
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '0.35rem',
+                                                                fontSize: '0.75rem',
+                                                                fontWeight: 600,
+                                                                padding: '0.25rem 0.65rem',
+                                                                borderRadius: '6px',
+                                                                backgroundColor: isRetryingDocId === doc.id ? 'rgba(124, 58, 237, 0.2)' : 'rgba(124, 58, 237, 0.1)',
+                                                                color: 'rgb(124, 58, 237)',
+                                                                border: '1px solid rgba(124, 58, 237, 0.3)',
+                                                                cursor: isRetryingDocId !== null ? 'wait' : 'pointer'
+                                                            }}
+                                                        >
+                                                            <RefreshCw size={13} className={isRetryingDocId === doc.id ? 'animate-spin' : ''} />
+                                                            {isRetryingDocId === doc.id ? 'Analizando con Gemini...' : 'Reintentar análisis con Gemini'}
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
+
+                                            {/* Razón de fallo o advertencia de disponibilidad de Gemini */}
+                                            {ext?.failureReason && (
+                                                <div style={{
+                                                    fontSize: '0.75rem',
+                                                    padding: '0.35rem 0.65rem',
+                                                    borderRadius: '4px',
+                                                    backgroundColor: 'hsl(var(--muted) / 0.6)',
+                                                    color: 'hsl(var(--foreground))',
+                                                    marginBottom: '0.6rem',
+                                                    borderLeft: '3px solid hsl(var(--primary))'
+                                                }}>
+                                                    ℹ️ <strong>Estado del análisis:</strong> {ext.failureReason}
+                                                </div>
+                                            )}
 
                                             {/* Campos detectados en este documento */}
                                             {ext && (
@@ -1124,63 +1323,140 @@ export default function NewSocioWizardPage() {
 
                             <div style={{
                                 display: 'grid',
-                                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
                                 gap: '1rem'
                             }}>
-                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Titular Propuesto</span>
-                                    <p style={{ fontWeight: 600 }}>
-                                        {formData.nombre || formData.apellido 
-                                            ? `${formData.nombre} ${formData.apellido}`.trim() 
-                                            : 'No detectado'}
-                                    </p>
-                                </div>
+                                {/* 1. Titular */}
+                                {(() => {
+                                    const titularVal = (formData.nombre || formData.apellido) 
+                                        ? `${formData.nombre} ${formData.apellido}`.trim() 
+                                        : '';
+                                    const pill = getFieldProvenancePill('titular', titularVal, fieldTraceability.nombre || fieldTraceability.apellido);
+                                    return (
+                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Titular Propuesto</span>
+                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
+                                                    {pill.label}
+                                                </span>
+                                            </div>
+                                            <p style={{ fontWeight: 600 }}>{titularVal || 'No detectado'}</p>
+                                        </div>
+                                    );
+                                })()}
 
-                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>DNI Propuesto</span>
-                                    <p style={{ fontWeight: 600 }}>
-                                        {formData.dni || 'No detectado'}
-                                    </p>
-                                </div>
+                                {/* 2. DNI */}
+                                {(() => {
+                                    const pill = getFieldProvenancePill('dni', formData.dni, fieldTraceability.dni);
+                                    return (
+                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>DNI Propuesto</span>
+                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
+                                                    {pill.label}
+                                                </span>
+                                            </div>
+                                            <p style={{ fontWeight: 600 }}>{formData.dni || 'No detectado'}</p>
+                                        </div>
+                                    );
+                                })()}
 
-                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Fecha de Nacimiento</span>
-                                    <p style={{ fontWeight: 600 }}>
-                                        {formData.fechaNacimiento ? formatCalendarDate(formData.fechaNacimiento) : 'No detectada'}
-                                    </p>
-                                </div>
+                                {/* 3. Fecha de Nacimiento */}
+                                {(() => {
+                                    const pill = getFieldProvenancePill('fechaNacimiento', formData.fechaNacimiento, fieldTraceability.fechaNacimiento);
+                                    return (
+                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Fecha de Nacimiento</span>
+                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
+                                                    {pill.label}
+                                                </span>
+                                            </div>
+                                            <p style={{ fontWeight: 600 }}>
+                                                {formData.fechaNacimiento ? formatCalendarDate(formData.fechaNacimiento) : 'No detectada'}
+                                            </p>
+                                        </div>
+                                    );
+                                })()}
 
-                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>N° Trámite REPROCANN</span>
-                                    <p style={{ fontWeight: 600 }}>
-                                        {formData.numeroTramite || 'No detectado'}
-                                    </p>
-                                </div>
+                                {/* 4. N° Trámite REPROCANN */}
+                                {(() => {
+                                    const pill = getFieldProvenancePill('numeroTramite', formData.numeroTramite, fieldTraceability.numeroTramite);
+                                    return (
+                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>N° Trámite REPROCANN</span>
+                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
+                                                    {pill.label}
+                                                </span>
+                                            </div>
+                                            <p style={{ fontWeight: 600 }}>{formData.numeroTramite || 'No detectado'}</p>
+                                        </div>
+                                    );
+                                })()}
 
-                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Vencimiento REPROCANN</span>
-                                    <p style={{ fontWeight: 600 }}>
-                                        {formData.fechaVencimiento 
-                                            ? formatCalendarDate(formData.fechaVencimiento) 
-                                            : 'No detectado (completar manualmente si posee credencial vigente)'}
-                                    </p>
-                                </div>
+                                {/* 5. Vencimiento REPROCANN */}
+                                {(() => {
+                                    const pill = getFieldProvenancePill('fechaVencimiento', formData.fechaVencimiento, fieldTraceability.fechaVencimiento);
+                                    return (
+                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Vencimiento REPROCANN</span>
+                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
+                                                    {pill.label}
+                                                </span>
+                                            </div>
+                                            <p style={{ fontWeight: 600 }}>
+                                                {formData.fechaVencimiento 
+                                                    ? formatCalendarDate(formData.fechaVencimiento) 
+                                                    : 'No detectado (completar manualmente si posee credencial vigente)'}
+                                            </p>
+                                        </div>
+                                    );
+                                })()}
 
-                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Médico Tratante</span>
-                                    <p style={{ fontWeight: 600 }}>
-                                        {formData.medicoNombre 
-                                            ? `${formData.medicoNombre} ${formData.medicoMatricula ? `(Mat: ${formData.medicoMatricula})` : ''}` 
-                                            : 'No detectado'}
-                                    </p>
-                                </div>
+                                {/* 6. Médico Tratante */}
+                                {(() => {
+                                    const pill = getFieldProvenancePill('medicoNombre', formData.medicoNombre, fieldTraceability.medicoNombre);
+                                    return (
+                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Médico Tratante</span>
+                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
+                                                    {pill.label}
+                                                </span>
+                                            </div>
+                                            <p style={{ fontWeight: 600 }}>
+                                                {formData.medicoNombre 
+                                                    ? `${formData.medicoNombre} ${formData.medicoMatricula ? `(Mat: ${formData.medicoMatricula})` : ''}` 
+                                                    : 'Pendiente de revisión médica'}
+                                            </p>
+                                        </div>
+                                    );
+                                })()}
 
-                                <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
-                                    <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Diagnóstico / Patología</span>
-                                    <p style={{ fontWeight: 600 }}>
-                                        {formData.diagnosticoPrincipal || 'No detectado'}
-                                    </p>
-                                </div>
+                                {/* 7. Diagnóstico / Patología */}
+                                {(() => {
+                                    const pill = getFieldProvenancePill('diagnosticoPrincipal', formData.diagnosticoPrincipal, fieldTraceability.diagnosticoPrincipal);
+                                    return (
+                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Diagnóstico / Patología</span>
+                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
+                                                    {pill.label}
+                                                </span>
+                                            </div>
+                                            <p style={{ fontWeight: 600 }}>
+                                                {formData.diagnosticoPrincipal || 'Pendiente de revisión clínica'}
+                                            </p>
+                                            {!formData.diagnosticoPrincipal && (
+                                                <span style={{ fontSize: '0.7rem', color: 'hsl(var(--muted-foreground))' }}>
+                                                    No inferido desde texto plano para preservar integridad clínica. Completar en Paso 3 o reintentar con Gemini.
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </div>
 

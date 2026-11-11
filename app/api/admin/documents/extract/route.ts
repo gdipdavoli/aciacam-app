@@ -10,9 +10,11 @@ import {
 } from '@/app/lib/ocr-contract';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60; // Fluid compute timeout extendido para modelos de visión multimodal (Vercel)
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const AGENT_CORE_TIMEOUT_MS = Number(process.env.AGENT_CORE_TIMEOUT_MS) || 45000;
 
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: {
@@ -102,6 +104,10 @@ export async function POST(req: NextRequest) {
             let agentCoreExtraction: UnifiedDocumentExtraction | null = null;
 
             // Intento prioritario 1: Extracción inteligente vía Agent Core (Gemini Vision)
+            let errorCategory = 'NONE';
+            let failureReason = '';
+            let canRetry = true;
+
             if (hasAgentCoreConfig) {
                 try {
                     const arrayBuffer = await file.arrayBuffer();
@@ -111,71 +117,124 @@ export async function POST(req: NextRequest) {
                     const callerUserId = caller.id;
                     const callerSocioId = socioData?.id || caller.id;
 
-                    const acResponse = await fetch(`${cleanUrl}/api/v1/documents/analyze-read-only`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Agent-Core-Secret': agentCoreBffSecret!,
-                            'Authorization': `Bearer ${agentCoreBffSecret!}`,
-                            'X-Delegated-Auth-User-Id': callerUserId,
-                            'X-Delegated-User-Role': callerRole,
-                            'X-Delegated-Socio-Id': callerSocioId,
-                        },
-                        body: JSON.stringify({
-                            file_bytes_base64: base64Content,
-                            mime_type: fileMime,
-                            filename: file.name,
-                        }),
-                        signal: AbortSignal.timeout(15000),
-                    });
+                    const makeCall = async () => {
+                        return await fetch(`${cleanUrl}/api/v1/documents/analyze-read-only`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Agent-Core-Secret': agentCoreBffSecret!,
+                                'Authorization': `Bearer ${agentCoreBffSecret!}`,
+                                'X-Delegated-Auth-User-Id': callerUserId,
+                                'X-Delegated-User-Role': callerRole,
+                                'X-Delegated-Socio-Id': callerSocioId,
+                            },
+                            body: JSON.stringify({
+                                file_bytes_base64: base64Content,
+                                mime_type: fileMime,
+                                filename: file.name,
+                            }),
+                            signal: AbortSignal.timeout(AGENT_CORE_TIMEOUT_MS),
+                        });
+                    };
 
-                    if (acResponse.ok) {
-                        const acData = await acResponse.json();
-                        if (acData && (acData.status === 'success' || acData.status === 'partial_success')) {
-                            const f = acData.fields || {};
-                            agentCoreExtraction = {
-                                documentType: (['reprocann', 'consentimiento', 'dni', 'receta'].includes(acData.document_type)
-                                    ? acData.document_type
-                                    : 'desconocido') as any,
-                                titular: (f.nombre?.value || f.apellido?.value) ? {
-                                    nombre: f.nombre?.value || undefined,
-                                    apellido: f.apellido?.value || undefined,
-                                } : undefined,
-                                dni: f.dni?.value || undefined,
-                                fechaNacimiento: f.fecha_nacimiento?.value || undefined,
-                                numeroTramite: f.numero_tramite?.value || undefined,
-                                fechaEmision: f.fecha_emision?.value || f.fecha_alta?.value || undefined,
-                                fechaVencimiento: f.fecha_vencimiento?.value || undefined,
-                                tipoAutorizacion: f.tipo_autorizacion?.value || undefined,
-                                medico: (f.medico_nombre?.value || f.medico_matricula?.value) ? {
-                                    nombre: f.medico_nombre?.value || undefined,
-                                    matricula: f.medico_matricula?.value || undefined,
-                                } : undefined,
-                                diagnostico: f.diagnostico?.value || undefined,
-                                confidence: {
-                                    overall: typeof acData.confidence === 'number' ? acData.confidence : 0.9,
-                                    fields: Object.fromEntries(
-                                        Object.entries(f).map(([k, v]: [string, any]) => [k, v?.confidence ?? 0.9])
-                                    )
-                                },
-                                isLegible: acData.is_legible ?? true,
-                                extractionSource: 'agent_core_gemini',
-                                sourceDescription: `Agent Core (Gemini Vision - ${acData.model_used || 'gemini-2.5-flash'})`,
-                                warnings: acData.warnings || [],
-                                errors: acData.errors || [],
-                                humanValidated: false,
-                                totalPages: 1,
-                                requiresVisualOcr: false,
-                                hasImageOnlyLayer: false,
-                                detectedFieldsCount: Object.keys(f).length,
-                                fieldTraceability: f,
-                            };
+                    let acResponse: Response | null = null;
+                    try {
+                        acResponse = await makeCall();
+                        // Reintento único ante errores transitorios de alta demanda (503 / 429)
+                        if (acResponse && (acResponse.status === 503 || acResponse.status === 429)) {
+                            console.warn(`[Extraction] Agent Core respondió con HTTP ${acResponse.status} (alta demanda transitoria). Reintentando en 1.5s...`);
+                            await new Promise(r => setTimeout(r, 1500));
+                            acResponse = await makeCall();
                         }
-                    } else {
-                        console.warn(`[Extraction] Agent Core respondió con status HTTP ${acResponse.status}. Aplicando fallback local.`);
+                    } catch (fetchErr: any) {
+                        if (fetchErr.name === 'TimeoutError' || fetchErr.name === 'AbortError') {
+                            errorCategory = 'TIMEOUT';
+                            failureReason = `Timeout de Agent Core superado (${AGENT_CORE_TIMEOUT_MS / 1000}s)`;
+                            console.warn(`[Extraction] Timeout al conectar con Agent Core (${AGENT_CORE_TIMEOUT_MS / 1000}s).`);
+                        } else {
+                            errorCategory = 'CONNECTION_ERROR';
+                            failureReason = fetchErr.message || 'Error de conexión con Agent Core';
+                            console.warn(`[Extraction] Error de conexión con Agent Core: ${failureReason}. Reintentando una vez...`);
+                            try {
+                                await new Promise(r => setTimeout(r, 1000));
+                                acResponse = await makeCall();
+                            } catch (retryErr: any) {
+                                failureReason = retryErr.message || failureReason;
+                            }
+                        }
+                    }
+
+                    if (acResponse) {
+                        if (acResponse.ok) {
+                            const acData = await acResponse.json();
+                            if (acData && (acData.status === 'success' || acData.status === 'partial_success')) {
+                                const f = acData.fields || {};
+                                agentCoreExtraction = {
+                                    documentType: (['reprocann', 'consentimiento', 'dni', 'receta'].includes(acData.document_type)
+                                        ? acData.document_type
+                                        : 'desconocido') as any,
+                                    titular: (f.nombre?.value || f.apellido?.value) ? {
+                                        nombre: f.nombre?.value || undefined,
+                                        apellido: f.apellido?.value || undefined,
+                                    } : undefined,
+                                    dni: f.dni?.value || undefined,
+                                    fechaNacimiento: f.fecha_nacimiento?.value || undefined,
+                                    numeroTramite: f.numero_tramite?.value || undefined,
+                                    fechaEmision: f.fecha_emision?.value || f.fecha_alta?.value || undefined,
+                                    fechaVencimiento: f.fecha_vencimiento?.value || undefined,
+                                    tipoAutorizacion: f.tipo_autorizacion?.value || undefined,
+                                    medico: (f.medico_nombre?.value || f.medico_matricula?.value) ? {
+                                        nombre: f.medico_nombre?.value || undefined,
+                                        matricula: f.medico_matricula?.value || undefined,
+                                    } : undefined,
+                                    diagnostico: f.diagnostico?.value || undefined,
+                                    confidence: {
+                                        overall: typeof acData.confidence === 'number' ? acData.confidence : 0.9,
+                                        fields: Object.fromEntries(
+                                            Object.entries(f).map(([k, v]: [string, any]) => [k, v?.confidence ?? 0.9])
+                                        )
+                                    },
+                                    isLegible: acData.is_legible ?? true,
+                                    extractionSource: 'agent_core_gemini',
+                                    sourceDescription: `Agent Core (Gemini Vision - ${acData.model_used || 'gemini-3.5-flash'})`,
+                                    warnings: acData.warnings || [],
+                                    errors: acData.errors || [],
+                                    humanValidated: false,
+                                    totalPages: 1,
+                                    requiresVisualOcr: false,
+                                    hasImageOnlyLayer: false,
+                                    detectedFieldsCount: Object.keys(f).length,
+                                    fieldTraceability: f,
+                                    canRetryGemini: false,
+                                };
+                            }
+                        } else {
+                            if (acResponse.status === 401) {
+                                errorCategory = 'AUTH_ERROR';
+                                canRetry = false;
+                                failureReason = 'Autenticación S2S rechazada por Agent Core.';
+                            } else if (acResponse.status === 403) {
+                                errorCategory = 'FORBIDDEN';
+                                canRetry = false;
+                                failureReason = 'Rol no autorizado para extracción documental.';
+                            } else if (acResponse.status === 423) {
+                                errorCategory = 'OCR_DISABLED';
+                                canRetry = false;
+                                failureReason = 'OCR deshabilitado por política en Agent Core.';
+                            } else if (acResponse.status === 400) {
+                                errorCategory = 'BAD_REQUEST';
+                                canRetry = false;
+                                failureReason = 'Documento o formato rechazado por validación.';
+                            } else {
+                                errorCategory = `HTTP_${acResponse.status}`;
+                                failureReason = `Agent Core retornó HTTP ${acResponse.status}`;
+                            }
+                            console.warn(`[Extraction] Agent Core no procesó el documento: ${failureReason}. Aplicando fallback local.`);
+                        }
                     }
                 } catch (acErr: any) {
-                    console.warn(`[Extraction] No se pudo conectar con Agent Core (${acErr.message || acErr}). Aplicando fallback local.`);
+                    console.warn(`[Extraction] Excepción no controlada con Agent Core (${acErr.message || acErr}). Aplicando fallback local.`);
+                    failureReason = acErr.message || 'Error inesperado';
                 }
             }
 
@@ -201,8 +260,17 @@ export async function POST(req: NextRequest) {
                     }
 
                     if (hasAgentCoreConfig) {
-                        docExtraction.warnings.push('Extracción asistida local: Agent Core no estuvo disponible. Se leyó la capa de texto PDF.');
+                        if (errorCategory === 'TIMEOUT') {
+                            docExtraction.warnings.push(`Extracción asistida local: Agent Core demoró más de ${AGENT_CORE_TIMEOUT_MS / 1000}s. Podés reintentar el análisis con Gemini.`);
+                        } else if (errorCategory === 'AUTH_ERROR' || errorCategory === 'OCR_DISABLED') {
+                            docExtraction.warnings.push('Extracción asistida local: El servicio OCR centralizado está inactivo por configuración de seguridad.');
+                        } else {
+                            docExtraction.warnings.push('Extracción asistida local: Agent Core no estuvo disponible temporalmente. Se leyó la capa de texto PDF.');
+                        }
                     }
+
+                    docExtraction.canRetryGemini = canRetry && hasAgentCoreConfig && errorCategory !== 'AUTH_ERROR' && errorCategory !== 'OCR_DISABLED';
+                    docExtraction.failureReason = failureReason;
 
                     processedItems.push({
                         filename: file.name,

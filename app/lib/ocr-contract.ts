@@ -21,6 +21,7 @@ export type ExtractionSource = 'agent_core_gemini' | 'local_text_layer' | 'manua
 export interface FieldTraceability {
     value: string | null;
     confidence: number;
+    source?: ExtractionSource;
     sourceReference?: string;
     sourceDocument?: string;
     requiresReview: boolean;
@@ -71,6 +72,8 @@ export interface UnifiedDocumentExtraction {
     hasImageOnlyLayer?: boolean;
     detectedFieldsCount?: number;
     fieldTraceability?: Record<string, FieldTraceability>;
+    canRetryGemini?: boolean;
+    failureReason?: string;
 }
 
 export interface DocumentConflict {
@@ -317,6 +320,105 @@ export async function extractTextFromPdfBufferAsync(buffer: Buffer | Uint8Array)
 }
 
 /**
+ * Sanea y valida estrictamente el nombre del profesional médico extraído de capa de texto local.
+ * REGLA CLÍNICA UX-03D.1: La lectura de texto NO equivale a interpretación clínica.
+ * Descarta fragmentos narrativos, frases jurídicas y palabras de enlace.
+ */
+export function sanitizeLocalDoctorName(raw: string | undefined): string | undefined {
+    if (!raw) return undefined;
+    const trimmed = raw.trim();
+
+    // Palabras de parada narrativas / jurídicas que indican que se capturó prosa o cláusulas
+    const narrativeStopWords = [
+        'de la', 'de el', 'del', 'actuante', 'tratante', 'que', 'para', 'por', 'con',
+        'conforme', 'según', 'segun', 'declara', 'manifiesta', 'informa', 'informado',
+        'paciente', 'asociación', 'asociacion', 'efectos', 'adversos', 'riesgos',
+        'beneficios', 'tratamiento', 'marco', 'legal', 'normativa', 'decreto', 'ley',
+        'salud', 'certificado', 'reprocann', 'titular', 'socio', 'firma', 'sello',
+        'aclaración', 'aclaracion', 'suscribe', 'interviniente', 'garantía', 'garantia'
+    ];
+    const lower = trimmed.toLowerCase();
+    for (const sw of narrativeStopWords) {
+        if (lower.includes(sw)) return undefined;
+    }
+
+    // Limpiar prefijo Dr. / Dra.
+    const cleanPrefix = trimmed.replace(/^(?:dr\.|dra\.|profesional|médico|medico)[\s:\.]*/i, '').trim();
+    const words = cleanPrefix.split(/\s+/).filter(Boolean);
+
+    // Debe contener entre 2 y 4 palabras con mayúscula inicial (Nombre y Apellido)
+    if (words.length < 2 || words.length > 4) {
+        return undefined;
+    }
+
+    for (const w of words) {
+        if (!/^[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ]+$/.test(w)) {
+            return undefined;
+        }
+    }
+
+    const hasDra = /dra\./i.test(trimmed);
+    const hasDr = /dr\./i.test(trimmed);
+    const prefix = hasDra ? 'Dra. ' : (hasDr ? 'Dr. ' : '');
+
+    return `${prefix}${words.join(' ')}`;
+}
+
+/**
+ * Sanea y valida estrictamente el diagnóstico extraído de capa de texto local.
+ * REGLA CLÍNICA UX-03D.1: NUNCA aceptar fragmentos genéricos, disclaimers legales ni advertencias.
+ * Si el texto es ambiguo o narrativo, debe retornar undefined para forzar revisión humana.
+ */
+export function sanitizeLocalDiagnosis(raw: string | undefined): string | undefined {
+    if (!raw) return undefined;
+    const trimmed = raw.trim();
+
+    // Longitud razonable para una patología o diagnóstico conciso
+    if (trimmed.length > 60 || trimmed.length < 4) return undefined;
+
+    const lower = trimmed.toLowerCase();
+    const legalOrNarrativeWords = [
+        'ley', 'decreto', 'normativa', 'conforme', 'artículo', 'articulo',
+        'resolución', 'resolucion', 'garantía', 'garantia', 'resultado',
+        'efectos', 'secundarios', 'adversos', 'riesgos', 'consentimiento',
+        'informado', 'reprocann', 'programa', 'ministerio', 'salud',
+        'declaración', 'declaracion', 'jurada', 'manifiesta', 'declara',
+        'tratamiento', 'médico', 'medico', 'profesional', 'paciente',
+        'asociación', 'asociacion', 'según', 'segun', 'indica'
+    ];
+    for (const w of legalOrNarrativeWords) {
+        if (lower.includes(w)) return undefined;
+    }
+
+    return trimmed;
+}
+
+/**
+ * Normaliza y valida la matrícula médica extraída de capa de texto local.
+ */
+export function sanitizeLocalMatricula(rawMatricula?: string, fullContext?: string): string | undefined {
+    if (!rawMatricula) return undefined;
+    let val = rawMatricula.trim().replace(/^[:\.\-#\s]+/, '');
+    if (!val || val.length < 3) return undefined;
+
+    const hasMN = /^(?:mn|m\.n\.)/i.test(val);
+    const hasMP = /^(?:mp|m\.p\.)/i.test(val);
+
+    if (hasMN) {
+        val = val.replace(/^(?:mn|m\.n\.)\s*/i, 'MN ').trim();
+    } else if (hasMP) {
+        val = val.replace(/^(?:mp|m\.p\.)\s*/i, 'MP ').trim();
+    } else if (fullContext) {
+        if (/matr[ií]cula\s*nacional/i.test(fullContext)) {
+            val = `MN ${val}`;
+        } else if (/matr[ií]cula\s*provincial/i.test(fullContext)) {
+            val = `MP ${val}`;
+        }
+    }
+    return val;
+}
+
+/**
  * Analiza el texto extraído de un documento para identificar campos canónicos.
  */
 export function extractDataFromDocumentText(text: string, filename?: string, totalPages = 1): UnifiedDocumentExtraction {
@@ -466,26 +568,37 @@ export function extractDataFromDocumentText(text: string, filename?: string, tot
         }
     }
 
-    // 8. Extracción de Médico y Matrícula
+    // 8. Extracción de Médico y Matrícula (Regla UX-03D.1: Sanitización clínica estricta)
     let medico: { nombre?: string; matricula?: string } | undefined;
-    const medicoMatch = cleanText.match(/(?:profesional\s*m.*?dico\s*tratante|profesional\s*m.*?dico|m.*?dico\s*tratante|m.*?dico|profesional|dr\.|dra\.)[\s:\.#]*([A-ZÁÉÍÓÚÑa-záéíóúñ\.\s]{3,35}?)(?=\s*matr|\s*m\.n|\s*m\.p|\s*firma|\s*diagn|\s*,|\r|\n|$)/i);
-    const matriculaMatch = cleanText.match(/(?:matr.*?cula|m\.n\.|m\.p\.|mp|mn)[\s:\.#]*((?:(?:MN|MP|M\.N\.|M\.P\.)\s*)?[0-9A-Z\-]{3,12})/i);
+    const medicoMatch = cleanText.match(/(?:profesional\s*m.*?dico\s*tratante|profesional\s*m.*?dico|m.*?dico\s*tratante|m.*?dico|profesional|dr\.|dra\.)[\s:\.#]*([A-ZÁÉÍÓÚÑa-záéíóúñ\.\s]{3,45}?)(?=\s*matr|\s*m\.n|\s*m\.p|\s*firma|\s*diagn|\s*,|\r|\n|$)/i);
+    const matriculaMatch = cleanText.match(/(?:matr[ií]cula(?:\s+(?:nacional|provincial))?(?:\s+n[ºo°]\.?)?|m\.n\.|m\.p\.|mp|mn)[\s:\.#\-]*((?:(?:MN|MP|M\.N\.|M\.P\.)\s*)?[0-9A-Z\-]{3,12})/i);
 
-    if (medicoMatch || matriculaMatch) {
+    const sanitizedDocName = sanitizeLocalDoctorName(medicoMatch ? medicoMatch[1] : undefined);
+    const sanitizedMatricula = sanitizeLocalMatricula(matriculaMatch ? matriculaMatch[1] : undefined, matriculaMatch ? matriculaMatch[0] : undefined);
+
+    if (sanitizedDocName || sanitizedMatricula) {
         medico = {
-            nombre: medicoMatch ? medicoMatch[1].trim() : undefined,
-            matricula: matriculaMatch ? matriculaMatch[1].trim() : undefined
+            nombre: sanitizedDocName,
+            matricula: sanitizedMatricula
         };
-        if (medico.nombre) fieldsConf['medicoNombre'] = 0.8;
-        if (medico.matricula) fieldsConf['medicoMatricula'] = 0.85;
+        if (sanitizedDocName) fieldsConf['medicoNombre'] = 0.85;
+        if (sanitizedMatricula) fieldsConf['medicoMatricula'] = 0.9;
     }
 
-    // 9. Extracción de Diagnóstico o Indicación Clínica
+    if (medicoMatch && !sanitizedDocName) {
+        warnings.push('Nombre de profesional médico no concluyente en capa de texto. Se requiere validación manual o visión multimodal.');
+    }
+
+    // 9. Extracción de Diagnóstico o Indicación Clínica (Regla UX-03D.1: Cero inferencias vagas)
     let diagnostico: string | undefined;
     const diagMatch = cleanText.match(/(?:diagn.*?stico|patolog.*?a|indicaci.*?n cl.*?nica|cuadro)[\s:\.#]*([^\r\n]{3,80}?)(?=\s*plan|\s*tratamiento|\s*m.*?dico|\s*firma|\r|\n|$)/i);
-    if (diagMatch) {
-        diagnostico = diagMatch[1].trim();
-        fieldsConf['diagnostico'] = 0.75;
+    const sanitizedDiag = sanitizeLocalDiagnosis(diagMatch ? diagMatch[1] : undefined);
+
+    if (sanitizedDiag) {
+        diagnostico = sanitizedDiag;
+        fieldsConf['diagnostico'] = 0.8;
+    } else if (diagMatch) {
+        warnings.push('Diagnóstico no inferido automáticamente desde capa de texto para preservar integridad clínica. Pendiente de revisión.');
     }
 
     // 10. Cálculo de legibilidad y confianza general
@@ -604,6 +717,7 @@ export function consolidateDocumentExtractions(
                     fieldTraceability[fieldKey] = {
                         value: String(newVal),
                         confidence: extraction.confidence.fields[fieldKey] || extraction.confidence.overall,
+                        source: extraction.extractionSource,
                         sourceReference: extraction.sourceDescription,
                         sourceDocument: filename,
                         requiresReview: fieldKey === 'diagnosticoPrincipal' || (extraction.confidence.overall < 0.85),
@@ -642,6 +756,15 @@ export function consolidateDocumentExtractions(
                     // Prevalece la fecha oficial del certificado REPROCANN sobre consentimientos previos
                     fieldsOrigin['fechaAlta'] = { filename, value: extraction.fechaEmision };
                     consolidated['fechaAlta'] = extraction.fechaEmision;
+                    fieldTraceability['fechaAlta'] = {
+                        value: String(extraction.fechaEmision),
+                        confidence: extraction.confidence.fields['fechaEmision'] || extraction.confidence.overall,
+                        source: extraction.extractionSource,
+                        sourceReference: extraction.sourceDescription,
+                        sourceDocument: filename,
+                        requiresReview: false,
+                        warnings: []
+                    };
                 } else {
                     assignOrConflict('fechaAlta', 'Fecha de Alta REPROCANN', extraction.fechaEmision);
                 }
@@ -650,10 +773,80 @@ export function consolidateDocumentExtractions(
             }
         }
 
-        if (extraction.fechaVencimiento) assignOrConflict('fechaVencimiento', 'Fecha de Vencimiento', extraction.fechaVencimiento);
-        if (extraction.medico?.nombre) assignOrConflict('medicoNombre', 'Médico Tratante', extraction.medico.nombre);
-        if (extraction.medico?.matricula) assignOrConflict('medicoMatricula', 'Matrícula Médica', extraction.medico.matricula);
-        if (extraction.diagnostico) assignOrConflict('diagnosticoPrincipal', 'Diagnóstico Principal', extraction.diagnostico);
+        // Vencimiento REPROCANN: La credencial/certificado REPROCANN es la fuente oficial
+        if (extraction.fechaVencimiento) {
+            if (extraction.documentType === 'reprocann') {
+                const existingOriginItem = fieldsOrigin['fechaVencimiento']
+                    ? items.find(i => i.filename === fieldsOrigin['fechaVencimiento'].filename)
+                    : null;
+                if (existingOriginItem && existingOriginItem.extraction.documentType !== 'reprocann') {
+                    fieldsOrigin['fechaVencimiento'] = { filename, value: extraction.fechaVencimiento };
+                    consolidated['fechaVencimiento'] = extraction.fechaVencimiento;
+                    fieldTraceability['fechaVencimiento'] = {
+                        value: String(extraction.fechaVencimiento),
+                        confidence: extraction.confidence.fields['fechaVencimiento'] || extraction.confidence.overall,
+                        source: extraction.extractionSource,
+                        sourceReference: extraction.sourceDescription,
+                        sourceDocument: filename,
+                        requiresReview: false,
+                        warnings: []
+                    };
+                } else {
+                    assignOrConflict('fechaVencimiento', 'Fecha de Vencimiento', extraction.fechaVencimiento);
+                }
+            } else if (!consolidated.fechaVencimiento) {
+                assignOrConflict('fechaVencimiento', 'Fecha de Vencimiento', extraction.fechaVencimiento);
+            }
+        }
+
+        // Datos clínicos (Médico, Matrícula, Diagnóstico): Consentimiento y Gemini Vision son fuentes preferentes
+        if (extraction.medico?.nombre) {
+            const isGemini = extraction.extractionSource === 'agent_core_gemini';
+            const existingOriginItem = fieldsOrigin['medicoNombre']
+                ? items.find(i => i.filename === fieldsOrigin['medicoNombre'].filename)
+                : null;
+            if (isGemini && existingOriginItem && existingOriginItem.extraction.extractionSource !== 'agent_core_gemini') {
+                fieldsOrigin['medicoNombre'] = { filename, value: extraction.medico.nombre };
+                consolidated['medicoNombre'] = extraction.medico.nombre;
+                fieldTraceability['medicoNombre'] = {
+                    value: String(extraction.medico.nombre),
+                    confidence: extraction.confidence.fields['medico'] || extraction.confidence.overall,
+                    source: extraction.extractionSource,
+                    sourceReference: extraction.sourceDescription,
+                    sourceDocument: filename,
+                    requiresReview: false,
+                    warnings: []
+                };
+            } else {
+                assignOrConflict('medicoNombre', 'Médico Tratante', extraction.medico.nombre);
+            }
+        }
+
+        if (extraction.medico?.matricula) {
+            assignOrConflict('medicoMatricula', 'Matrícula Médica', extraction.medico.matricula);
+        }
+
+        if (extraction.diagnostico) {
+            const isGemini = extraction.extractionSource === 'agent_core_gemini';
+            const existingOriginItem = fieldsOrigin['diagnosticoPrincipal']
+                ? items.find(i => i.filename === fieldsOrigin['diagnosticoPrincipal'].filename)
+                : null;
+            if (isGemini && existingOriginItem && existingOriginItem.extraction.extractionSource !== 'agent_core_gemini') {
+                fieldsOrigin['diagnosticoPrincipal'] = { filename, value: extraction.diagnostico };
+                consolidated['diagnosticoPrincipal'] = extraction.diagnostico;
+                fieldTraceability['diagnosticoPrincipal'] = {
+                    value: String(extraction.diagnostico),
+                    confidence: extraction.confidence.fields['diagnostico'] || extraction.confidence.overall,
+                    source: extraction.extractionSource,
+                    sourceReference: extraction.sourceDescription,
+                    sourceDocument: filename,
+                    requiresReview: false,
+                    warnings: []
+                };
+            } else {
+                assignOrConflict('diagnosticoPrincipal', 'Diagnóstico Principal', extraction.diagnostico);
+            }
+        }
     }
 
     consolidated.camposExtraidos = Object.keys(fieldsOrigin);
