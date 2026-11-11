@@ -110,6 +110,22 @@ export async function POST(req: NextRequest) {
                 else if (file.name.toLowerCase().endsWith('.webp')) fileMime = 'image/webp';
                 else fileMime = 'image/jpeg';
             }
+            // Copia segura de buffer para evitar desasociación (detached ArrayBuffer) por PDF.js
+            const fileArrayBuffer = await file.arrayBuffer();
+            const rawFileBuffer = Buffer.from(fileArrayBuffer);
+            const base64Content = rawFileBuffer.toString('base64');
+
+            let detectedPages = 1;
+            if (isPdf) {
+                try {
+                    const sliceUint8 = new Uint8Array(fileArrayBuffer.slice(0));
+                    const { totalPages } = await extractTextFromPdfBufferAsync(sliceUint8);
+                    detectedPages = totalPages || 1;
+                } catch {
+                    detectedPages = 1;
+                }
+            }
+
             let agentCoreExtraction: UnifiedDocumentExtraction | null = null;
 
             // Intento prioritario 1: Extracción inteligente vía Agent Core (Gemini Vision)
@@ -119,17 +135,6 @@ export async function POST(req: NextRequest) {
 
             if (hasAgentCoreConfig) {
                 try {
-                    const arrayBuffer = await file.arrayBuffer();
-                    let detectedPages = 1;
-                    if (isPdf) {
-                        try {
-                            const { totalPages } = await extractTextFromPdfBufferAsync(new Uint8Array(arrayBuffer));
-                            detectedPages = totalPages || 1;
-                        } catch {
-                            detectedPages = 1;
-                        }
-                    }
-                    const base64Content = Buffer.from(arrayBuffer).toString('base64');
                     const cleanUrl = agentCoreBaseUrl!.replace(/\/+$/, '');
 
                     const callerUserId = caller.id;
@@ -290,9 +295,8 @@ export async function POST(req: NextRequest) {
             // Intento secundario 2: Fallback local (unpdf para PDF, o aviso de manual para imágenes)
             if (isPdf) {
                 try {
-                    const arrayBuffer = await file.arrayBuffer();
-                    const uint8 = new Uint8Array(arrayBuffer);
-                    const { text, totalPages, isLikelyImageOnly } = await extractTextFromPdfBufferAsync(uint8);
+                    const fallbackUint8 = new Uint8Array(rawFileBuffer.buffer.slice(rawFileBuffer.byteOffset, rawFileBuffer.byteOffset + rawFileBuffer.byteLength));
+                    const { text, totalPages, isLikelyImageOnly } = await extractTextFromPdfBufferAsync(fallbackUint8);
                     const docExtraction = extractDataFromDocumentText(text, file.name, totalPages);
 
                     if (isLikelyImageOnly && !docExtraction.requiresVisualOcr) {
