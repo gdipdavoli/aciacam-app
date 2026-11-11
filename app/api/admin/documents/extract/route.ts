@@ -14,7 +14,8 @@ export const maxDuration = 60; // Fluid compute timeout extendido para modelos d
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const AGENT_CORE_TIMEOUT_MS = Number(process.env.AGENT_CORE_TIMEOUT_MS) || 45000;
+// Presupuesto acotado a 28s para respetar el límite de 60s de Vercel y evitar solapamiento con reintentos
+const AGENT_CORE_TIMEOUT_MS = Number(process.env.AGENT_CORE_TIMEOUT_MS) || 28000;
 
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: {
@@ -99,8 +100,15 @@ export async function POST(req: NextRequest) {
                 continue;
             }
 
-            const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-            const fileMime = file.type || (isPdf ? 'application/pdf' : 'image/jpeg');
+            const isPdf = file.type === 'application/pdf' || file.type === 'application/x-pdf' || file.name.toLowerCase().endsWith('.pdf');
+            let fileMime = file.type ? file.type.split(';')[0].trim().toLowerCase() : '';
+            if (isPdf) {
+                fileMime = 'application/pdf';
+            } else if (!fileMime || fileMime === 'application/octet-stream') {
+                if (file.name.toLowerCase().endsWith('.png')) fileMime = 'image/png';
+                else if (file.name.toLowerCase().endsWith('.webp')) fileMime = 'image/webp';
+                else fileMime = 'image/jpeg';
+            }
             let agentCoreExtraction: UnifiedDocumentExtraction | null = null;
 
             // Intento prioritario 1: Extracción inteligente vía Agent Core (Gemini Vision)
@@ -140,12 +148,6 @@ export async function POST(req: NextRequest) {
                     let acResponse: Response | null = null;
                     try {
                         acResponse = await makeCall();
-                        // Reintento único ante errores transitorios de alta demanda (503 / 429)
-                        if (acResponse && (acResponse.status === 503 || acResponse.status === 429)) {
-                            console.warn(`[Extraction] Agent Core respondió con HTTP ${acResponse.status} (alta demanda transitoria). Reintentando en 1.5s...`);
-                            await new Promise(r => setTimeout(r, 1500));
-                            acResponse = await makeCall();
-                        }
                     } catch (fetchErr: any) {
                         if (fetchErr.name === 'TimeoutError' || fetchErr.name === 'AbortError') {
                             errorCategory = 'TIMEOUT';
@@ -154,21 +156,48 @@ export async function POST(req: NextRequest) {
                         } else {
                             errorCategory = 'CONNECTION_ERROR';
                             failureReason = fetchErr.message || 'Error de conexión con Agent Core';
-                            console.warn(`[Extraction] Error de conexión con Agent Core: ${failureReason}. Reintentando una vez...`);
-                            try {
-                                await new Promise(r => setTimeout(r, 1000));
-                                acResponse = await makeCall();
-                            } catch (retryErr: any) {
-                                failureReason = retryErr.message || failureReason;
-                            }
+                            console.warn(`[Extraction] Error de conexión con Agent Core: ${failureReason}.`);
                         }
                     }
 
                     if (acResponse) {
                         if (acResponse.ok) {
-                            const acData = await acResponse.json();
+                            let acData = await acResponse.json();
+
                             if (acData && (acData.status === 'success' || acData.status === 'partial_success')) {
                                 const f = acData.fields || {};
+
+                                // Mapeo cruzado de campos para asegurar compatibilidad camelCase y snake_case
+                                const camelMap: Record<string, string> = {
+                                    numero_tramite: 'numeroTramite',
+                                    fecha_emision: 'fechaEmision',
+                                    fecha_alta: 'fechaAlta',
+                                    fecha_vencimiento: 'fechaVencimiento',
+                                    tipo_autorizacion: 'tipoAutorizacion',
+                                    medico_nombre: 'medicoNombre',
+                                    medico_matricula: 'medicoMatricula',
+                                    diagnostico: 'diagnosticoPrincipal',
+                                    fecha_nacimiento: 'fechaNacimiento',
+                                    nombre: 'nombre',
+                                    apellido: 'apellido',
+                                    dni: 'dni',
+                                };
+                                const combinedTrace: Record<string, any> = {};
+                                for (const [k, v] of Object.entries(f)) {
+                                    const entry = {
+                                        value: (v as any)?.value,
+                                        confidence: (v as any)?.confidence ?? 0.9,
+                                        source: 'agent_core_gemini',
+                                        sourceReference: (v as any)?.source_reference || `Agent Core (${acData.model_used || 'gemini-3.5-flash'})`,
+                                        requiresReview: (v as any)?.requires_review ?? false,
+                                        warnings: (v as any)?.warnings || []
+                                    };
+                                    combinedTrace[k] = entry;
+                                    if (camelMap[k]) {
+                                        combinedTrace[camelMap[k]] = entry;
+                                    }
+                                }
+
                                 agentCoreExtraction = {
                                     documentType: (['reprocann', 'consentimiento', 'dni', 'receta'].includes(acData.document_type)
                                         ? acData.document_type
@@ -204,9 +233,11 @@ export async function POST(req: NextRequest) {
                                     requiresVisualOcr: false,
                                     hasImageOnlyLayer: false,
                                     detectedFieldsCount: Object.keys(f).length,
-                                    fieldTraceability: f,
+                                    fieldTraceability: combinedTrace,
                                     canRetryGemini: false,
                                 };
+                            } else {
+                                failureReason = acData?.warnings?.[0] || 'Agent Core no pudo interpretar los campos del documento.';
                             }
                         } else {
                             if (acResponse.status === 401) {

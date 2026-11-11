@@ -54,7 +54,7 @@ export interface AttachedDocState {
     id: string;
     file: File;
     tipo: string;
-    verificacionEstado: 'aprobado' | 'pendiente' | 'rechazado';
+    verificacionEstado: 'aprobado' | 'pendiente' | 'rechazado' | '';
     verificacionObs: string;
     fechaEmision: string;
     fechaVencimiento: string;
@@ -132,6 +132,8 @@ export default function NewSocioWizardPage() {
     const [fieldTraceability, setFieldTraceability] = useState<Record<string, FieldTraceability>>({});
     const [extractionSummary, setExtractionSummary] = useState<UnifiedDocumentExtraction | null>(null);
     const [conflicts, setConflicts] = useState<DocumentConflict[]>([]);
+    const [manuallyEditedFields, setManuallyEditedFields] = useState<Set<string>>(new Set());
+    const [previewDoc, setPreviewDoc] = useState<{ name: string; url: string; isPdf: boolean } | null>(null);
 
     const [loading, setLoading] = useState(false);
     const [isLoaded, setIsLoaded] = useState(false);
@@ -173,6 +175,7 @@ export default function NewSocioWizardPage() {
 
     const handleChange = (field: keyof FormData, value: any) => {
         setFormData(prev => ({ ...prev, [field]: value }));
+        setManuallyEditedFields(prev => new Set(prev).add(field as string));
         if (validationError) setValidationError(null);
         if (bannerError) setBannerError(null);
     };
@@ -215,7 +218,7 @@ export default function NewSocioWizardPage() {
                 id: docId,
                 file,
                 tipo,
-                verificacionEstado: 'aprobado', // Propuesta por defecto para revisión administrativa
+                verificacionEstado: '', // Sin aprobación automática inicial: exige decisión administrativa explícita en Paso 4
                 verificacionObs: '',
                 fechaEmision: '',
                 fechaVencimiento: '',
@@ -305,16 +308,16 @@ export default function NewSocioWizardPage() {
 
                 setFormData(prev => {
                     const updated = { ...prev };
-                    if (c.nombre && !prev.nombre) { updated.nombre = c.nombre; extractedFieldNames.push('nombre'); }
-                    if (c.apellido && !prev.apellido) { updated.apellido = c.apellido; extractedFieldNames.push('apellido'); }
-                    if (c.dni && !prev.dni) { updated.dni = c.dni; extractedFieldNames.push('dni'); }
-                    if (c.fechaNacimiento && !prev.fechaNacimiento) { updated.fechaNacimiento = c.fechaNacimiento; extractedFieldNames.push('fechaNacimiento'); }
-                    if (c.numeroTramite && !prev.numeroTramite) { updated.numeroTramite = c.numeroTramite; extractedFieldNames.push('numeroTramite'); }
-                    if (c.fechaAlta && !prev.fechaAlta) { updated.fechaAlta = c.fechaAlta; extractedFieldNames.push('fechaAlta'); }
-                    if (c.fechaVencimiento && !prev.fechaVencimiento) { updated.fechaVencimiento = c.fechaVencimiento; extractedFieldNames.push('fechaVencimiento'); }
-                    if (c.medicoNombre && !prev.medicoNombre) { updated.medicoNombre = c.medicoNombre; extractedFieldNames.push('medicoNombre'); }
-                    if (c.medicoMatricula && !prev.medicoMatricula) { updated.medicoMatricula = c.medicoMatricula; extractedFieldNames.push('medicoMatricula'); }
-                    if (c.diagnosticoPrincipal && !prev.diagnosticoPrincipal) { updated.diagnosticoPrincipal = c.diagnosticoPrincipal; extractedFieldNames.push('diagnosticoPrincipal'); }
+                    if (c.nombre && !prev.nombre && !manuallyEditedFields.has('nombre')) { updated.nombre = c.nombre; extractedFieldNames.push('nombre'); }
+                    if (c.apellido && !prev.apellido && !manuallyEditedFields.has('apellido')) { updated.apellido = c.apellido; extractedFieldNames.push('apellido'); }
+                    if (c.dni && !prev.dni && !manuallyEditedFields.has('dni')) { updated.dni = c.dni; extractedFieldNames.push('dni'); }
+                    if (c.fechaNacimiento && !prev.fechaNacimiento && !manuallyEditedFields.has('fechaNacimiento')) { updated.fechaNacimiento = c.fechaNacimiento; extractedFieldNames.push('fechaNacimiento'); }
+                    if (c.numeroTramite && !prev.numeroTramite && !manuallyEditedFields.has('numeroTramite')) { updated.numeroTramite = c.numeroTramite; extractedFieldNames.push('numeroTramite'); }
+                    if (c.fechaAlta && !prev.fechaAlta && !manuallyEditedFields.has('fechaAlta')) { updated.fechaAlta = c.fechaAlta; extractedFieldNames.push('fechaAlta'); }
+                    if (c.fechaVencimiento && !prev.fechaVencimiento && !manuallyEditedFields.has('fechaVencimiento')) { updated.fechaVencimiento = c.fechaVencimiento; extractedFieldNames.push('fechaVencimiento'); }
+                    if (c.medicoNombre && !prev.medicoNombre && !manuallyEditedFields.has('medicoNombre')) { updated.medicoNombre = c.medicoNombre; extractedFieldNames.push('medicoNombre'); }
+                    if (c.medicoMatricula && !prev.medicoMatricula && !manuallyEditedFields.has('medicoMatricula')) { updated.medicoMatricula = c.medicoMatricula; extractedFieldNames.push('medicoMatricula'); }
+                    if (c.diagnosticoPrincipal && !prev.diagnosticoPrincipal && !manuallyEditedFields.has('diagnosticoPrincipal')) { updated.diagnosticoPrincipal = c.diagnosticoPrincipal; extractedFieldNames.push('diagnosticoPrincipal'); }
 
                     if (c.fechaVencimiento) {
                         const today = getSanLuisCivilToday();
@@ -435,7 +438,8 @@ export default function NewSocioWizardPage() {
                     const applyIfEligible = (fieldKey: keyof FormData, newVal: any) => {
                         if (!newVal) return;
                         const currentVal = prev[fieldKey];
-                        if (!currentVal || prevExtracted.includes(fieldKey as string)) {
+                        const isManuallyEdited = manuallyEditedFields.has(fieldKey as string);
+                        if (!currentVal || (prevExtracted.includes(fieldKey as string) && !isManuallyEdited)) {
                             (updated as any)[fieldKey] = newVal;
                             newlyExtractedFields.push(fieldKey as string);
                         }
@@ -478,16 +482,16 @@ export default function NewSocioWizardPage() {
         }
     };
 
-    // Helper visual de trazabilidad y origen de campos (UX-03D.1)
+    // Helper visual de trazabilidad y origen de campos (UX-03D.2)
     const getFieldProvenancePill = (fieldKey: string, val: string | undefined, trace?: FieldTraceability) => {
+        if (manuallyEditedFields.has(fieldKey)) {
+            return {
+                label: '✍️ Ingresado manualmente',
+                bg: 'rgba(16, 185, 129, 0.12)',
+                color: 'rgb(16, 185, 129)'
+            };
+        }
         if (!val || val.trim() === '') {
-            if (fieldKey === 'diagnosticoPrincipal' || fieldKey === 'medicoNombre') {
-                return {
-                    label: '⚠️ Pendiente de revisión',
-                    bg: 'hsl(var(--warning) / 0.15)',
-                    color: 'hsl(var(--warning-foreground, 38 92% 50%))'
-                };
-            }
             return {
                 label: '⚪ No detectado',
                 bg: 'hsl(var(--muted))',
@@ -502,17 +506,31 @@ export default function NewSocioWizardPage() {
                 color: 'rgb(124, 58, 237)'
             };
         }
-        if (trace?.source === 'local_text_layer' || trace?.sourceReference?.includes('unpdf') || trace?.sourceReference?.includes('texto digital')) {
+        if (trace?.source === 'local_text_layer' || trace?.sourceReference?.includes('unpdf') || trace?.sourceReference?.includes('texto digital') || trace?.sourceReference?.includes('Texto digital')) {
+            if (trace?.requiresReview || fieldKey === 'diagnosticoPrincipal') {
+                return {
+                    label: '⚠️ Pendiente de revisión',
+                    bg: 'hsl(var(--warning) / 0.15)',
+                    color: 'hsl(var(--warning-foreground, 38 92% 50%))'
+                };
+            }
             return {
                 label: '📄 Texto digital',
                 bg: 'rgba(37, 99, 235, 0.12)',
                 color: 'rgb(37, 99, 235)'
             };
         }
+        if (trace?.source === 'manual') {
+            return {
+                label: '✍️ Manual',
+                bg: 'rgba(16, 185, 129, 0.12)',
+                color: 'rgb(16, 185, 129)'
+            };
+        }
         return {
-            label: '✍️ Manual',
-            bg: 'rgba(16, 185, 129, 0.12)',
-            color: 'rgb(16, 185, 129)'
+            label: '⚠️ Pendiente de revisión',
+            bg: 'hsl(var(--warning) / 0.15)',
+            color: 'hsl(var(--warning-foreground, 38 92% 50%))'
         };
     };
 
@@ -580,10 +598,14 @@ export default function NewSocioWizardPage() {
                 }
             }
         } else if (step === 4) {
-            // Si algún documento fue rechazado, exigir observación/motivo
+            // Cada documento adjunto debe contar con una decisión explícita (Aprobar, Dejar Pendiente, Rechazar)
             for (const doc of attachedDocs) {
+                if (!doc.verificacionEstado) {
+                    setValidationError(`El documento "${doc.file.name}" no cuenta con una decisión de verificación. Debés seleccionar Aprobar, Dejar Pendiente o Rechazar.`);
+                    return false;
+                }
                 if (doc.verificacionEstado === 'rechazado' && !doc.verificacionObs.trim()) {
-                    setValidationError(`El documento ${doc.file.name} fue marcado como rechazado. Debe indicar el motivo.`);
+                    setValidationError(`El documento "${doc.file.name}" fue marcado como rechazado. Debés indicar el motivo del rechazo en las observaciones.`);
                     return false;
                 }
             }
@@ -656,7 +678,8 @@ export default function NewSocioWizardPage() {
                 throw new Error("No se pudo obtener el identificador del nuevo socio registrado");
             }
 
-            // 3. Persistir cada documento adjunto con su estado de aprobación explícito
+            // 3. Persistir cada documento adjunto con su estado de verificación explícito
+            const failedDocs: string[] = [];
             for (const doc of attachedDocs) {
                 try {
                     await StorageService.uploadSocioDocument({
@@ -666,11 +689,12 @@ export default function NewSocioWizardPage() {
                         fechaEmision: doc.fechaEmision || finalFechaAlta,
                         fechaVencimiento: doc.fechaVencimiento || finalFechaVencimiento,
                         numeroTramite: doc.numeroTramite || finalNumeroTramite,
-                        verificacionEstado: doc.verificacionEstado,
+                        verificacionEstado: doc.verificacionEstado || 'pendiente',
                         verificacionObs: doc.verificacionObs
                     });
                 } catch (docErr: any) {
                     console.warn(`Error al adjuntar documento ${doc.file.name}:`, docErr.message);
+                    failedDocs.push(doc.file.name);
                 }
             }
 
@@ -686,13 +710,19 @@ export default function NewSocioWizardPage() {
                 }
             }
 
-            // 5. Limpieza de borrador tras éxito
+            // 5. Limpieza de borrador y reporte del resultado
             localStorage.removeItem(STORAGE_KEY);
-            setBannerSuccess(`Socio ${newSocio.nombre} ${newSocio.apellido} registrado exitosamente. Documentación verificada.`);
-
-            setTimeout(() => {
-                router.push(`/admin/socios/${newSocio.id}`);
-            }, 1200);
+            if (failedDocs.length > 0) {
+                setBannerError(`Socio ${newSocio.nombre} ${newSocio.apellido} registrado, pero hubo fallos al adjuntar los siguientes documentos: ${failedDocs.join(', ')}. Podés cargarlos nuevamente desde la ficha del socio.`);
+                setTimeout(() => {
+                    router.push(`/admin/socios/${newSocio.id}`);
+                }, 3500);
+            } else {
+                setBannerSuccess(`Socio ${newSocio.nombre} ${newSocio.apellido} registrado exitosamente. Documentación verificada y persistida.`);
+                setTimeout(() => {
+                    router.push(`/admin/socios/${newSocio.id}`);
+                }, 1200);
+            }
 
         } catch (e: any) {
             console.error("Error al registrar nuevo socio:", e);
@@ -1575,7 +1605,7 @@ export default function NewSocioWizardPage() {
 
                                 <div>
                                     <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
-                                        Fecha de Nacimiento * (YYYY-MM-DD)
+                                        Fecha de Nacimiento *
                                         {formData.camposExtraidos?.includes('fechaNacimiento') && (
                                             <span style={{ marginLeft: '0.5rem', fontSize: '0.7rem', color: 'hsl(var(--primary))' }}>[Extraído]</span>
                                         )}
@@ -1760,7 +1790,7 @@ export default function NewSocioWizardPage() {
 
                                     <div>
                                         <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
-                                            Fecha de Emisión (YYYY-MM-DD)
+                                            Fecha de Emisión
                                         </label>
                                         <input
                                             type="date"
@@ -1778,7 +1808,7 @@ export default function NewSocioWizardPage() {
 
                                     <div>
                                         <label style={{ display: 'block', marginBottom: '0.4rem', fontSize: '0.85rem', fontWeight: 500 }}>
-                                            Fecha de Vencimiento (YYYY-MM-DD)
+                                            Fecha de Vencimiento
                                         </label>
                                         <input
                                             type="date"
@@ -1903,19 +1933,71 @@ export default function NewSocioWizardPage() {
                                         flexDirection: 'column',
                                         gap: '1rem'
                                     }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                                                 <FileCheck size={24} style={{ color: doc.verificacionEstado === 'aprobado' ? 'hsl(var(--success, 142 76% 36%))' : 'hsl(var(--primary))' }} />
                                                 <div>
                                                     <p style={{ fontWeight: 600, fontSize: '0.95rem' }}>{doc.file.name}</p>
-                                                    <p style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>
-                                                        Tipo: <strong>{doc.tipo}</strong> • {(doc.file.size / 1024).toFixed(1)} KB
-                                                    </p>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }}>
+                                                        <span style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>
+                                                            Tipo: <strong>{doc.tipo}</strong> • {(doc.file.size / 1024).toFixed(1)} KB
+                                                        </span>
+                                                        <span style={{
+                                                            fontSize: '0.75rem',
+                                                            fontWeight: 600,
+                                                            padding: '0.15rem 0.5rem',
+                                                            borderRadius: '9999px',
+                                                            backgroundColor: doc.verificacionEstado === 'aprobado'
+                                                                ? 'hsl(var(--success, 142 76% 36%) / 0.15)'
+                                                                : doc.verificacionEstado === 'pendiente'
+                                                                    ? 'hsl(var(--warning, 38 92% 50%) / 0.15)'
+                                                                    : doc.verificacionEstado === 'rechazado'
+                                                                        ? 'hsl(var(--destructive) / 0.15)'
+                                                                        : 'hsl(var(--muted))',
+                                                            color: doc.verificacionEstado === 'aprobado'
+                                                                ? 'hsl(var(--success, 142 76% 36%))'
+                                                                : doc.verificacionEstado === 'pendiente'
+                                                                    ? 'hsl(var(--warning-foreground, 38 92% 50%))'
+                                                                    : doc.verificacionEstado === 'rechazado'
+                                                                        ? 'hsl(var(--destructive))'
+                                                                        : 'hsl(var(--muted-foreground))'
+                                                        }}>
+                                                            {doc.verificacionEstado === 'aprobado' && '✅ Aprobado'}
+                                                            {doc.verificacionEstado === 'pendiente' && '⏳ Pendiente'}
+                                                            {doc.verificacionEstado === 'rechazado' && '❌ Rechazado'}
+                                                            {!doc.verificacionEstado && '⚠️ Sin decisión requerida'}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
 
-                                            {/* Selector de estado de verificación */}
-                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            {/* Acciones: Ver documento y Selector de estado de verificación */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                                {/* Botón Ver Documento Seguro (URL.createObjectURL efímera) */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const isPdf = doc.file.type === 'application/pdf' || doc.file.name.toLowerCase().endsWith('.pdf');
+                                                        const url = URL.createObjectURL(doc.file);
+                                                        setPreviewDoc({ name: doc.file.name, url, isPdf });
+                                                    }}
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '0.35rem',
+                                                        padding: '0.4rem 0.75rem',
+                                                        borderRadius: 'var(--radius)',
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: 600,
+                                                        cursor: 'pointer',
+                                                        border: '1px solid hsl(var(--border))',
+                                                        backgroundColor: 'hsl(var(--secondary))',
+                                                        color: 'hsl(var(--secondary-foreground))'
+                                                    }}
+                                                >
+                                                    <Eye size={14} /> Ver documento
+                                                </button>
+
                                                 <button
                                                     type="button"
                                                     onClick={() => {
@@ -2011,6 +2093,25 @@ export default function NewSocioWizardPage() {
                                 ))}
                             </div>
                         )}
+
+                        {/* Nota institucional de separación entre verificación documental y admisión estatutaria */}
+                        <div style={{
+                            padding: '0.85rem 1rem',
+                            borderRadius: 'var(--radius)',
+                            backgroundColor: 'hsl(var(--muted) / 0.25)',
+                            border: '1px solid hsl(var(--border))',
+                            fontSize: '0.82rem',
+                            color: 'hsl(var(--muted-foreground))',
+                            marginTop: '0.5rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem'
+                        }}>
+                            <Info size={16} style={{ color: 'hsl(var(--primary))', flexShrink: 0 }} />
+                            <span>
+                                <strong>Nota institucional:</strong> La verificación y aprobación administrativa de la documentación no equivale a la admisión definitiva del socio por la Comisión Directiva de la Asociación, ni habilita por sí misma la dispensa institucional.
+                            </span>
+                        </div>
                     </div>
                 )}
 
@@ -2214,6 +2315,81 @@ export default function NewSocioWizardPage() {
                 </div>
 
             </div>
+
+            {/* Modal de previsualización segura de documentos */}
+            {previewDoc && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                    zIndex: 9999,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '1.5rem'
+                }} onClick={() => {
+                    if (previewDoc.url) URL.revokeObjectURL(previewDoc.url);
+                    setPreviewDoc(null);
+                }}>
+                    <div style={{
+                        backgroundColor: 'hsl(var(--card))',
+                        borderRadius: 'var(--radius)',
+                        maxWidth: '900px',
+                        width: '100%',
+                        maxHeight: '90vh',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden',
+                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
+                    }} onClick={(e) => e.stopPropagation()}>
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '1rem 1.25rem',
+                            borderBottom: '1px solid hsl(var(--border))'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <FileText size={18} style={{ color: 'hsl(var(--primary))' }} />
+                                <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{previewDoc.name}</span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (previewDoc.url) URL.revokeObjectURL(previewDoc.url);
+                                    setPreviewDoc(null);
+                                }}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    color: 'hsl(var(--muted-foreground))'
+                                }}
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div style={{ padding: '1rem', flex: 1, overflow: 'auto', display: 'flex', justifyContent: 'center' }}>
+                            {previewDoc.isPdf ? (
+                                <iframe
+                                    src={previewDoc.url}
+                                    title={previewDoc.name}
+                                    style={{ width: '100%', height: '70vh', border: 'none', borderRadius: '4px' }}
+                                />
+                            ) : (
+                                <img
+                                    src={previewDoc.url}
+                                    alt={previewDoc.name}
+                                    style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+                                />
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

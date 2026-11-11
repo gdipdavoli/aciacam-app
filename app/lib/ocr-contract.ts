@@ -24,7 +24,7 @@ export interface FieldTraceability {
     source?: ExtractionSource;
     sourceReference?: string;
     sourceDocument?: string;
-    requiresReview: boolean;
+    requiresReview?: boolean;
     warnings?: string[];
 }
 
@@ -377,6 +377,28 @@ export function sanitizeLocalDiagnosis(raw: string | undefined): string | undefi
     if (trimmed.length > 60 || trimmed.length < 4) return undefined;
 
     const lower = trimmed.toLowerCase();
+
+    // Patrones narrativos y fragmentos de texto clínico ambiguo que deben descartarse inmediatamente
+    const narrativePhrasePatterns = [
+        /\by\s+su\s+evoluci[oó]n\b/i,
+        /\by\s+no\s+refiere\b/i,
+        /\bno\s+refiere\s+efectos\b/i,
+        /\befectos\s+adversos\b/i,
+        /\bevoluci[oó]n\b/i,
+        /\brefiere\b/i,
+        /\bpresenta\s+cuadro\b/i,
+        /\btolerancia\b/i,
+        /\bbuena\s+tolerancia\b/i,
+        /\bseg[uú]n\s+criterio\b/i,
+        /\bgarant[ií]a\s+de\b/i,
+        /\bper[ií]odo\s+de\b/i,
+        /\bsujet[oa]\s+a\b/i,
+        /\bconstat[oó]\b/i
+    ];
+    for (const pattern of narrativePhrasePatterns) {
+        if (pattern.test(lower)) return undefined;
+    }
+
     const legalOrNarrativeWords = [
         'ley', 'decreto', 'normativa', 'conforme', 'artículo', 'articulo',
         'resolución', 'resolucion', 'garantía', 'garantia', 'resultado',
@@ -384,7 +406,9 @@ export function sanitizeLocalDiagnosis(raw: string | undefined): string | undefi
         'informado', 'reprocann', 'programa', 'ministerio', 'salud',
         'declaración', 'declaracion', 'jurada', 'manifiesta', 'declara',
         'tratamiento', 'médico', 'medico', 'profesional', 'paciente',
-        'asociación', 'asociacion', 'según', 'segun', 'indica'
+        'asociación', 'asociacion', 'según', 'segun', 'indica',
+        'evolución', 'evolucion', 'refiere', 'presenta', 'cuadro clínico',
+        'cuadro clinico', 'antecedentes', 'síntomas', 'sintomas'
     ];
     for (const w of legalOrNarrativeWords) {
         if (lower.includes(w)) return undefined;
@@ -493,7 +517,7 @@ export function extractDataFromDocumentText(text: string, filename?: string, tot
         }
     }
 
-    // 5. Extracción de Titular (Nombre y Apellido)
+    // 5. Extracción de Titular (Nombre y Apellido con soporte para compuestos)
     let titular: { nombre?: string; apellido?: string } | undefined;
     const titularLineMatch = cleanText.match(/(?:^|[\r\n])\s*(?:apellido y nombre|nombre y apellido|paciente|titular|socio)[\s:\.#]*([^\r\n]+)/i);
     if (titularLineMatch) {
@@ -510,16 +534,38 @@ export function extractDataFromDocumentText(text: string, filename?: string, tot
         } else {
             const words = rawVal.split(/\s+/).filter(w => /^[A-ZÁÉÍÓÚÑa-záéíóúñ]+$/.test(w));
             if (words.length >= 2) {
+                const compoundParticles = ['de', 'del', 'la', 'las', 'los', 'san', 'santa', 'di', 'da', 'dos', 'van', 'von'];
                 if (/nombre y apellido/i.test(titularLineMatch[0])) {
-                    titular = {
-                        nombre: words[0],
-                        apellido: words.slice(1).join(' ')
-                    };
+                    if (words.length === 2) {
+                        titular = { nombre: words[0], apellido: words[1] };
+                    } else if (words.length === 3) {
+                        if (compoundParticles.includes(words[1].toLowerCase())) {
+                            titular = { nombre: words[0], apellido: `${words[1]} ${words[2]}` };
+                        } else {
+                            titular = { nombre: `${words[0]} ${words[1]}`, apellido: words[2] };
+                        }
+                    } else {
+                        // 4 palabras: "Juan Manuel Perez Garcia" o "Juan Manuel de la Fuente"
+                        const pIdx = words.findIndex((w, i) => i > 0 && compoundParticles.includes(w.toLowerCase()));
+                        if (pIdx > 0) {
+                            titular = { nombre: words.slice(0, pIdx).join(' '), apellido: words.slice(pIdx).join(' ') };
+                        } else {
+                            titular = { nombre: words.slice(0, 2).join(' '), apellido: words.slice(2).join(' ') };
+                        }
+                    }
                 } else {
-                    titular = {
-                        apellido: words[0],
-                        nombre: words.slice(1).join(' ')
-                    };
+                    // "Apellido y Nombre"
+                    if (words.length === 2) {
+                        titular = { apellido: words[0], nombre: words[1] };
+                    } else if (words.length === 3) {
+                        if (compoundParticles.includes(words[0].toLowerCase())) {
+                            titular = { apellido: `${words[0]} ${words[1]}`, nombre: words[2] };
+                        } else {
+                            titular = { apellido: words[0], nombre: `${words[1]} ${words[2]}` };
+                        }
+                    } else {
+                        titular = { apellido: `${words[0]} ${words[1]}`, nombre: words.slice(2).join(' ') };
+                    }
                 }
                 fieldsConf['titular'] = 0.85;
             }
@@ -540,17 +586,19 @@ export function extractDataFromDocumentText(text: string, filename?: string, tot
     // 7. Detección de Firmas Digitales vs Fechas de Emisión y Vencimiento
     const hasDigitalSignature = /firmad[oa] digitalmente|firma digital|validez de la firma|firmado por/i.test(cleanText);
     if (hasDigitalSignature) {
-        warnings.push('Se detectó firma digital en el documento. Por normativa de seguridad, su marca temporal no se asume como fecha de vencimiento REPROCANN.');
+        warnings.push('Se detectó firma digital en el documento. Por normativa de seguridad, su marca temporal no se asume como fecha de emisión ni vencimiento REPROCANN.');
     }
 
-    // Fecha de Emisión
+    // Fecha de Emisión (REGLA UX-03D.2: Solo documentos oficiales REPROCANN pueden definir fecha de emisión/alta)
     let fechaEmision: string | undefined;
-    const emisionMatch = cleanText.match(/(?:emisi[oó]n|alta|otorgado|fecha de emisi[oó]n|solicitado el)[\s:\.#]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/i);
-    if (emisionMatch) {
-        const norm = normalizeCalendarDate(emisionMatch[1]);
-        if (norm) {
-            fechaEmision = norm;
-            fieldsConf['fechaEmision'] = 0.9;
+    if (docType === 'reprocann') {
+        const emisionMatch = cleanText.match(/(?:emisi[oó]n|alta|otorgado|fecha de emisi[oó]n|solicitado el)[\s:\.#]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}|\d{4}-\d{2}-\d{2})/i);
+        if (emisionMatch) {
+            const norm = normalizeCalendarDate(emisionMatch[1]);
+            if (norm) {
+                fechaEmision = norm;
+                fieldsConf['fechaEmision'] = 0.9;
+            }
         }
     }
 
@@ -617,6 +665,19 @@ export function extractDataFromDocumentText(text: string, filename?: string, tot
         warnings.push('La fecha de vencimiento detectada es anterior a la fecha de emisión');
     }
 
+    // Trazabilidad granular para campos extraídos localmente
+    const localTraceability: Record<string, FieldTraceability> = {};
+    if (titular?.nombre) localTraceability['nombre'] = { value: titular.nombre, confidence: fieldsConf['titular'] || 0.85, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
+    if (titular?.apellido) localTraceability['apellido'] = { value: titular.apellido, confidence: fieldsConf['titular'] || 0.85, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
+    if (dni) localTraceability['dni'] = { value: dni, confidence: fieldsConf['dni'] || 0.9, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
+    if (fechaNacimiento) localTraceability['fechaNacimiento'] = { value: fechaNacimiento, confidence: fieldsConf['fechaNacimiento'] || 0.9, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
+    if (numeroTramite) localTraceability['numeroTramite'] = { value: numeroTramite, confidence: fieldsConf['numeroTramite'] || 0.95, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
+    if (fechaEmision) localTraceability['fechaEmision'] = { value: fechaEmision, confidence: fieldsConf['fechaEmision'] || 0.9, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
+    if (fechaVencimiento) localTraceability['fechaVencimiento'] = { value: fechaVencimiento, confidence: fieldsConf['fechaVencimiento'] || 0.9, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
+    if (medico?.nombre) localTraceability['medicoNombre'] = { value: medico.nombre, confidence: fieldsConf['medicoNombre'] || 0.85, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
+    if (medico?.matricula) localTraceability['medicoMatricula'] = { value: medico.matricula, confidence: fieldsConf['medicoMatricula'] || 0.9, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
+    if (diagnostico) localTraceability['diagnosticoPrincipal'] = { value: diagnostico, confidence: fieldsConf['diagnostico'] || 0.5, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: true, warnings: ['Pendiente de validación médica'] };
+
     return {
         documentType: docType,
         numeroTramite,
@@ -641,7 +702,8 @@ export function extractDataFromDocumentText(text: string, filename?: string, tot
         totalPages,
         requiresVisualOcr: isLikelyImageCredential,
         hasImageOnlyLayer: isLikelyImageCredential,
-        detectedFieldsCount
+        detectedFieldsCount,
+        fieldTraceability: localTraceability
     };
 }
 
@@ -667,14 +729,41 @@ export function consolidateDocumentExtractions(
             hasGeminiSource = true;
         }
 
-        // Incorporar trazabilidad de campos granular
+        // Incorporar trazabilidad de campos granular con mapeo cruzado snake_case y camelCase
         if (extraction.fieldTraceability) {
+            const camelFieldMap: Record<string, string> = {
+                numero_tramite: 'numeroTramite',
+                fecha_emision: 'fechaEmision',
+                fecha_alta: 'fechaAlta',
+                fecha_vencimiento: 'fechaVencimiento',
+                tipo_autorizacion: 'tipoAutorizacion',
+                medico_nombre: 'medicoNombre',
+                medico_matricula: 'medicoMatricula',
+                diagnostico: 'diagnosticoPrincipal',
+                fecha_nacimiento: 'fechaNacimiento',
+                nombre: 'nombre',
+                apellido: 'apellido',
+                dni: 'dni'
+            };
+
             for (const [k, trace] of Object.entries(extraction.fieldTraceability)) {
-                if (!fieldTraceability[k] || (trace.confidence || 0) > (fieldTraceability[k].confidence || 0)) {
-                    fieldTraceability[k] = {
-                        ...trace,
-                        sourceDocument: filename
-                    };
+                const targetKey = camelFieldMap[k] || k;
+                const rawTrace: any = trace || {};
+                const traceObj: FieldTraceability = {
+                    value: typeof rawTrace.value !== 'undefined' ? String(rawTrace.value) : String(rawTrace),
+                    confidence: typeof rawTrace.confidence === 'number' ? rawTrace.confidence : (extraction.confidence.overall || 0.9),
+                    source: rawTrace.source || extraction.extractionSource,
+                    sourceReference: rawTrace.sourceReference || rawTrace.source_reference || extraction.sourceDescription,
+                    sourceDocument: filename,
+                    requiresReview: Boolean(rawTrace.requiresReview || rawTrace.requires_review),
+                    warnings: rawTrace.warnings || []
+                };
+
+                if (!fieldTraceability[targetKey] || (traceObj.confidence || 0) >= (fieldTraceability[targetKey].confidence || 0)) {
+                    fieldTraceability[targetKey] = traceObj;
+                }
+                if (!fieldTraceability[k]) {
+                    fieldTraceability[k] = traceObj;
                 }
             }
         }
@@ -746,30 +835,25 @@ export function consolidateDocumentExtractions(
         if (extraction.fechaNacimiento) assignOrConflict('fechaNacimiento', 'Fecha de Nacimiento', extraction.fechaNacimiento);
         if (extraction.numeroTramite) assignOrConflict('numeroTramite', 'Número de Trámite', extraction.numeroTramite);
 
-        // Tratamiento inteligente de fecha de alta: El certificado REPROCANN define la fecha oficial
-        if (extraction.fechaEmision) {
-            if (extraction.documentType === 'reprocann') {
-                const existingOriginItem = fieldsOrigin['fechaAlta']
-                    ? items.find(i => i.filename === fieldsOrigin['fechaAlta'].filename)
-                    : null;
-                if (existingOriginItem && existingOriginItem.extraction.documentType !== 'reprocann') {
-                    // Prevalece la fecha oficial del certificado REPROCANN sobre consentimientos previos
-                    fieldsOrigin['fechaAlta'] = { filename, value: extraction.fechaEmision };
-                    consolidated['fechaAlta'] = extraction.fechaEmision;
-                    fieldTraceability['fechaAlta'] = {
-                        value: String(extraction.fechaEmision),
-                        confidence: extraction.confidence.fields['fechaEmision'] || extraction.confidence.overall,
-                        source: extraction.extractionSource,
-                        sourceReference: extraction.sourceDescription,
-                        sourceDocument: filename,
-                        requiresReview: false,
-                        warnings: []
-                    };
-                } else {
-                    assignOrConflict('fechaAlta', 'Fecha de Alta REPROCANN', extraction.fechaEmision);
-                }
-            } else if (!consolidated.fechaAlta) {
-                assignOrConflict('fechaAlta', 'Fecha de Emisión / Firma', extraction.fechaEmision);
+        // Tratamiento inteligente de fecha de alta: Únicamente certificados o constancias oficiales REPROCANN definen fechaAlta
+        if (extraction.fechaEmision && extraction.documentType === 'reprocann') {
+            const existingOriginItem = fieldsOrigin['fechaAlta']
+                ? items.find(i => i.filename === fieldsOrigin['fechaAlta'].filename)
+                : null;
+            if (existingOriginItem && existingOriginItem.extraction.documentType !== 'reprocann') {
+                fieldsOrigin['fechaAlta'] = { filename, value: extraction.fechaEmision };
+                consolidated['fechaAlta'] = extraction.fechaEmision;
+                fieldTraceability['fechaAlta'] = {
+                    value: String(extraction.fechaEmision),
+                    confidence: extraction.confidence.fields['fechaEmision'] || extraction.confidence.overall,
+                    source: extraction.extractionSource,
+                    sourceReference: extraction.sourceDescription,
+                    sourceDocument: filename,
+                    requiresReview: false,
+                    warnings: []
+                };
+            } else {
+                assignOrConflict('fechaAlta', 'Fecha de Alta REPROCANN', extraction.fechaEmision);
             }
         }
 
@@ -799,7 +883,9 @@ export function consolidateDocumentExtractions(
             }
         }
 
-        // Datos clínicos (Médico, Matrícula, Diagnóstico): Consentimiento y Gemini Vision son fuentes preferentes
+        // Datos clínicos (Médico, Matrícula, Diagnóstico):
+        // REGLA CLÍNICA UX-03D.2: El diagnóstico y médico deben priorizar Gemini Vision.
+        // Si proviene de texto digital local, no contaminar automáticamente la propuesta final sin verificación humana.
         if (extraction.medico?.nombre) {
             const isGemini = extraction.extractionSource === 'agent_core_gemini';
             const existingOriginItem = fieldsOrigin['medicoNombre']
@@ -842,6 +928,18 @@ export function consolidateDocumentExtractions(
                     sourceDocument: filename,
                     requiresReview: false,
                     warnings: []
+                };
+            } else if (!consolidated.diagnosticoPrincipal) {
+                fieldsOrigin['diagnosticoPrincipal'] = { filename, value: extraction.diagnostico };
+                consolidated['diagnosticoPrincipal'] = extraction.diagnostico;
+                fieldTraceability['diagnosticoPrincipal'] = {
+                    value: String(extraction.diagnostico),
+                    confidence: extraction.confidence.fields['diagnostico'] || extraction.confidence.overall,
+                    source: extraction.extractionSource,
+                    sourceReference: extraction.sourceDescription,
+                    sourceDocument: filename,
+                    requiresReview: !isGemini,
+                    warnings: isGemini ? [] : ['Diagnóstico detectado en texto digital local. Requiere verificación médica explícita.']
                 };
             } else {
                 assignOrConflict('diagnosticoPrincipal', 'Diagnóstico Principal', extraction.diagnostico);

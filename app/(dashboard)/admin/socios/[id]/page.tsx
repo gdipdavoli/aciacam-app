@@ -660,7 +660,7 @@ const UpdateFromDocumentModal = ({ socio, onClose, onUpdated }: { socio: Socio; 
             // Detect field diffs
             const diffs: Record<string, boolean> = {};
             if (ext.numeroTramite && ext.numeroTramite !== socio.reprocann?.numeroTramite) diffs.numeroTramite = true;
-            if (ext.fechaEmision && ext.fechaEmision !== socio.reprocann?.fechaAlta) diffs.fechaAlta = true;
+            if (ext.documentType === 'reprocann' && ext.fechaEmision && ext.fechaEmision !== socio.reprocann?.fechaAlta) diffs.fechaAlta = true;
             if (ext.fechaVencimiento && ext.fechaVencimiento !== socio.reprocann?.fechaVencimiento) diffs.fechaVencimiento = true;
             if (ext.medico?.nombre && ext.medico?.nombre !== socio.medicoNombre) diffs.medicoNombre = true;
             if (ext.medico?.matricula && ext.medico?.matricula !== socio.medicoMatricula) diffs.medicoMatricula = true;
@@ -695,7 +695,7 @@ const UpdateFromDocumentModal = ({ socio, onClose, onUpdated }: { socio: Socio; 
             if (selectedFields.numeroTramite && extraction?.numeroTramite) {
                 updates.reprocann = { ...(socio.reprocann || {}), numeroTramite: extraction.numeroTramite } as any;
             }
-            if (selectedFields.fechaAlta && extraction?.fechaEmision) {
+            if (selectedFields.fechaAlta && extraction?.fechaEmision && extraction.documentType === 'reprocann') {
                 updates.reprocann = { ...(updates.reprocann || socio.reprocann || {}), fechaAlta: extraction.fechaEmision } as any;
             }
             if (selectedFields.fechaVencimiento && extraction?.fechaVencimiento) {
