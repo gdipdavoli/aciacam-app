@@ -911,13 +911,59 @@ export default function NewSocioWizardPage() {
                                     <AlertCircle size={18} />
                                     <span>Discrepancia detectada entre documentos adjuntos ({conflicts.length})</span>
                                 </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.85rem' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.85rem' }}>
                                     {conflicts.map((conf, idx) => (
-                                        <div key={idx} style={{ padding: '0.4rem 0.6rem', backgroundColor: 'hsl(var(--card))', borderRadius: '4px', border: '1px solid hsl(var(--border))' }}>
-                                            <strong>{conf.label}:</strong> "{conf.valueA}" ({conf.fileA}) ≠ "{conf.valueB}" ({conf.fileB}).
-                                            <span style={{ marginLeft: '0.5rem', color: 'hsl(var(--muted-foreground))' }}>
-                                                Se preservó el valor de {conf.fileA}. Podés editarlo en el paso siguiente.
-                                            </span>
+                                        <div key={idx} style={{
+                                            padding: '0.5rem 0.75rem',
+                                            backgroundColor: 'hsl(var(--card))',
+                                            borderRadius: '6px',
+                                            border: '1px solid hsl(var(--border))',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            flexWrap: 'wrap',
+                                            gap: '0.5rem'
+                                        }}>
+                                            <div>
+                                                <strong>{conf.label}:</strong>
+                                                <span style={{ marginLeft: '0.5rem', color: 'hsl(var(--foreground))' }}>
+                                                    "{conf.valueA}" ({conf.fileA}) ≠ "{conf.valueB}" ({conf.fileB})
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleChange(conf.field as keyof FormData, conf.valueA)}
+                                                    style={{
+                                                        fontSize: '0.75rem',
+                                                        padding: '0.25rem 0.6rem',
+                                                        borderRadius: '4px',
+                                                        border: '1px solid hsl(var(--border))',
+                                                        backgroundColor: formData[conf.field as keyof FormData] === conf.valueA ? 'hsl(var(--primary))' : 'hsl(var(--secondary))',
+                                                        color: formData[conf.field as keyof FormData] === conf.valueA ? 'hsl(var(--primary-foreground))' : 'hsl(var(--secondary-foreground))',
+                                                        cursor: 'pointer',
+                                                        fontWeight: 500
+                                                    }}
+                                                >
+                                                    Usar {conf.valueA}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleChange(conf.field as keyof FormData, conf.valueB)}
+                                                    style={{
+                                                        fontSize: '0.75rem',
+                                                        padding: '0.25rem 0.6rem',
+                                                        borderRadius: '4px',
+                                                        border: '1px solid hsl(var(--border))',
+                                                        backgroundColor: formData[conf.field as keyof FormData] === conf.valueB ? 'hsl(var(--primary))' : 'hsl(var(--secondary))',
+                                                        color: formData[conf.field as keyof FormData] === conf.valueB ? 'hsl(var(--primary-foreground))' : 'hsl(var(--secondary-foreground))',
+                                                        cursor: 'pointer',
+                                                        fontWeight: 500
+                                                    }}
+                                                >
+                                                    Usar {conf.valueB}
+                                                </button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -965,7 +1011,19 @@ export default function NewSocioWizardPage() {
                                                 </div>
 
                                                 <div>
-                                                    {isSuccess ? (
+                                                    {ext?.extractionSource === 'agent_core_gemini' ? (
+                                                        <span style={{
+                                                            padding: '0.25rem 0.65rem',
+                                                            borderRadius: '9999px',
+                                                            fontSize: '0.75rem',
+                                                            fontWeight: 600,
+                                                            backgroundColor: 'rgba(124, 58, 237, 0.15)',
+                                                            color: 'rgb(124, 58, 237)',
+                                                            border: '1px solid rgba(124, 58, 237, 0.3)'
+                                                        }}>
+                                                            🤖 Gemini Vision (Agent Core - {Math.round((ext.confidence?.overall || 0.9) * 100)}%)
+                                                        </span>
+                                                    ) : isSuccess ? (
                                                         <span style={{
                                                             padding: '0.25rem 0.6rem',
                                                             borderRadius: '9999px',
@@ -985,7 +1043,7 @@ export default function NewSocioWizardPage() {
                                                             backgroundColor: 'hsl(var(--warning) / 0.15)',
                                                             color: 'hsl(var(--warning-foreground, 38 92% 50%))'
                                                         }}>
-                                                            ⚠️ Imagen rasterizada (Requiere OCR visual)
+                                                            ⚠️ Imagen rasterizada (Entrada asistida)
                                                         </span>
                                                     ) : (
                                                         <span style={{

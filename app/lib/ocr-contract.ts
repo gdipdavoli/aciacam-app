@@ -18,11 +18,21 @@ import { extractText } from 'unpdf';
 
 export type ExtractionSource = 'agent_core_gemini' | 'local_text_layer' | 'manual';
 
+export interface FieldTraceability {
+    value: string | null;
+    confidence: number;
+    sourceReference?: string;
+    sourceDocument?: string;
+    requiresReview: boolean;
+    warnings?: string[];
+}
+
 export type DetectedDocType = 
     | 'reprocann'
     | 'consentimiento'
     | 'constancia_tramite'
     | 'dni'
+    | 'receta'
     | 'desconocido';
 
 export interface UnifiedDocumentExtraction {
@@ -55,11 +65,12 @@ export interface UnifiedDocumentExtraction {
     validatedBy?: string;
     validatedAt?: string;
 
-    // UX-03C.1: Diagnóstico granular y soporte multi-documento
+    // UX-03C.1 y UX-03D: Diagnóstico granular, trazabilidad y soporte multi-documento
     totalPages?: number;
     requiresVisualOcr?: boolean;
     hasImageOnlyLayer?: boolean;
     detectedFieldsCount?: number;
+    fieldTraceability?: Record<string, FieldTraceability>;
 }
 
 export interface DocumentConflict {
@@ -88,6 +99,7 @@ export interface ConsolidatedDocumentResult {
         camposExtraidos: string[];
     }>;
     conflicts: DocumentConflict[];
+    fieldTraceability: Record<string, FieldTraceability>;
     documentSummaries: Array<{
         filename: string;
         docType: DetectedDocType;
@@ -531,10 +543,28 @@ export function consolidateDocumentExtractions(
     const conflicts: DocumentConflict[] = [];
     const documentSummaries: ConsolidatedDocumentResult['documentSummaries'] = [];
     const fieldsOrigin: Record<string, { filename: string; value: any }> = {};
+    const fieldTraceability: Record<string, FieldTraceability> = {};
+    let hasGeminiSource = false;
 
     for (const item of items) {
         const { filename, extraction } = item;
         const detectedFields: string[] = [];
+
+        if (extraction.extractionSource === 'agent_core_gemini') {
+            hasGeminiSource = true;
+        }
+
+        // Incorporar trazabilidad de campos granular
+        if (extraction.fieldTraceability) {
+            for (const [k, trace] of Object.entries(extraction.fieldTraceability)) {
+                if (!fieldTraceability[k] || (trace.confidence || 0) > (fieldTraceability[k].confidence || 0)) {
+                    fieldTraceability[k] = {
+                        ...trace,
+                        sourceDocument: filename
+                    };
+                }
+            }
+        }
 
         if (extraction.titular?.nombre) detectedFields.push('nombre');
         if (extraction.titular?.apellido) detectedFields.push('apellido');
@@ -559,8 +589,8 @@ export function consolidateDocumentExtractions(
             extraction
         });
 
-        // Si el documento carece de texto digital legible (imagen rasterizada), no participa en consolidación ni genera conflictos falsos
-        if (extraction.requiresVisualOcr && detectedFields.length === 0) {
+        // Si el documento carece de texto digital legible (imagen rasterizada) y no proviene de Agent Core, no participa en consolidación ni genera conflictos falsos
+        if (extraction.requiresVisualOcr && detectedFields.length === 0 && extraction.extractionSource !== 'agent_core_gemini') {
             continue;
         }
 
@@ -570,6 +600,16 @@ export function consolidateDocumentExtractions(
             if (!existing) {
                 fieldsOrigin[fieldKey] = { filename, value: newVal };
                 consolidated[fieldKey] = newVal;
+                if (!fieldTraceability[fieldKey]) {
+                    fieldTraceability[fieldKey] = {
+                        value: String(newVal),
+                        confidence: extraction.confidence.fields[fieldKey] || extraction.confidence.overall,
+                        sourceReference: extraction.sourceDescription,
+                        sourceDocument: filename,
+                        requiresReview: fieldKey === 'diagnosticoPrincipal' || (extraction.confidence.overall < 0.85),
+                        warnings: []
+                    };
+                }
             } else {
                 const normExisting = String(existing.value).trim().toLowerCase();
                 const normNew = String(newVal).trim().toLowerCase();
@@ -591,7 +631,25 @@ export function consolidateDocumentExtractions(
         if (extraction.dni) assignOrConflict('dni', 'DNI', extraction.dni);
         if (extraction.fechaNacimiento) assignOrConflict('fechaNacimiento', 'Fecha de Nacimiento', extraction.fechaNacimiento);
         if (extraction.numeroTramite) assignOrConflict('numeroTramite', 'Número de Trámite', extraction.numeroTramite);
-        if (extraction.fechaEmision) assignOrConflict('fechaAlta', 'Fecha de Emisión / Alta', extraction.fechaEmision);
+
+        // Tratamiento inteligente de fecha de alta: El certificado REPROCANN define la fecha oficial
+        if (extraction.fechaEmision) {
+            if (extraction.documentType === 'reprocann') {
+                const existingOriginItem = fieldsOrigin['fechaAlta']
+                    ? items.find(i => i.filename === fieldsOrigin['fechaAlta'].filename)
+                    : null;
+                if (existingOriginItem && existingOriginItem.extraction.documentType !== 'reprocann') {
+                    // Prevalece la fecha oficial del certificado REPROCANN sobre consentimientos previos
+                    fieldsOrigin['fechaAlta'] = { filename, value: extraction.fechaEmision };
+                    consolidated['fechaAlta'] = extraction.fechaEmision;
+                } else {
+                    assignOrConflict('fechaAlta', 'Fecha de Alta REPROCANN', extraction.fechaEmision);
+                }
+            } else if (!consolidated.fechaAlta) {
+                assignOrConflict('fechaAlta', 'Fecha de Emisión / Firma', extraction.fechaEmision);
+            }
+        }
+
         if (extraction.fechaVencimiento) assignOrConflict('fechaVencimiento', 'Fecha de Vencimiento', extraction.fechaVencimiento);
         if (extraction.medico?.nombre) assignOrConflict('medicoNombre', 'Médico Tratante', extraction.medico.nombre);
         if (extraction.medico?.matricula) assignOrConflict('medicoMatricula', 'Matrícula Médica', extraction.medico.matricula);
@@ -599,11 +657,14 @@ export function consolidateDocumentExtractions(
     }
 
     consolidated.camposExtraidos = Object.keys(fieldsOrigin);
-    consolidated.fuenteExtraccion = 'Consolidación multi-documental (unpdf + control asistido)';
+    consolidated.fuenteExtraccion = hasGeminiSource
+        ? 'Consolidación asistida con Gemini Vision (Agent Core)'
+        : 'Consolidación multi-documental (unpdf + control asistido)';
 
     return {
         consolidated,
         conflicts,
+        fieldTraceability,
         documentSummaries
     };
 }

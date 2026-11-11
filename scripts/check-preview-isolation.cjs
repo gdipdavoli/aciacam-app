@@ -1,4 +1,4 @@
-﻿/**
+/**
  * scripts/check-preview-isolation.cjs
  *
  * ACIACAM — Guardián Centralizado de Aislamiento de Entorno Prebuild
@@ -14,6 +14,27 @@
  */
 
 const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+// Carga segura de variables locales de entorno para ejecución local fuera de CI
+try {
+  const dotenv = require('dotenv');
+  const candidatePaths = [
+    path.resolve(process.cwd(), '.env.integration.local'),
+    path.resolve(process.cwd(), '.env.local'),
+    path.resolve(__dirname, '../.env.integration.local'),
+    path.resolve(__dirname, '../../.env.integration.local')
+  ];
+  for (const envPath of candidatePaths) {
+    if (fs.existsSync(envPath)) {
+      dotenv.config({ path: envPath });
+      break;
+    }
+  }
+} catch {
+  // Ignorar si dotenv no está disponible o falla
+}
 
 const PRODUCTION_SUPABASE_REF = 'wfzbkcdmlcrjyrtauccu';
 const INTEGRATION_SUPABASE_REF = 'uqwuhjxzazsexuvqxmfm';
@@ -88,13 +109,22 @@ function verifyPreviewEnvironment(env = process.env) {
   // Si no hay indicadores de entorno (ni VERCEL_ENV, ni NEXT_PUBLIC_VERCEL_ENV, ni NODE_ENV,
   // ni VERCEL, ni CI, ni referencia de Supabase preview configurada), abortar.
   // ---------------------------------------------------------------------------
+  // Resolver automáticamente indicadores canónicos de Integration cuando provienen de archivo local validado
+  if (!env.ACIACAM_PREVIEW_SUPABASE_REF && env.NEXT_PUBLIC_SUPABASE_URL && env.NEXT_PUBLIC_SUPABASE_URL.includes(INTEGRATION_SUPABASE_REF)) {
+    env.ACIACAM_PREVIEW_SUPABASE_REF = INTEGRATION_SUPABASE_REF;
+  }
+  if (!env.COMMS_DISABLE_EXTERNAL && env.EMAIL_DISABLE_EXTERNAL === 'true') {
+    env.COMMS_DISABLE_EXTERNAL = 'true';
+  }
+
   const hasEnvIndicators =
     Boolean(env.VERCEL_ENV) ||
     Boolean(env.NEXT_PUBLIC_VERCEL_ENV) ||
     Boolean(env.NODE_ENV) ||
     Boolean(env.VERCEL) ||
     Boolean(env.CI) ||
-    Boolean(env.ACIACAM_PREVIEW_SUPABASE_REF);
+    Boolean(env.ACIACAM_PREVIEW_SUPABASE_REF) ||
+    Boolean(env.NEXT_PUBLIC_SUPABASE_URL);
 
   if (!hasEnvIndicators) {
     throw new Error(

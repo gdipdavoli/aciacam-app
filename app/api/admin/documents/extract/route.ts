@@ -23,7 +23,7 @@ const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 
 export async function POST(req: NextRequest) {
     try {
-        // 1. Autenticación y Autorización Staff / Admin
+        // 1. Autenticación y Autorización Staff / Admin con rol real verificado
         const authResult = await authenticate(req, supabaseAdmin);
         const caller = (authResult && typeof authResult === 'object' && 'user' in authResult)
             ? (authResult as any).user
@@ -33,7 +33,15 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Iniciá sesión para continuar' }, { status: 401 });
         }
 
-        const isStaff = await hasStaffRole(caller, supabaseAdmin);
+        // Obtener el perfil y rol real del socio desde public.socios
+        const { data: socioData } = await supabaseAdmin
+            .from('socios')
+            .select('id, rol')
+            .eq('auth_user_id', caller.id)
+            .maybeSingle();
+
+        const callerRole = (socioData?.rol || caller.app_metadata?.role || '').toLowerCase().trim();
+        const isStaff = callerRole === 'admin' || callerRole === 'staff';
         if (!isStaff) {
             return NextResponse.json({ error: 'Solo el personal administrativo puede procesar extracción documental' }, { status: 403 });
         }
@@ -61,6 +69,13 @@ export async function POST(req: NextRequest) {
         // 3. Procesar cada archivo individualmente con aislamiento de fallas
         const processedItems: Array<{ filename: string; extraction: UnifiedDocumentExtraction }> = [];
 
+        // Configuración de integración granular para OCR documental (Sprint UX-03D)
+        // Bandera específica sin habilitar globalmente Agent Core
+        const agentCoreBaseUrl = process.env.AGENT_CORE_PYTHON_URL || process.env.AGENT_CORE_BASE_URL || process.env.AGENT_CORE_URL;
+        const agentCoreBffSecret = process.env.AGENT_CORE_BFF_SECRET;
+        const isDocumentOcrEnabled = process.env.AGENT_CORE_DOCUMENT_OCR_ENABLED === 'true';
+        const hasAgentCoreConfig = Boolean(agentCoreBaseUrl && agentCoreBffSecret && isDocumentOcrEnabled);
+
         for (const file of filesToProcess) {
             // Validación de tamaño (máximo 15MB)
             if (file.size > 15 * 1024 * 1024) {
@@ -83,7 +98,96 @@ export async function POST(req: NextRequest) {
             }
 
             const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+            const fileMime = file.type || (isPdf ? 'application/pdf' : 'image/jpeg');
+            let agentCoreExtraction: UnifiedDocumentExtraction | null = null;
 
+            // Intento prioritario 1: Extracción inteligente vía Agent Core (Gemini Vision)
+            if (hasAgentCoreConfig) {
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const base64Content = Buffer.from(arrayBuffer).toString('base64');
+                    const cleanUrl = agentCoreBaseUrl!.replace(/\/+$/, '');
+
+                    const callerUserId = caller.id;
+                    const callerSocioId = socioData?.id || caller.id;
+
+                    const acResponse = await fetch(`${cleanUrl}/api/v1/documents/analyze-read-only`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Agent-Core-Secret': agentCoreBffSecret!,
+                            'Authorization': `Bearer ${agentCoreBffSecret!}`,
+                            'X-Delegated-Auth-User-Id': callerUserId,
+                            'X-Delegated-User-Role': callerRole,
+                            'X-Delegated-Socio-Id': callerSocioId,
+                        },
+                        body: JSON.stringify({
+                            file_bytes_base64: base64Content,
+                            mime_type: fileMime,
+                            filename: file.name,
+                        }),
+                        signal: AbortSignal.timeout(15000),
+                    });
+
+                    if (acResponse.ok) {
+                        const acData = await acResponse.json();
+                        if (acData && (acData.status === 'success' || acData.status === 'partial_success')) {
+                            const f = acData.fields || {};
+                            agentCoreExtraction = {
+                                documentType: (['reprocann', 'consentimiento', 'dni', 'receta'].includes(acData.document_type)
+                                    ? acData.document_type
+                                    : 'desconocido') as any,
+                                titular: (f.nombre?.value || f.apellido?.value) ? {
+                                    nombre: f.nombre?.value || undefined,
+                                    apellido: f.apellido?.value || undefined,
+                                } : undefined,
+                                dni: f.dni?.value || undefined,
+                                fechaNacimiento: f.fecha_nacimiento?.value || undefined,
+                                numeroTramite: f.numero_tramite?.value || undefined,
+                                fechaEmision: f.fecha_emision?.value || f.fecha_alta?.value || undefined,
+                                fechaVencimiento: f.fecha_vencimiento?.value || undefined,
+                                tipoAutorizacion: f.tipo_autorizacion?.value || undefined,
+                                medico: (f.medico_nombre?.value || f.medico_matricula?.value) ? {
+                                    nombre: f.medico_nombre?.value || undefined,
+                                    matricula: f.medico_matricula?.value || undefined,
+                                } : undefined,
+                                diagnostico: f.diagnostico?.value || undefined,
+                                confidence: {
+                                    overall: typeof acData.confidence === 'number' ? acData.confidence : 0.9,
+                                    fields: Object.fromEntries(
+                                        Object.entries(f).map(([k, v]: [string, any]) => [k, v?.confidence ?? 0.9])
+                                    )
+                                },
+                                isLegible: acData.is_legible ?? true,
+                                extractionSource: 'agent_core_gemini',
+                                sourceDescription: `Agent Core (Gemini Vision - ${acData.model_used || 'gemini-2.5-flash'})`,
+                                warnings: acData.warnings || [],
+                                errors: acData.errors || [],
+                                humanValidated: false,
+                                totalPages: 1,
+                                requiresVisualOcr: false,
+                                hasImageOnlyLayer: false,
+                                detectedFieldsCount: Object.keys(f).length,
+                                fieldTraceability: f,
+                            };
+                        }
+                    } else {
+                        console.warn(`[Extraction] Agent Core respondió con status HTTP ${acResponse.status}. Aplicando fallback local.`);
+                    }
+                } catch (acErr: any) {
+                    console.warn(`[Extraction] No se pudo conectar con Agent Core (${acErr.message || acErr}). Aplicando fallback local.`);
+                }
+            }
+
+            if (agentCoreExtraction) {
+                processedItems.push({
+                    filename: file.name,
+                    extraction: agentCoreExtraction
+                });
+                continue;
+            }
+
+            // Intento secundario 2: Fallback local (unpdf para PDF, o aviso de manual para imágenes)
             if (isPdf) {
                 try {
                     const arrayBuffer = await file.arrayBuffer();
@@ -94,6 +198,10 @@ export async function POST(req: NextRequest) {
                     if (isLikelyImageOnly && !docExtraction.requiresVisualOcr) {
                         docExtraction.requiresVisualOcr = true;
                         docExtraction.hasImageOnlyLayer = true;
+                    }
+
+                    if (hasAgentCoreConfig) {
+                        docExtraction.warnings.push('Extracción asistida local: Agent Core no estuvo disponible. Se leyó la capa de texto PDF.');
                     }
 
                     processedItems.push({
@@ -119,7 +227,7 @@ export async function POST(req: NextRequest) {
                     });
                 }
             } else {
-                // Archivo de imagen rasterizada (JPEG/PNG)
+                // Archivo de imagen rasterizada sin Agent Core
                 processedItems.push({
                     filename: file.name,
                     extraction: {
@@ -130,7 +238,9 @@ export async function POST(req: NextRequest) {
                         sourceDescription: 'Archivo de imagen rasterizada (requiere entrada manual o visión multimodal)',
                         warnings: [
                             'El archivo es una imagen sin capa de texto digital embebida.',
-                            'Por favor complete o verifique los datos del socio manualmente.'
+                            hasAgentCoreConfig 
+                                ? 'Agent Core (Gemini Vision) no estuvo disponible temporalmente para OCR.'
+                                : 'Por favor complete o verifique los datos del socio manualmente.'
                         ],
                         errors: [],
                         humanValidated: false,
