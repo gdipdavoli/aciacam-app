@@ -48,6 +48,16 @@ import {
 
 const STORAGE_KEY = 'aciacam_new_socio_draft_v4';
 
+const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
+    consentimiento: { needsFecha: false, needsMonto: false, hasExpiration: false },
+    declaracionJurada: { needsFecha: true, needsMonto: false, hasExpiration: false },
+    declaracion_jurada: { needsFecha: true, needsMonto: false, hasExpiration: false },
+    reprocann: { needsFecha: true, needsMonto: false, hasExpiration: true },
+    contrato_autocultivo: { needsFecha: true, needsMonto: true, hasExpiration: true },
+    contrato_madre: { needsFecha: true, needsMonto: true, hasExpiration: true },
+    contrato: { needsFecha: true, needsMonto: false, hasExpiration: true }
+};
+
 export type SituacionReprocann = 'vigente' | 'vencido' | 'en_tramite' | 'no_posee';
 
 export interface AttachedDocState {
@@ -661,7 +671,9 @@ export default function NewSocioWizardPage() {
                 envios_habilitados: formData.enviosHabilitados,
                 idempotencyKey: formData.idempotencyKey,
                 rol: 'socio',
-                status: asDraft ? 'draft' : 'active',
+                // Separación institucional: El alta administrativa inicial queda en 'draft'. 
+                // La admisión como socio activo ('active') es potestad de la Comisión Directiva (Acta/Libro).
+                status: 'draft',
                 reprocann: {
                     numeroTramite: finalNumeroTramite,
                     fechaAlta: finalFechaAlta,
@@ -678,17 +690,28 @@ export default function NewSocioWizardPage() {
                 throw new Error("No se pudo obtener el identificador del nuevo socio registrado");
             }
 
-            // 3. Persistir cada documento adjunto con su estado de verificación explícito
+            // 3. Persistir cada documento adjunto con su estado de verificación explícito y guardas de vigencia
             const failedDocs: string[] = [];
             for (const doc of attachedDocs) {
                 try {
+                    const docConfig = DOC_CONFIG[doc.tipo] || { hasExpiration: false };
+                    const isReprocann = doc.tipo === 'reprocann';
+                    // Documentos sin vencimiento (ej. consentimiento, declaraciones) NUNCA deben heredar la fecha de REPROCANN
+                    const effectiveExpiration = docConfig.hasExpiration
+                        ? (doc.fechaVencimiento || (isReprocann ? finalFechaVencimiento : undefined))
+                        : undefined;
+                    const effectiveFechaEmision = doc.fechaEmision || (isReprocann ? finalFechaAlta : undefined);
+                    const effectiveTramite = (isReprocann || doc.tipo === 'consentimiento')
+                        ? (doc.numeroTramite || finalNumeroTramite)
+                        : undefined;
+
                     await StorageService.uploadSocioDocument({
                         socioId: newSocio.id,
                         docType: doc.tipo,
                         file: doc.file,
-                        fechaEmision: doc.fechaEmision || finalFechaAlta,
-                        fechaVencimiento: doc.fechaVencimiento || finalFechaVencimiento,
-                        numeroTramite: doc.numeroTramite || finalNumeroTramite,
+                        fechaEmision: effectiveFechaEmision,
+                        fechaVencimiento: effectiveExpiration,
+                        numeroTramite: effectiveTramite,
                         verificacionEstado: doc.verificacionEstado || 'pendiente',
                         verificacionObs: doc.verificacionObs
                     });
@@ -710,13 +733,20 @@ export default function NewSocioWizardPage() {
                 }
             }
 
-            // 5. Limpieza de borrador y reporte del resultado
+            // 5. Limpieza de borrador y reporte transparente del resultado
             localStorage.removeItem(STORAGE_KEY);
+            const hasPendingOrRejected = attachedDocs.some(d => d.verificacionEstado !== 'aprobado');
+
             if (failedDocs.length > 0) {
                 setBannerError(`Socio ${newSocio.nombre} ${newSocio.apellido} registrado, pero hubo fallos al adjuntar los siguientes documentos: ${failedDocs.join(', ')}. Podés cargarlos nuevamente desde la ficha del socio.`);
                 setTimeout(() => {
                     router.push(`/admin/socios/${newSocio.id}`);
                 }, 3500);
+            } else if (hasPendingOrRejected) {
+                setBannerSuccess(`Socio ${newSocio.nombre} ${newSocio.apellido} registrado. Documentación guardada con los estados de verificación seleccionados (requiere revisión antes de habilitar dispensas).`);
+                setTimeout(() => {
+                    router.push(`/admin/socios/${newSocio.id}`);
+                }, 1800);
             } else {
                 setBannerSuccess(`Socio ${newSocio.nombre} ${newSocio.apellido} registrado exitosamente. Documentación verificada y persistida.`);
                 setTimeout(() => {

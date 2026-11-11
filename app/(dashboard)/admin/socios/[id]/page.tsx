@@ -263,7 +263,8 @@ const InviteStatusWidget = ({ socioId, socioEmail, mode = 'full' }: { socioId: s
         label = computed === 'sent' ? 'Enviada' : 'Pendiente';
         badgeColor = '#b45309'; badgeBg = '#ffedd5';
     } else {
-        label = 'Sin Invitación';
+        label = 'Listo para invitar';
+        badgeColor = '#2563eb'; badgeBg = '#eff6ff';
     }
 
     // Date Logic
@@ -303,7 +304,7 @@ const InviteStatusWidget = ({ socioId, socioEmail, mode = 'full' }: { socioId: s
                     ) : relevantDate ? (
                         <span>{isExpired ? 'Expiró el' : (computed === 'sent' ? 'Enviada el' : 'Creada el')} {formatTimestamp(relevantDate, { includeTime: true })}</span>
                     ) : (
-                        <span>Listo para invitar</span>
+                        <span>Cuenta de acceso pendiente de invitación o creación</span>
                     )}
                 </div>
             </div>
@@ -1464,8 +1465,39 @@ export default function SocioDetailsPage() {
                         <ArrowLeft size={18} />
                     </button>
                     <div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 700, lineHeight: 1 }}>{socio.apellido}, {socio.nombre}</h1>
-                        <span style={{ fontSize: '0.9rem', color: 'hsl(var(--muted-foreground))' }}>DNI {socio.dni}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, lineHeight: 1, margin: 0 }}>{socio.apellido}, {socio.nombre}</h1>
+                            {/* Badges de Estado Institucional y Habilitación */}
+                            <span style={{
+                                fontSize: '0.75rem',
+                                padding: '0.2rem 0.5rem',
+                                borderRadius: '999px',
+                                fontWeight: 600,
+                                backgroundColor: socio.status === 'active' ? '#dcfce7' : socio.status === 'suspended' ? '#fee2e2' : '#e0f2fe',
+                                color: socio.status === 'active' ? '#166534' : socio.status === 'suspended' ? '#991b1b' : '#0369a1'
+                            }}>
+                                {socio.status === 'active' ? 'Socio Activo (CD)' : socio.status === 'suspended' ? 'Suspendido' : 'Alta Administrativa (Borrador)'}
+                            </span>
+                            <span style={{
+                                fontSize: '0.75rem',
+                                padding: '0.2rem 0.5rem',
+                                borderRadius: '999px',
+                                fontWeight: 600,
+                                backgroundColor: socio.bloqueado ? '#fee2e2' : (!socio.activo ? '#fee2e2' : '#f0fdf4'),
+                                color: socio.bloqueado ? '#991b1b' : (!socio.activo ? '#991b1b' : '#166534'),
+                                border: socio.bloqueado ? '1px solid #fca5a5' : (!socio.activo ? '1px solid #fca5a5' : '1px solid #86efac')
+                            }}>
+                                {socio.bloqueado ? 'Bloqueado para Dispensas' : (!socio.activo ? 'Inactivo' : 'Dispensas Permitidas')}
+                            </span>
+                        </div>
+                        <div style={{ fontSize: '0.9rem', color: 'hsl(var(--muted-foreground))', marginTop: '0.35rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <span>DNI {socio.dni}</span>
+                            {socio.actaNumero ? (
+                                <span>• Admisión CD: Acta N° {socio.actaNumero}{socio.ordenLibro ? ` (Libro N° ${socio.ordenLibro})` : ''}</span>
+                            ) : (
+                                <span style={{ color: '#d97706' }}>• Admisión CD pendiente (sin N° acta)</span>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -1683,6 +1715,43 @@ export default function SocioDetailsPage() {
                                 {docDefinitions.map(def => {
                                     const doc = socio.documentacion?.[def.key];
                                     const hasFile = !!doc?.archivoPath;
+                                    const docConf = DOC_CONFIG[def.key] || { hasExpiration: false };
+                                    const hasExpiration = docConf.hasExpiration;
+
+                                    let expirationContent: React.ReactNode = '-';
+                                    if (!hasExpiration) {
+                                        expirationContent = <span style={{ color: 'hsl(var(--muted-foreground))' }}>No aplica</span>;
+                                    } else if (!doc?.fechaVencimiento) {
+                                        expirationContent = <span style={{ color: 'hsl(var(--muted-foreground))' }}>Fecha no informada</span>;
+                                    } else {
+                                        const days = calculateDaysRemaining(doc.fechaVencimiento);
+                                        const formattedDate = formatCalendarDate(doc.fechaVencimiento);
+                                        if (days === null) {
+                                            expirationContent = <span>{formattedDate}</span>;
+                                        } else if (days <= 0) {
+                                            expirationContent = (
+                                                <span>
+                                                    {formattedDate}
+                                                    <span style={{ color: '#ef4444', marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: 600 }}>(Vencido)</span>
+                                                </span>
+                                            );
+                                        } else if (days <= 30) {
+                                            expirationContent = (
+                                                <span>
+                                                    {formattedDate}
+                                                    <span style={{ color: '#d97706', marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: 600 }}>(Por vencer)</span>
+                                                </span>
+                                            );
+                                        } else {
+                                            expirationContent = (
+                                                <span>
+                                                    {formattedDate}
+                                                    <span style={{ color: '#16a34a', marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: 600 }}>(Vigente)</span>
+                                                </span>
+                                            );
+                                        }
+                                    }
+
                                     return (
                                         <tr key={def.key} style={{ borderBottom: '1px solid hsl(var(--border))' }}>
                                             <td style={{ padding: '0.75rem', fontWeight: 500 }}>{def.label}</td>
@@ -1693,10 +1762,7 @@ export default function SocioDetailsPage() {
                                                 <Pill status={doc?.verificacion_estado || 'pendiente'} />
                                             </td>
                                             <td style={{ padding: '0.75rem', fontSize: '0.85rem' }}>
-                                                {doc?.fechaVencimiento ? formatCalendarDate(doc.fechaVencimiento) : '-'}
-                                                {doc?.fechaVencimiento && (calculateDaysRemaining(doc.fechaVencimiento) ?? 0) <= 0 && (
-                                                    <span style={{ color: '#ef4444', marginLeft: '0.5rem', fontSize: '0.75rem', fontWeight: 600 }}>(Vencido)</span>
-                                                )}
+                                                {expirationContent}
                                             </td>
                                             <td style={{ padding: '0.75rem', textAlign: 'right', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                                                 {doc?.archivoPath && (
@@ -1948,11 +2014,17 @@ export default function SocioDetailsPage() {
                                 />
                             )}
                             <SelectGroup
-                                label="Estado"
-                                value={socio.status}
+                                label="Estado Institucional"
+                                value={socio.status || 'draft'}
                                 onChange={(v: any) => setSocio({ ...socio, status: v })}
-                                options={[{ val: 'active', label: 'AC' }, { val: 'suspended', label: 'SU' }]}
-                                readOnly={true}
+                                options={[
+                                    { val: 'draft', label: 'Borrador / Alta Administrativa' },
+                                    { val: 'ready_to_invite', label: 'Listo para invitar' },
+                                    { val: 'invited', label: 'Invitado' },
+                                    { val: 'active', label: 'Activo (Aprobado CD)' },
+                                    { val: 'suspended', label: 'Suspendido (SU)' }
+                                ]}
+                                readOnly={editingSection !== 'admin'}
                             />
                             <SelectGroup
                                 label="Activo"
@@ -1963,7 +2035,7 @@ export default function SocioDetailsPage() {
                             />
                         </div>
 
-                        {/* BLOQUEO MANUAL */}
+                        {/* BLOQUEO MANUAL Y CONTROL DE DISPENSAS */}
                         <div style={{ 
                             marginTop: '1rem', 
                             padding: '1rem', 
@@ -1981,10 +2053,12 @@ export default function SocioDetailsPage() {
                                 />
                                 <div>
                                     <span style={{ display: 'block', fontWeight: 600, color: socio.bloqueado ? '#991b1b' : '#166534' }}>
-                                        {socio.bloqueado ? 'SOCIO BLOQUEADO' : 'Socio Habilitado'}
+                                        {socio.bloqueado ? 'BLOQUEO PREVENTIVO ACTIVO' : 'Sin bloqueo preventivo'}
                                     </span>
                                     <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>
-                                        Impide el acceso al catálogo y pedidos.
+                                        {socio.bloqueado 
+                                            ? 'El socio tiene impedido el acceso a pedidos, catálogo y dispensas.' 
+                                            : 'Marcar para suspender preventivamente el acceso a dispensas y pedidos.'}
                                     </span>
                                 </div>
                             </label>
@@ -1994,7 +2068,7 @@ export default function SocioDetailsPage() {
                                         label="Motivo del Bloqueo" 
                                         value={socio.motivo_bloqueo} 
                                         onChange={(v: string) => setSocio({ ...socio, motivo_bloqueo: v })} 
-                                        placeholder="Ej: Documentación vencida" 
+                                        placeholder="Ej: Documentación vencida, cuota social, etc." 
                                         readOnly={editingSection !== 'admin'} 
                                     />
                                 </div>

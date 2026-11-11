@@ -6,6 +6,7 @@ import {
     extractDataFromDocumentText, 
     consolidateDocumentExtractions,
     validateIdentityMatch,
+    sanitizeDiagnosis,
     UnifiedDocumentExtraction 
 } from '@/app/lib/ocr-contract';
 
@@ -119,6 +120,15 @@ export async function POST(req: NextRequest) {
             if (hasAgentCoreConfig) {
                 try {
                     const arrayBuffer = await file.arrayBuffer();
+                    let detectedPages = 1;
+                    if (isPdf) {
+                        try {
+                            const { totalPages } = await extractTextFromPdfBufferAsync(new Uint8Array(arrayBuffer));
+                            detectedPages = totalPages || 1;
+                        } catch {
+                            detectedPages = 1;
+                        }
+                    }
                     const base64Content = Buffer.from(arrayBuffer).toString('base64');
                     const cleanUrl = agentCoreBaseUrl!.replace(/\/+$/, '');
 
@@ -216,7 +226,7 @@ export async function POST(req: NextRequest) {
                                         nombre: f.medico_nombre?.value || undefined,
                                         matricula: f.medico_matricula?.value || undefined,
                                     } : undefined,
-                                    diagnostico: f.diagnostico?.value || undefined,
+                                    diagnostico: sanitizeDiagnosis(f.diagnostico?.value) || f.diagnostico?.value || undefined,
                                     confidence: {
                                         overall: typeof acData.confidence === 'number' ? acData.confidence : 0.9,
                                         fields: Object.fromEntries(
@@ -229,7 +239,7 @@ export async function POST(req: NextRequest) {
                                     warnings: acData.warnings || [],
                                     errors: acData.errors || [],
                                     humanValidated: false,
-                                    totalPages: 1,
+                                    totalPages: detectedPages,
                                     requiresVisualOcr: false,
                                     hasImageOnlyLayer: false,
                                     detectedFieldsCount: Object.keys(f).length,

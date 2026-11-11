@@ -365,26 +365,52 @@ export function sanitizeLocalDoctorName(raw: string | undefined): string | undef
 }
 
 /**
- * Sanea y valida estrictamente el diagnóstico extraído de capa de texto local.
- * REGLA CLÍNICA UX-03D.1: NUNCA aceptar fragmentos genéricos, disclaimers legales ni advertencias.
- * Si el texto es ambiguo o narrativo, debe retornar undefined para forzar revisión humana.
+ * Sanea y valida estrictamente el diagnóstico médico (aplicable tanto a extracción local como Agent Core / Gemini).
+ * REGLA CLÍNICA UX-03D.3: 
+ * 1. Delimitar y extraer únicamente la patología / afección clínica.
+ * 2. Si el texto incluye secciones posteriores como 'Antecedentes:', 'Tratamiento:', 'Evolución:', 'Firma:', etc.,
+ *    recortar estrictamente antes de dichas secciones.
+ * 3. NUNCA admitir fragmentos narrativos genéricos, cláusulas legales ni advertencias.
  */
-export function sanitizeLocalDiagnosis(raw: string | undefined): string | undefined {
+export function sanitizeDiagnosis(raw: string | undefined): string | undefined {
     if (!raw) return undefined;
-    const trimmed = raw.trim();
+    const rawLower = raw.toLowerCase().trim();
 
-    // Longitud razonable para una patología o diagnóstico conciso
-    if (trimmed.length > 60 || trimmed.length < 4) return undefined;
+    // 0. Frases narrativas completas que descalifican inmediatamente cualquier texto clínico
+    if (/\by\s+su\s+evoluci[oó]n\b/i.test(rawLower) || /^\s*y\s+su\b/i.test(rawLower)) {
+        return undefined;
+    }
+
+    let trimmed = raw.trim();
+
+    // 1. Quitar prefijos comunes: Diagnóstico:, Patología:, Dx:, Cuadro:
+    trimmed = trimmed.replace(/^(?:diagn[oó]stico|patolog[ií]a|indicaci[oó]n\s*cl[ií]nica|cuadro(?:\s*cl[ií]nico)?|dx)[\s:\.#\-]*/i, '').trim();
+
+    // 2. Recortar antes de secciones clínicas complementarias, evolución o firmas
+    const sectionDelimiter = /(?:\.|\;|\n|\r|\s)\s*(?:antecedentes|tratamiento|evoluci[oó]n|historia(?:\s*cl[ií]nica)?|firma|sello|matr[ií]cula|posolog[ií]a|plan|m[eé]dico\s*actuante|profesional|paciente\s*manifiesta)\b/i;
+    const delimMatch = trimmed.match(sectionDelimiter);
+    if (delimMatch && delimMatch.index !== undefined && delimMatch.index > 0) {
+        trimmed = trimmed.substring(0, delimMatch.index).trim();
+    }
+
+    // 3. Limpiar puntuación residual
+    trimmed = trimmed.replace(/[\.\,\;\:\-\s]+$/, '').trim();
+
+    // Descartar fragmentos que comienzan con conjunciones o posesivos aislados (ej. "y su", "de la")
+    if (/^(?:y|o|e|u|de|del|la|el|los|las|su|sus|con|sin)\b/i.test(trimmed)) {
+        return undefined;
+    }
+
+    // Longitud razonable para una patología concisa
+    if (trimmed.length > 80 || trimmed.length < 4) return undefined;
 
     const lower = trimmed.toLowerCase();
 
-    // Patrones narrativos y fragmentos de texto clínico ambiguo que deben descartarse inmediatamente
+    // Patrones narrativos sobre el fragmento final
     const narrativePhrasePatterns = [
-        /\by\s+su\s+evoluci[oó]n\b/i,
         /\by\s+no\s+refiere\b/i,
         /\bno\s+refiere\s+efectos\b/i,
         /\befectos\s+adversos\b/i,
-        /\bevoluci[oó]n\b/i,
         /\brefiere\b/i,
         /\bpresenta\s+cuadro\b/i,
         /\btolerancia\b/i,
@@ -405,16 +431,17 @@ export function sanitizeLocalDiagnosis(raw: string | undefined): string | undefi
         'efectos', 'secundarios', 'adversos', 'riesgos', 'consentimiento',
         'informado', 'reprocann', 'programa', 'ministerio', 'salud',
         'declaración', 'declaracion', 'jurada', 'manifiesta', 'declara',
-        'tratamiento', 'médico', 'medico', 'profesional', 'paciente',
-        'asociación', 'asociacion', 'según', 'segun', 'indica',
-        'evolución', 'evolucion', 'refiere', 'presenta', 'cuadro clínico',
-        'cuadro clinico', 'antecedentes', 'síntomas', 'sintomas'
+        'asociación', 'asociacion', 'según', 'segun', 'indica'
     ];
     for (const w of legalOrNarrativeWords) {
         if (lower.includes(w)) return undefined;
     }
 
     return trimmed;
+}
+
+export function sanitizeLocalDiagnosis(raw: string | undefined): string | undefined {
+    return sanitizeDiagnosis(raw);
 }
 
 /**
@@ -914,14 +941,20 @@ export function consolidateDocumentExtractions(
 
         if (extraction.diagnostico) {
             const isGemini = extraction.extractionSource === 'agent_core_gemini';
+            const effectiveDiagnosis = sanitizeDiagnosis(extraction.diagnostico) || (isGemini ? extraction.diagnostico : undefined);
+            if (!effectiveDiagnosis) {
+                // Diagnóstico ambiguo o descartado por heurística de integridad clínica
+                continue;
+            }
+
             const existingOriginItem = fieldsOrigin['diagnosticoPrincipal']
                 ? items.find(i => i.filename === fieldsOrigin['diagnosticoPrincipal'].filename)
                 : null;
             if (isGemini && existingOriginItem && existingOriginItem.extraction.extractionSource !== 'agent_core_gemini') {
-                fieldsOrigin['diagnosticoPrincipal'] = { filename, value: extraction.diagnostico };
-                consolidated['diagnosticoPrincipal'] = extraction.diagnostico;
+                fieldsOrigin['diagnosticoPrincipal'] = { filename, value: effectiveDiagnosis };
+                consolidated['diagnosticoPrincipal'] = effectiveDiagnosis;
                 fieldTraceability['diagnosticoPrincipal'] = {
-                    value: String(extraction.diagnostico),
+                    value: String(effectiveDiagnosis),
                     confidence: extraction.confidence.fields['diagnostico'] || extraction.confidence.overall,
                     source: extraction.extractionSource,
                     sourceReference: extraction.sourceDescription,
@@ -930,10 +963,10 @@ export function consolidateDocumentExtractions(
                     warnings: []
                 };
             } else if (!consolidated.diagnosticoPrincipal) {
-                fieldsOrigin['diagnosticoPrincipal'] = { filename, value: extraction.diagnostico };
-                consolidated['diagnosticoPrincipal'] = extraction.diagnostico;
+                fieldsOrigin['diagnosticoPrincipal'] = { filename, value: effectiveDiagnosis };
+                consolidated['diagnosticoPrincipal'] = effectiveDiagnosis;
                 fieldTraceability['diagnosticoPrincipal'] = {
-                    value: String(extraction.diagnostico),
+                    value: String(effectiveDiagnosis),
                     confidence: extraction.confidence.fields['diagnostico'] || extraction.confidence.overall,
                     source: extraction.extractionSource,
                     sourceReference: extraction.sourceDescription,
@@ -942,7 +975,7 @@ export function consolidateDocumentExtractions(
                     warnings: isGemini ? [] : ['Diagnóstico detectado en texto digital local. Requiere verificación médica explícita.']
                 };
             } else {
-                assignOrConflict('diagnosticoPrincipal', 'Diagnóstico Principal', extraction.diagnostico);
+                assignOrConflict('diagnosticoPrincipal', 'Diagnóstico Principal', effectiveDiagnosis);
             }
         }
     }

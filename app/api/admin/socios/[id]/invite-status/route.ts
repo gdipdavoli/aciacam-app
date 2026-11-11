@@ -14,23 +14,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         if (access.response) return access.response;
         const { id } = await params;
 
+        // 1. Fetch socio directly without fragile foreign key join to legacy or non-existent columns
         const { data: socio, error } = await supabaseAdmin
             .from('socios')
-            .select(`
-                status, 
-                invited_at, 
-                auth_user_id, 
-                email, 
-                terms_accepted_at,
-                password_set,
-                socio_invites!socio_invites_socio_id_fkey (
-                    token,
-                    created_at,
-                    expires_at,
-                    consumed_at,
-                    status
-                )
-            `)
+            .select('id, status, auth_user_id, email, terms_accepted_at, created_at, updated_at')
             .eq('id', id)
             .single();
 
@@ -38,23 +25,51 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
             return NextResponse.json({ error: 'Socio not found' }, { status: 404 });
         }
 
-        // Get latest invite from the join
-        const invites = socio.socio_invites as any[] || [];
-        const latestInvite = invites.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+        // 2. Safely query socio_invites if table exists, without breaking main flow if absent
+        let latestInvite: any = null;
+        try {
+            const { data: invites, error: inviteErr } = await supabaseAdmin
+                .from('socio_invites')
+                .select('token, created_at, expires_at, consumed_at, status')
+                .eq('socio_id', id)
+                .order('created_at', { ascending: false })
+                .limit(1);
 
-        // Robust check for password configuration:
-        // Either the password_set column on public.socios is true, 
-        // OR the latest invite has a non-null consumed_at / status = consumed.
-        const passwordSet = !!socio.password_set || 
+            if (!inviteErr && invites && invites.length > 0) {
+                latestInvite = invites[0];
+            }
+        } catch {
+            // Table socio_invites does not exist or query failed; gracefully proceed
+            latestInvite = null;
+        }
+
+        // 3. Check auth.users if auth_user_id exists
+        let hasAuthUser = false;
+        let isAuthConfirmed = false;
+        if (socio.auth_user_id) {
+            try {
+                const { data: authData } = await supabaseAdmin.auth.admin.getUserById(socio.auth_user_id);
+                if (authData?.user) {
+                    hasAuthUser = true;
+                    isAuthConfirmed = !!authData.user.confirmed_at;
+                }
+            } catch {
+                hasAuthUser = false;
+            }
+        }
+
+        // 4. Robust check for password configuration
+        const passwordSet = !!socio.terms_accepted_at || 
+                            (hasAuthUser && isAuthConfirmed) ||
                             (latestInvite && latestInvite.consumed_at !== null) || 
                             (latestInvite && latestInvite.status === 'consumed');
 
-        // Compute Derived Status for Widget
-        const invitedAt = socio.invited_at || latestInvite?.created_at;
+        // 5. Compute Derived Status for Widget
+        const invitedAt = latestInvite?.created_at || (socio.status === 'invited' ? socio.updated_at : null);
         const diffMinutes = invitedAt ? (new Date().getTime() - new Date(invitedAt).getTime()) / (1000 * 60) : 0;
 
         let computedStatus = 'ready_to_invite';
-        if (socio.terms_accepted_at) {
+        if (socio.terms_accepted_at || (hasAuthUser && socio.status === 'active')) {
             computedStatus = 'active';
         } else if (latestInvite) {
             computedStatus = latestInvite.status || 'sent';
@@ -65,18 +80,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         }
 
         return NextResponse.json({
-            socioActive: !!socio.terms_accepted_at || socio.status === 'active',
+            socioActive: !!socio.terms_accepted_at || (hasAuthUser && socio.status === 'active'),
             passwordSet,
             latestInvite: latestInvite ? {
                 token: latestInvite.token,
                 sent_at: latestInvite.created_at,
                 expires_at: latestInvite.expires_at,
                 computed_status: computedStatus
-            } : socio.invited_at ? {
-                sent_at: socio.invited_at,
+            } : invitedAt ? {
+                sent_at: invitedAt,
                 computed_status: computedStatus
             } : null,
-            socioUserId: socio.auth_user_id
+            socioUserId: socio.auth_user_id,
+            hasAuthUser,
+            isInvited: !!invitedAt || !!latestInvite || socio.status === 'invited',
+            computedStatus
         });
 
     } catch (e: any) {
