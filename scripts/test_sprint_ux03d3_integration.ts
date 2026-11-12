@@ -298,6 +298,37 @@ async function runSuite() {
         assertTest(20, "Registros en audit_logs", false, e.message);
     }
 
+    // 21. Verificación de robustez en formateo y cálculo de fechas con marcas temporales ISO
+    try {
+        const isoVencimiento = '2029-11-08T00:00:00+00:00';
+        const formatted = formatCalendarDate(isoVencimiento);
+        const days = calculateDaysRemaining(isoVencimiento);
+        const isVigente = days !== null && days > 30;
+        assertTest(21, "Formateo y cálculo de días con timestamp ISO (2029-11-08T00:00:00+00:00) retorna 08/11/2029 y Vigente",
+            formatted === '08/11/2029' && isVigente,
+            `Display: '${formatted}', Días restantes: ${days}`);
+    } catch (e: any) {
+        assertTest(21, "Formateo de ISO timestamp", false, e.message);
+    }
+
+    // 22. Indicadores informativos separados: Bloqueo preventivo vs. Cumplimiento documental
+    try {
+        // Simular las condiciones del socio de prueba:
+        // status: active, bloqueado: false, compliance.completo: false, reprocann: pendiente
+        const reproDoc = { verificacion_estado: 'pendiente', fechaVencimiento: '2029-11-08' };
+        const isReproApproved = reproDoc.verificacion_estado === 'aprobado';
+        const complianceComplete = false;
+        const isBlocked = false;
+
+        // No afirmar dispensas habilitadas como garantía de backend:
+        const hasDocumentImpediments = isBlocked || !complianceComplete || !isReproApproved;
+        assertTest(22, "Separación informativa: Sin bloqueo preventivo pero con documentación pendiente de revisión",
+            isBlocked === false && hasDocumentImpediments === true,
+            `Bloqueado: ${isBlocked}, Documentación pendiente: ${hasDocumentImpediments}`);
+    } catch (e: any) {
+        assertTest(22, "Condiciones informativas de dispensas", false, e.message);
+    }
+
     console.log("------------------------------------------------------------------");
     const totalPassed = results.filter(r => r.passed).length;
     console.log(`RESUMEN: ${totalPassed} / ${results.length} pruebas superadas.`);

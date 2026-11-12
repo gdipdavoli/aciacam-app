@@ -39,7 +39,8 @@ export function isLeapYear(year: number): boolean {
  */
 export function isValidCalendarDate(dateStr?: string | null): boolean {
     if (!dateStr || typeof dateStr !== 'string') return false;
-    const match = dateStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const datePart = dateStr.trim().split('T')[0];
+    const match = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!match) return false;
 
     const year = parseInt(match[1], 10);
@@ -73,7 +74,7 @@ export function isValidCalendarDate(dateStr?: string | null): boolean {
  */
 export function parseCalendarDate(dateStr?: string | null): CalendarDateParts | null {
     if (!isValidCalendarDate(dateStr)) return null;
-    const parts = (dateStr as string).trim().split('-');
+    const parts = (dateStr as string).trim().split('T')[0].split('-');
     return {
         year: parseInt(parts[0], 10),
         month: parseInt(parts[1], 10),

@@ -64,6 +64,15 @@ function NewDispenseForm() {
     );
 
     const handleSelectSocio = (s: Socio) => {
+        if (s.bloqueado) {
+            if (!confirm(`Atención: El socio ${s.apellido}, ${s.nombre} tiene BLOQUEO PREVENTIVO ACTIVO. Las dispensas están restringidas en el backend. ¿Deseas continuar de todos modos para revisión?`)) {
+                return;
+            }
+        } else if (s.status === 'draft') {
+            if (!confirm(`Atención: El socio ${s.apellido}, ${s.nombre} está en estado ALTA PRELIMINAR (Borrador). La base de datos rechazará la creación de pedidos. ¿Deseas continuar para revisión?`)) {
+                return;
+            }
+        }
         setSelectedSocio(s);
         setAddress(s.direccion || '');
         setStep(2);
@@ -164,19 +173,53 @@ function NewDispenseForm() {
                     </div>
 
                     <div style={{ border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', maxHeight: '400px', overflowY: 'auto' }}>
-                        {filteredSocios.map(s => (
-                            <div
-                                key={s.id}
-                                onClick={() => handleSelectSocio(s)}
-                                style={{ padding: '1rem', borderBottom: '1px solid hsl(var(--border))', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                            >
-                                <div>
-                                    <div style={{ fontWeight: 600 }}>{s.apellido}, {s.nombre}</div>
-                                    <div style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>DNI: {s.dni}</div>
+                        {filteredSocios.map(s => {
+                            const isDraft = s.status === 'draft';
+                            const isSuspended = s.status === 'suspended';
+                            const isBlocked = !!s.bloqueado;
+                            const hasWarning = isDraft || isSuspended || isBlocked;
+
+                            return (
+                                <div
+                                    key={s.id}
+                                    onClick={() => handleSelectSocio(s)}
+                                    style={{
+                                        padding: '1rem',
+                                        borderBottom: '1px solid hsl(var(--border))',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        backgroundColor: hasWarning ? 'rgba(254, 243, 199, 0.15)' : 'transparent'
+                                    }}
+                                >
+                                    <div>
+                                        <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                            <span>{s.apellido}, {s.nombre}</span>
+                                            {isBlocked && (
+                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: '999px', backgroundColor: '#fee2e2', color: '#991b1b', fontWeight: 600 }}>
+                                                    BLOQUEO PREVENTIVO
+                                                </span>
+                                            )}
+                                            {isDraft && (
+                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: '999px', backgroundColor: '#fef3c7', color: '#92400e', fontWeight: 600 }}>
+                                                    ALTA PRELIMINAR (BORRADOR)
+                                                </span>
+                                            )}
+                                            {isSuspended && (
+                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderRadius: '999px', backgroundColor: '#fee2e2', color: '#991b1b', fontWeight: 600 }}>
+                                                    SUSPENDIDO
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>DNI: {s.dni}</div>
+                                    </div>
+                                    <div style={{ color: hasWarning ? '#d97706' : 'hsl(var(--primary))', fontSize: '0.9rem', fontWeight: 500 }}>
+                                        {hasWarning ? 'Atención →' : 'Seleccionar →'}
+                                    </div>
                                 </div>
-                                <div style={{ color: 'hsl(var(--primary))', fontSize: '0.9rem' }}>Seleccionar →</div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             )}
@@ -184,6 +227,19 @@ function NewDispenseForm() {
             {/* STEP 2: ORDER DETAILS */}
             {step === 2 && selectedSocio && (
                 <div>
+                    {(selectedSocio.bloqueado || selectedSocio.status !== 'active') && (
+                        <div style={{
+                            padding: '0.75rem 1rem',
+                            backgroundColor: '#fef3c7',
+                            border: '1px solid #fcd34d',
+                            borderRadius: 'var(--radius)',
+                            marginBottom: '1rem',
+                            color: '#92400e',
+                            fontSize: '0.85rem'
+                        }}>
+                            ⚠️ <strong>Advertencia institucional:</strong> El socio seleccionado no cuenta con estado activo pleno ({selectedSocio.bloqueado ? 'posee Bloqueo Preventivo activo' : `estado: ${selectedSocio.status}`}). La base de datos rechazará la creación del pedido si no cuenta con habilitación vigente.
+                        </div>
+                    )}
                     <div style={{ padding: '1rem', backgroundColor: 'hsl(var(--muted))', borderRadius: 'var(--radius)', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                             <strong>Socio:</strong> {selectedSocio.nombre} {selectedSocio.apellido} (DNI {selectedSocio.dni})

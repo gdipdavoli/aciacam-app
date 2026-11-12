@@ -1081,8 +1081,8 @@ export default function SocioDetailsPage() {
                     mappedDocs[normalized] = {
                         estado: d.estado as EstadoDocumento,
                         archivoPath: d.archivo_path || undefined,
-                        fechaEmision: d.fecha_emision || undefined,
-                        fechaVencimiento: d.fecha_vencimiento || undefined,
+                        fechaEmision: d.fecha_emision ? d.fecha_emision.slice(0, 10) : undefined,
+                        fechaVencimiento: d.fecha_vencimiento ? d.fecha_vencimiento.slice(0, 10) : undefined,
                         monto: d.monto || undefined,
                         observaciones: d.observaciones || undefined,
                         verificacion_estado: d.verificacion_estado || 'pendiente',
@@ -1212,8 +1212,8 @@ export default function SocioDetailsPage() {
                       mappedDocs[normalized] = {
                         estado: d.estado as EstadoDocumento,
                         archivoPath: d.archivo_path || undefined,
-                        fechaEmision: d.fecha_emision || undefined,
-                        fechaVencimiento: d.fecha_vencimiento || undefined,
+                        fechaEmision: d.fecha_emision ? d.fecha_emision.slice(0, 10) : undefined,
+                        fechaVencimiento: d.fecha_vencimiento ? d.fecha_vencimiento.slice(0, 10) : undefined,
                         monto: d.monto || undefined,
                         observaciones: d.observaciones || undefined,
                         verificacion_estado: d.verificacion_estado || 'pendiente',
@@ -1467,35 +1467,88 @@ export default function SocioDetailsPage() {
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                             <h1 style={{ fontSize: '1.5rem', fontWeight: 700, lineHeight: 1, margin: 0 }}>{socio.apellido}, {socio.nombre}</h1>
-                            {/* Badges de Estado Institucional y Habilitación */}
+                            {/* Badges de Estado Institucional, Bloqueo Preventivo y Cumplimiento Documental */}
                             <span style={{
                                 fontSize: '0.75rem',
                                 padding: '0.2rem 0.5rem',
                                 borderRadius: '999px',
                                 fontWeight: 600,
-                                backgroundColor: socio.status === 'active' ? '#dcfce7' : socio.status === 'suspended' ? '#fee2e2' : '#e0f2fe',
-                                color: socio.status === 'active' ? '#166534' : socio.status === 'suspended' ? '#991b1b' : '#0369a1'
+                                backgroundColor: socio.status === 'suspended' ? '#fee2e2' : (socio.status === 'active' ? '#dcfce7' : '#e0f2fe'),
+                                color: socio.status === 'suspended' ? '#991b1b' : (socio.status === 'active' ? '#166534' : '#0369a1')
                             }}>
-                                {socio.status === 'active' ? 'Socio Activo (CD)' : socio.status === 'suspended' ? 'Suspendido' : 'Alta Administrativa (Borrador)'}
+                                {socio.status === 'suspended'
+                                    ? 'Socio Suspendido'
+                                    : (socio.status === 'active'
+                                        ? (socio.actaNumero ? `Socio Activo (Acta N° ${socio.actaNumero})` : 'Socio Activo')
+                                        : 'Alta Administrativa (Borrador)')
+                                }
                             </span>
+
                             <span style={{
                                 fontSize: '0.75rem',
                                 padding: '0.2rem 0.5rem',
                                 borderRadius: '999px',
                                 fontWeight: 600,
-                                backgroundColor: socio.bloqueado ? '#fee2e2' : (!socio.activo ? '#fee2e2' : '#f0fdf4'),
-                                color: socio.bloqueado ? '#991b1b' : (!socio.activo ? '#991b1b' : '#166534'),
-                                border: socio.bloqueado ? '1px solid #fca5a5' : (!socio.activo ? '1px solid #fca5a5' : '1px solid #86efac')
+                                backgroundColor: socio.bloqueado ? '#fee2e2' : '#f0fdf4',
+                                color: socio.bloqueado ? '#991b1b' : '#166534',
+                                border: socio.bloqueado ? '1px solid #fca5a5' : '1px solid #86efac'
                             }}>
-                                {socio.bloqueado ? 'Bloqueado para Dispensas' : (!socio.activo ? 'Inactivo' : 'Dispensas Permitidas')}
+                                {socio.bloqueado ? 'Bloqueo Preventivo Activo' : 'Sin Bloqueo Preventivo'}
                             </span>
+
+                            {(() => {
+                                const reproDoc = socio.documentacion?.reprocann;
+                                const reproDays = reproDoc?.fechaVencimiento ? calculateDaysRemaining(reproDoc.fechaVencimiento) : null;
+                                const isReproVencido = reproDays !== null && reproDays <= 0;
+                                const isReproApproved = reproDoc?.verificacion_estado === 'aprobado';
+                                const isComplianceComplete = compliance?.completo === true;
+
+                                let docText = 'Documentación Completa';
+                                let docBg = '#f0fdf4';
+                                let docColor = '#166534';
+                                let docBorder = '#86efac';
+
+                                if (socio.status === 'draft') {
+                                    docText = 'Alta preliminar (Pendiente admisión)';
+                                    docBg = '#e0f2fe';
+                                    docColor = '#0369a1';
+                                    docBorder = '#7dd3fc';
+                                } else if (isReproVencido) {
+                                    docText = 'REPROCANN Vencido';
+                                    docBg = '#fee2e2';
+                                    docColor = '#991b1b';
+                                    docBorder = '#fca5a5';
+                                } else if (reproDoc && !isReproApproved) {
+                                    docText = 'REPROCANN en Revisión';
+                                    docBg = '#fef3c7';
+                                    docColor = '#92400e';
+                                    docBorder = '#fcd34d';
+                                } else if (compliance && !isComplianceComplete) {
+                                    docText = `Documentación Incompleta (${compliance.faltantes?.length || 0} pendientes)`;
+                                    docBg = '#fef3c7';
+                                    docColor = '#92400e';
+                                    docBorder = '#fcd34d';
+                                }
+
+                                return (
+                                    <span style={{
+                                        fontSize: '0.75rem',
+                                        padding: '0.2rem 0.5rem',
+                                        borderRadius: '999px',
+                                        fontWeight: 600,
+                                        backgroundColor: docBg,
+                                        color: docColor,
+                                        border: `1px solid ${docBorder}`
+                                    }}>
+                                        {docText}
+                                    </span>
+                                );
+                            })()}
                         </div>
                         <div style={{ fontSize: '0.9rem', color: 'hsl(var(--muted-foreground))', marginTop: '0.35rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
                             <span>DNI {socio.dni}</span>
-                            {socio.actaNumero ? (
+                            {socio.actaNumero && (
                                 <span>• Admisión CD: Acta N° {socio.actaNumero}{socio.ordenLibro ? ` (Libro N° ${socio.ordenLibro})` : ''}</span>
-                            ) : (
-                                <span style={{ color: '#d97706' }}>• Admisión CD pendiente (sin N° acta)</span>
                             )}
                         </div>
                     </div>
@@ -1722,7 +1775,16 @@ export default function SocioDetailsPage() {
                                     if (!hasExpiration) {
                                         expirationContent = <span style={{ color: 'hsl(var(--muted-foreground))' }}>No aplica</span>;
                                     } else if (!doc?.fechaVencimiento) {
-                                        expirationContent = <span style={{ color: 'hsl(var(--muted-foreground))' }}>Fecha no informada</span>;
+                                        if (def.key === 'reprocann' && socio.reprocann?.fechaVencimiento) {
+                                            expirationContent = (
+                                                <span title="Fecha registrada en perfil regulatorio, pendiente de cotejo en archivo adjunto" style={{ color: '#d97706', fontSize: '0.85rem' }}>
+                                                    {formatCalendarDate(socio.reprocann.fechaVencimiento)}
+                                                    <span style={{ display: 'block', fontSize: '0.7rem', color: 'hsl(var(--muted-foreground))' }}>(Perfil regulatorio)</span>
+                                                </span>
+                                            );
+                                        } else {
+                                            expirationContent = <span style={{ color: 'hsl(var(--muted-foreground))' }}>Fecha no informada</span>;
+                                        }
                                     } else {
                                         const days = calculateDaysRemaining(doc.fechaVencimiento);
                                         const formattedDate = formatCalendarDate(doc.fechaVencimiento);
