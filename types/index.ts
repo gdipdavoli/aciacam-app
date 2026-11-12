@@ -171,6 +171,39 @@ export interface Pedido {
     socio?: Socio;
     created_by_user_id?: string;
     idempotency_key?: string;
+    updated_at?: string;
+}
+
+export interface PedidosFilterOptions {
+    page?: number;
+    limit?: number;
+    status?: string;
+    origen?: string;
+    tipoPedido?: string;
+    desde?: string;
+    hasta?: string;
+    search?: string;
+    sortBy?: 'created_at' | 'fecha_retiro_preferida' | 'updated_at';
+    sortDir?: 'asc' | 'desc';
+    includeArchived?: boolean;
+}
+
+export interface PaginatedPedidosResult {
+    pedidos: Pedido[];
+    pagination: {
+        page: number;
+        limit: number;
+        totalCount: number;
+        totalPages: number;
+        hasMore: boolean;
+    };
+    counts: {
+        all: number;
+        active: number;
+        en_preparacion: number;
+        finalized: number;
+        archived: number;
+    };
 }
 
 export type PagoConcepto = 'aporte_sostenimiento' | 'cuota_social' | 'donacion' | 'otro';

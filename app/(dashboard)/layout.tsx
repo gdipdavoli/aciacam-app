@@ -25,7 +25,10 @@ import {
     Package,
     Coins,
     DollarSign,
-    MoreHorizontal
+    MoreHorizontal,
+    ChevronDown,
+    ChevronRight,
+    ShieldCheck
 } from 'lucide-react';
 import { NotificationService } from '@/services/notificationService';
 // import { ChatWidget } from '@/app/components/ChatWidget';
@@ -44,6 +47,13 @@ export default function DashboardLayout({
     const [unreadCount, setUnreadCount] = useState(0);
     const prevUnreadCountRef = React.useRef<number | null>(null);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
+    const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+
+    useEffect(() => {
+        if (pathname?.startsWith('/admin/inbox') || pathname?.startsWith('/admin/asistente')) {
+            setAgentMenuOpen(true);
+        }
+    }, [pathname]);
 
     React.useEffect(() => {
         if (prevUnreadCountRef.current !== null && unreadCount > prevUnreadCountRef.current) {
@@ -174,35 +184,37 @@ export default function DashboardLayout({
         );
     }
 
-    // Define navigation based on role
-    let navItems = [];
+    const isAdminOrStaff = user?.rol === 'admin' || user?.rol === 'staff';
 
-    if (user?.rol === 'admin' || user?.rol === 'staff') {
-        navItems = [
-            { href: '/admin/inbox', label: 'Bandeja', icon: Inbox },
-            { href: '/admin/asistente', label: 'Asistente', icon: Bot },
-            { href: '/admin/preparacion', label: 'Preparación', icon: Package },
-            { href: '/admin', label: 'Pedidos', icon: ShoppingBag },
-            { href: '/admin/products', label: 'Productos', icon: CheckCircle },
-            { href: '/admin/notificaciones', label: 'Mensajes', icon: Bell, badge: unreadCount },
-            { href: '/admin/socios', label: 'Socios', icon: User },
-            { href: '/admin/pagos', label: 'Pagos / Caja', icon: Coins },
-            { href: '/admin/estadisticas', label: 'Estadísticas', icon: BarChart3 },
-            { href: '/admin/agenda', label: 'Agenda', icon: Calendar },
-            { href: '/admin/configuracion', label: 'Configuración', icon: Settings },
-        ];
+    const primaryAdminNav = [
+        { href: '/admin', label: 'Pedidos', icon: ShoppingBag },
+        { href: '/admin/socios', label: 'Socios', icon: User },
+        { href: '/admin/preparacion', label: 'Preparación', icon: Package },
+        { href: '/admin/pagos', label: 'Pagos / Caja', icon: Coins },
+        { href: '/admin/agenda', label: 'Agenda', icon: Calendar },
+        { href: '/admin/estadisticas', label: 'Estadísticas', icon: BarChart3 },
+        { href: '/admin/products', label: 'Productos', icon: CheckCircle },
+        { href: '/admin/notificaciones', label: 'Mensajes', icon: Bell, badge: unreadCount },
+    ];
 
-        if (user.rol === 'admin') {
-            navItems.push({ href: '/admin/equipo', label: 'Equipo', icon: Users });
-        }
-    } else {
-        navItems = [
-            { href: '/notificaciones', label: 'Notificaciones', icon: Bell, badge: unreadCount },
-            { href: '/variedades', label: 'Opciones de tratamiento', icon: Flower2 },
-            { href: '/pedidos', label: 'Mis Pedidos', icon: ShoppingBag },
-            { href: '/cuenta', label: 'Mi Cuenta', icon: User },
-        ];
+    const agentAdminNav = [
+        { href: '/admin/inbox', label: 'Bandeja de Agente', icon: Inbox },
+        { href: '/admin/asistente', label: 'Asistente IA', icon: Bot },
+    ];
+
+    const systemAdminNav = [
+        { href: '/admin/configuracion', label: 'Configuración', icon: Settings },
+    ];
+    if (user?.rol === 'admin') {
+        systemAdminNav.push({ href: '/admin/equipo', label: 'Equipo', icon: Users });
     }
+
+    const socioNavItems = [
+        { href: '/notificaciones', label: 'Notificaciones', icon: Bell, badge: unreadCount },
+        { href: '/variedades', label: 'Opciones de tratamiento', icon: Flower2 },
+        { href: '/pedidos', label: 'Mis Pedidos', icon: ShoppingBag },
+        { href: '/cuenta', label: 'Mi Cuenta', icon: User },
+    ];
 
     return (
         <div className={styles.container}>
@@ -216,41 +228,133 @@ export default function DashboardLayout({
                 </div>
 
                 <nav className={styles.nav}>
-                    {navItems.map((item) => {
-                        const Icon = item.icon;
-                        const isActive = pathname === item.href;
-                        return (
-                            <Link
-                                key={item.href}
-                                href={item.href}
-                                className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
-                            >
-                                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                    <Icon size={20} />
-                                    {item.badge !== undefined && item.badge > 0 && (
-                                        <span style={{
-                                            position: 'absolute',
-                                            top: '-8px',
-                                            right: '-8px',
-                                            backgroundColor: 'hsl(var(--destructive))',
-                                            color: 'white',
-                                            borderRadius: '50%',
-                                            width: '16px',
-                                            height: '16px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontSize: '0.65rem',
-                                            fontWeight: 700
-                                        }}>
-                                            {item.badge > 9 ? '9+' : item.badge}
-                                        </span>
-                                    )}
-                                </div>
-                                <span>{item.label}</span>
-                            </Link>
-                        );
-                    })}
+                    {isAdminOrStaff ? (
+                        <>
+                            {/* Módulos Principales de Operación */}
+                            {primaryAdminNav.map((item) => {
+                                const Icon = item.icon;
+                                const isActive = pathname === item.href;
+                                return (
+                                    <Link
+                                        key={item.href}
+                                        href={item.href}
+                                        className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+                                    >
+                                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                            <Icon size={20} />
+                                            {item.badge !== undefined && item.badge > 0 && (
+                                                <span style={{
+                                                    position: 'absolute',
+                                                    top: '-8px',
+                                                    right: '-8px',
+                                                    backgroundColor: 'hsl(var(--destructive))',
+                                                    color: 'white',
+                                                    borderRadius: '50%',
+                                                    width: '16px',
+                                                    height: '16px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: '0.65rem',
+                                                    fontWeight: 700
+                                                }}>
+                                                    {item.badge > 9 ? '9+' : item.badge}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <span>{item.label}</span>
+                                    </Link>
+                                );
+                            })}
+
+                            {/* Sección Secundaria: Centro de Agentes e IA */}
+                            <div className="pt-2 pb-1 border-t border-border/50 mt-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setAgentMenuOpen(prev => !prev)}
+                                    className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-muted/40"
+                                >
+                                    <span className="flex items-center gap-1.5 uppercase tracking-wider text-[10px] font-bold">
+                                        <Bot size={14} className="text-primary" />
+                                        Agente & IA
+                                    </span>
+                                    {agentMenuOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                </button>
+                                {agentMenuOpen && (
+                                    <div className="mt-1 flex flex-col gap-1 pl-1">
+                                        {agentAdminNav.map((item) => {
+                                            const Icon = item.icon;
+                                            const isActive = pathname === item.href;
+                                            return (
+                                                <Link
+                                                    key={item.href}
+                                                    href={item.href}
+                                                    className={`${styles.navItem} ${isActive ? styles.navItemActive : ''} text-xs py-2`}
+                                                >
+                                                    <Icon size={16} />
+                                                    <span>{item.label}</span>
+                                                </Link>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Sistema y Configuración */}
+                            <div className="pt-2 border-t border-border/50 mt-1 flex flex-col gap-1">
+                                {systemAdminNav.map((item) => {
+                                    const Icon = item.icon;
+                                    const isActive = pathname === item.href;
+                                    return (
+                                        <Link
+                                            key={item.href}
+                                            href={item.href}
+                                            className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+                                        >
+                                            <Icon size={18} />
+                                            <span>{item.label}</span>
+                                        </Link>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    ) : (
+                        socioNavItems.map((item) => {
+                            const Icon = item.icon;
+                            const isActive = pathname === item.href;
+                            return (
+                                <Link
+                                    key={item.href}
+                                    href={item.href}
+                                    className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+                                >
+                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                        <Icon size={20} />
+                                        {item.badge !== undefined && item.badge > 0 && (
+                                            <span style={{
+                                                position: 'absolute',
+                                                top: '-8px',
+                                                right: '-8px',
+                                                backgroundColor: 'hsl(var(--destructive))',
+                                                color: 'white',
+                                                borderRadius: '50%',
+                                                width: '16px',
+                                                height: '16px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '0.65rem',
+                                                fontWeight: 700
+                                            }}>
+                                                {item.badge > 9 ? '9+' : item.badge}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <span>{item.label}</span>
+                                </Link>
+                            );
+                        })
+                    )}
 
                     {/* Cart Item - Only for Members */}
                     {user.rol !== 'admin' && user.rol !== 'staff' && (
@@ -311,16 +415,7 @@ export default function DashboardLayout({
             <nav className={styles.mobileNav}>
                 {(user?.rol === 'admin' || user?.rol === 'staff') ? (
                     <>
-                        {/* 1. Preparación */}
-                        <Link
-                            href="/admin/preparacion"
-                            className={`${styles.mobileNavItem} ${pathname === '/admin/preparacion' ? styles.mobileNavItemActive : ''}`}
-                        >
-                            <Package size={22} />
-                            <span>Preparar</span>
-                        </Link>
-
-                        {/* 2. Pedidos */}
+                        {/* 1. Pedidos */}
                         <Link
                             href="/admin"
                             className={`${styles.mobileNavItem} ${pathname === '/admin' ? styles.mobileNavItemActive : ''}`}
@@ -329,13 +424,22 @@ export default function DashboardLayout({
                             <span>Pedidos</span>
                         </Link>
 
-                        {/* 3. Productos */}
+                        {/* 2. Socios */}
                         <Link
-                            href="/admin/products"
-                            className={`${styles.mobileNavItem} ${pathname === '/admin/products' ? styles.mobileNavItemActive : ''}`}
+                            href="/admin/socios"
+                            className={`${styles.mobileNavItem} ${pathname === '/admin/socios' ? styles.mobileNavItemActive : ''}`}
                         >
-                            <CheckCircle size={22} />
-                            <span>Productos</span>
+                            <User size={22} />
+                            <span>Socios</span>
+                        </Link>
+
+                        {/* 3. Preparación */}
+                        <Link
+                            href="/admin/preparacion"
+                            className={`${styles.mobileNavItem} ${pathname === '/admin/preparacion' ? styles.mobileNavItemActive : ''}`}
+                        >
+                            <Package size={22} />
+                            <span>Preparar</span>
                         </Link>
 
                         {/* 4. Notificaciones */}
@@ -496,50 +600,24 @@ export default function DashboardLayout({
                         </div>
 
                         {/* Drawer Secondary Navigation Grid */}
-                        <div className="grid grid-cols-2 gap-3 mb-6">
-                            <Link
-                                href="/admin/socios"
-                                onClick={() => setShowMoreMenu(false)}
-                                className={`flex items-center gap-2.5 p-3.5 rounded-xl border text-xs font-bold transition-all ${
-                                    pathname === '/admin/socios'
-                                        ? 'bg-primary/10 border-primary text-primary'
-                                        : 'bg-card hover:bg-muted/40 border-border text-foreground'
-                                }`}
-                            >
-                                <User size={16} />
-                                <span>Socios</span>
-                            </Link>
-
-                            <Link
-                                href="/admin/estadisticas"
-                                onClick={() => setShowMoreMenu(false)}
-                                className={`flex items-center gap-2.5 p-3.5 rounded-xl border text-xs font-bold transition-all ${
-                                    pathname === '/admin/estadisticas'
-                                        ? 'bg-primary/10 border-primary text-primary'
-                                        : 'bg-card hover:bg-muted/40 border-border text-foreground'
-                                }`}
-                            >
-                                <BarChart3 size={16} />
-                                <span>Estadísticas</span>
-                            </Link>
-
+                        <div className="grid grid-cols-2 gap-2.5 mb-4">
                             <Link
                                 href="/admin/pagos"
                                 onClick={() => setShowMoreMenu(false)}
-                                className={`flex items-center gap-2.5 p-3.5 rounded-xl border text-xs font-bold transition-all ${
+                                className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
                                     pathname === '/admin/pagos'
                                         ? 'bg-primary/10 border-primary text-primary'
                                         : 'bg-card hover:bg-muted/40 border-border text-foreground'
                                 }`}
                             >
-                                <DollarSign size={16} />
+                                <Coins size={16} />
                                 <span>Pagos / Caja</span>
                             </Link>
 
                             <Link
                                 href="/admin/agenda"
                                 onClick={() => setShowMoreMenu(false)}
-                                className={`flex items-center gap-2.5 p-3.5 rounded-xl border text-xs font-bold transition-all ${
+                                className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
                                     pathname === '/admin/agenda'
                                         ? 'bg-primary/10 border-primary text-primary'
                                         : 'bg-card hover:bg-muted/40 border-border text-foreground'
@@ -550,32 +628,99 @@ export default function DashboardLayout({
                             </Link>
 
                             <Link
-                                href="/admin/configuracion"
+                                href="/admin/estadisticas"
                                 onClick={() => setShowMoreMenu(false)}
-                                className={`flex items-center gap-2.5 p-3.5 rounded-xl border text-xs font-bold transition-all ${
-                                    pathname === '/admin/configuracion'
+                                className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
+                                    pathname === '/admin/estadisticas'
                                         ? 'bg-primary/10 border-primary text-primary'
                                         : 'bg-card hover:bg-muted/40 border-border text-foreground'
                                 }`}
                             >
-                                <Settings size={16} />
-                                <span>Configuración</span>
+                                <BarChart3 size={16} />
+                                <span>Estadísticas</span>
                             </Link>
 
-                            {user.rol === 'admin' && (
+                            <Link
+                                href="/admin/products"
+                                onClick={() => setShowMoreMenu(false)}
+                                className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
+                                    pathname === '/admin/products'
+                                        ? 'bg-primary/10 border-primary text-primary'
+                                        : 'bg-card hover:bg-muted/40 border-border text-foreground'
+                                }`}
+                            >
+                                <CheckCircle size={16} />
+                                <span>Productos</span>
+                            </Link>
+                        </div>
+
+                        {/* Herramientas de Agente & IA en Mobile */}
+                        <div className="mb-4 pt-3 border-t border-border/60">
+                            <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                <Bot size={13} className="text-primary" />
+                                Herramientas de Agente
+                            </div>
+                            <div className="grid grid-cols-2 gap-2.5">
                                 <Link
-                                    href="/admin/equipo"
+                                    href="/admin/inbox"
                                     onClick={() => setShowMoreMenu(false)}
-                                    className={`flex items-center gap-2.5 p-3.5 rounded-xl border text-xs font-bold transition-all ${
-                                        pathname === '/admin/equipo'
+                                    className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
+                                        pathname === '/admin/inbox'
                                             ? 'bg-primary/10 border-primary text-primary'
                                             : 'bg-card hover:bg-muted/40 border-border text-foreground'
                                     }`}
                                 >
-                                    <Users size={16} />
-                                    <span>Equipo</span>
+                                    <Inbox size={16} />
+                                    <span>Bandeja</span>
                                 </Link>
-                            )}
+                                <Link
+                                    href="/admin/asistente"
+                                    onClick={() => setShowMoreMenu(false)}
+                                    className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
+                                        pathname === '/admin/asistente'
+                                            ? 'bg-primary/10 border-primary text-primary'
+                                            : 'bg-card hover:bg-muted/40 border-border text-foreground'
+                                    }`}
+                                >
+                                    <Bot size={16} />
+                                    <span>Asistente</span>
+                                </Link>
+                            </div>
+                        </div>
+
+                        {/* Configuración y Administración */}
+                        <div className="mb-6 pt-3 border-t border-border/60">
+                            <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
+                                Sistema
+                            </div>
+                            <div className="grid grid-cols-2 gap-2.5">
+                                <Link
+                                    href="/admin/configuracion"
+                                    onClick={() => setShowMoreMenu(false)}
+                                    className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
+                                        pathname === '/admin/configuracion'
+                                            ? 'bg-primary/10 border-primary text-primary'
+                                            : 'bg-card hover:bg-muted/40 border-border text-foreground'
+                                    }`}
+                                >
+                                    <Settings size={16} />
+                                    <span>Configuración</span>
+                                </Link>
+                                {user?.rol === 'admin' && (
+                                    <Link
+                                        href="/admin/equipo"
+                                        onClick={() => setShowMoreMenu(false)}
+                                        className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-bold transition-all ${
+                                            pathname === '/admin/equipo'
+                                                ? 'bg-primary/10 border-primary text-primary'
+                                                : 'bg-card hover:bg-muted/40 border-border text-foreground'
+                                        }`}
+                                    >
+                                        <Users size={16} />
+                                        <span>Equipo</span>
+                                    </Link>
+                                )}
+                            </div>
                         </div>
 
                         {/* Logout & Close buttons */}

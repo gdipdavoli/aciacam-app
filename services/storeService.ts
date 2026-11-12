@@ -1,4 +1,4 @@
-import { Producto, Pedido, OrderType, OrderItem, Socio, Pago, ProductoWithStockInfo, CierreMensual } from '@/types';
+import { Producto, Pedido, OrderType, OrderItem, Socio, Pago, ProductoWithStockInfo, CierreMensual, PedidosFilterOptions, PaginatedPedidosResult } from '@/types';
 import { supabase } from './supabaseClient';
 import * as DocService from './documentacionService';
 import { fetchLinkedProfile } from './linkedProfile';
@@ -187,7 +187,10 @@ const mapPedidoFromDB = (row: any): Pedido => ({
     franjaHoraria: row.franja_horaria,
     entrega_estimada: row.entrega_estimada,
     archivado: row.archivado,
-    socio: row.socio ? mapSocioFromDB(row.socio) : undefined
+    socio: row.socio ? mapSocioFromDB(row.socio) : undefined,
+    created_by_user_id: row.created_by_user_id,
+    idempotency_key: row.idempotency_key,
+    updated_at: row.updated_at
 });
 
 export const StoreService = {
@@ -502,26 +505,123 @@ export const StoreService = {
         return mapPagoFromDB(data);
     },
 
+    getPedidosPaginated: async (options: PedidosFilterOptions = {}): Promise<PaginatedPedidosResult> => {
+        try {
+            const session = (await supabase?.auth.getSession())?.data?.session;
+            const headers: Record<string, string> = {
+                'Cache-Control': 'no-cache'
+            };
+            if (session?.access_token) {
+                headers['Authorization'] = `Bearer ${session.access_token}`;
+            }
+
+            const params = new URLSearchParams();
+            if (options.page) params.set('page', String(options.page));
+            if (options.limit) params.set('limit', String(options.limit));
+            if (options.status) params.set('status', options.status);
+            if (options.origen) params.set('origen', options.origen);
+            if (options.tipoPedido) params.set('tipoPedido', options.tipoPedido);
+            if (options.desde) params.set('desde', options.desde);
+            if (options.hasta) params.set('hasta', options.hasta);
+            if (options.search) params.set('search', options.search);
+            if (options.sortBy) params.set('sortBy', options.sortBy);
+            if (options.sortDir) params.set('sortDir', options.sortDir);
+            if (options.includeArchived) params.set('includeArchived', 'true');
+
+            const url = `/api/admin/pedidos?${params.toString()}`;
+            const res = await fetch(url, { headers, cache: 'no-store' });
+
+            if (!res.ok) {
+                const errJson = await res.json().catch(() => null);
+                const errMsg = errJson?.error || `Error HTTP ${res.status} al consultar pedidos`;
+                throw new Error(errMsg);
+            }
+
+            const data = await res.json();
+            const rawPedidos = Array.isArray(data) ? data : (data.pedidos || []);
+            const mappedPedidos = rawPedidos.map(mapPedidoFromDB);
+
+            return {
+                pedidos: mappedPedidos,
+                pagination: data.pagination || {
+                    page: options.page || 1,
+                    limit: options.limit || mappedPedidos.length || 15,
+                    totalCount: mappedPedidos.length,
+                    totalPages: 1,
+                    hasMore: false
+                },
+                counts: data.counts || {
+                    all: mappedPedidos.length,
+                    active: 0,
+                    en_preparacion: 0,
+                    finalized: mappedPedidos.length,
+                    archived: 0
+                }
+            };
+        } catch (e: any) {
+            console.error("StoreService: getPedidosPaginated failed", e);
+            throw e;
+        }
+    },
+
+    setOrderArchived: async (orderId: string, archivado: boolean, motivo?: string): Promise<boolean> => {
+        try {
+            const session = (await supabase?.auth.getSession())?.data?.session;
+            const headers: Record<string, string> = {
+                'Content-Type': 'application/json'
+            };
+            if (session?.access_token) {
+                headers['Authorization'] = `Bearer ${session.access_token}`;
+            }
+
+            const res = await fetch('/api/admin/pedidos', {
+                method: 'PATCH',
+                headers,
+                body: JSON.stringify({ orderId, archivado, motivo })
+            });
+
+            if (!res.ok) {
+                const errJson = await res.json().catch(() => null);
+                throw new Error(errJson?.error || `Error HTTP ${res.status} al cambiar estado de archivado`);
+            }
+
+            return true;
+        } catch (e: any) {
+            console.error("StoreService: setOrderArchived Failed", e);
+            throw e;
+        }
+    },
+
     getAllPedidos: async (includeArchived = false): Promise<Pedido[]> => {
-        if (!supabase) return [];
+        try {
+            const paginated = await StoreService.getPedidosPaginated({
+                status: 'all',
+                limit: 1000,
+                includeArchived
+            });
+            return paginated.pedidos;
+        } catch (err) {
+            console.warn("StoreService: Fallback a consulta directa en getAllPedidos", err);
+            if (!supabase) return [];
 
-        let query = supabase
-            .from('pedidos')
-            .select('*')
-            .order('created_at', { ascending: false });
+            let query = supabase
+                .from('pedidos')
+                .select('*')
+                .order('created_at', { ascending: false });
 
-        if (!includeArchived) {
-            query = query.or('archivado.is.null,archivado.eq.false');
+            if (!includeArchived) {
+                query = query.or('archivado.is.null,archivado.eq.false');
+            }
+
+            const { data, error } = await query;
+
+            if (error) {
+                console.error("StoreService: GetAllPedidos Failed", error);
+                return [];
+            }
+
+            return (data || []).map(mapPedidoFromDB);
         }
-
-        const { data, error } = await query;
-
-        if (error) {
-            console.error("StoreService: GetAllPedidos Failed", error);
-            return [];
-        }
-
-        return (data || []).map(mapPedidoFromDB);
     },
 
     confirmOrderAndPayments: async (
@@ -698,26 +798,42 @@ export const StoreService = {
         if (error) throw error;
     },
 
-    archiveFinishedOrders: async (): Promise<void> => {
-        if (!supabase) return;
+    archiveFinishedOrders: async (motivo = 'Archivado masivo de pedidos finalizados', actorId?: string): Promise<number> => {
+        if (!supabase) return 0;
 
         // Archive: Entregado, Retirado, Cancelado
         const statusesToArchive = ['entregado', 'retirado', 'cancelado'];
 
         console.log("StoreService: Attempting to archive orders with status:", statusesToArchive);
 
-        const { data, error, count } = await supabase
+        const { data, error } = await supabase
             .from('pedidos')
             .update({ archivado: true })
             .in('estado', statusesToArchive)
-            .select();
+            .or('archivado.is.null,archivado.eq.false')
+            .select('id');
 
         if (error) {
             console.error("StoreService: Archive Failed", error);
             throw error;
         }
 
-        console.log(`StoreService: Archived ${data?.length} orders.`);
+        const count = data?.length || 0;
+        console.log(`StoreService: Archived ${count} orders.`);
+
+        if (count > 0 && actorId) {
+            try {
+                await StoreService.createAuditLog(actorId, 'UPDATE', 'ORDERS_MASS_ARCHIVE', 'pedidos', {
+                    motivo,
+                    archivedCount: count,
+                    statuses: statusesToArchive
+                });
+            } catch (auditErr) {
+                console.warn('Aviso: no se pudo registrar audit log de archivado masivo:', auditErr);
+            }
+        }
+
+        return count;
     },
 
     addProduct: async (producto: Omit<Producto, 'id'>, actorId: string): Promise<Producto> => {
