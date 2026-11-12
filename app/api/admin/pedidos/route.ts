@@ -198,15 +198,101 @@ export async function GET(request: Request) {
         const totalPages = Math.ceil(total / limit);
         const hasMore = page < totalPages;
 
+        // 7. Enriquecer en memoria los ítems con el catálogo de productos (consulta por lote)
+        // Reglas de negocio:
+        // - Priorizar el nombre registrado originalmente en el pedido si existe
+        // - Si no existe, usar el nombre recuperado del catálogo como referencia en memoria
+        // - Si el producto no existe en el catálogo, «Producto no identificado (<id>)»
+        // - Preservar inmutabilidad de la base de datos (sin alterar pedidos.items persistido)
+        type RawOrderItem = {
+            productoId?: string;
+            producto_id?: string;
+            id?: string;
+            cantidad?: number;
+            productoNombre?: string;
+            nombre?: string;
+            precioUnitario?: number;
+            [key: string]: unknown;
+        };
+
+        const typedPedidos = pedidos || [];
+        const productIds = new Set<string>();
+
+        typedPedidos.forEach((p: any) => {
+            const rawItems: RawOrderItem[] = Array.isArray(p.items) ? p.items : [];
+            rawItems.forEach((it) => {
+                const pid = it.productoId || it.producto_id || it.id;
+                if (pid && typeof pid === 'string') {
+                    productIds.add(pid);
+                }
+            });
+        });
+
+        const catalogMap = new Map<string, string>();
+        if (productIds.size > 0) {
+            const { data: catalogProds, error: catalogErr } = await supabaseAdmin
+                .from('products')
+                .select('id, nombre')
+                .in('id', Array.from(productIds));
+
+            if (!catalogErr && catalogProds) {
+                catalogProds.forEach((cp: { id: string; nombre: string }) => {
+                    catalogMap.set(cp.id, cp.nombre);
+                });
+            }
+        }
+
+        const enrichedPedidos = typedPedidos.map((p: any) => {
+            if (!Array.isArray(p.items)) return p;
+            return {
+                ...p,
+                items: p.items.map((it: RawOrderItem) => {
+                    const pid = it.productoId || it.producto_id || it.id || '';
+                    const originalName = (typeof it.productoNombre === 'string' && it.productoNombre.trim())
+                        || (typeof it.nombre === 'string' && it.nombre.trim())
+                        || null;
+
+                    if (originalName) {
+                        return {
+                            ...it,
+                            productoId: pid,
+                            cantidad: Number(it.cantidad) || 1,
+                            productoNombre: originalName,
+                            nombreOrigen: 'original' as const
+                        };
+                    }
+
+                    const catalogName = pid ? catalogMap.get(pid) : null;
+                    if (catalogName) {
+                        return {
+                            ...it,
+                            productoId: pid,
+                            cantidad: Number(it.cantidad) || 1,
+                            productoNombre: catalogName,
+                            nombreOrigen: 'catalogo' as const
+                        };
+                    }
+
+                    return {
+                        ...it,
+                        productoId: pid,
+                        cantidad: Number(it.cantidad) || 1,
+                        productoNombre: pid ? `Producto no identificado (${pid.slice(0, 8)})` : 'Producto no identificado',
+                        nombreOrigen: 'desconocido' as const
+                    };
+                })
+            };
+        });
+
         // Soporte retrocompatible para clientes legacy que esperan un array directo
         if (isLegacy) {
-            return NextResponse.json(pedidos || [], {
+            return NextResponse.json(enrichedPedidos, {
                 headers: { 'Cache-Control': 'private, no-store' }
             });
         }
 
         return NextResponse.json({
-            pedidos: pedidos || [],
+            pedidos: enrichedPedidos,
             pagination: {
                 page,
                 limit,

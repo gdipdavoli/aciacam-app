@@ -11,15 +11,14 @@
     border-right: 1px solid hsl(var(--border));
     display: flex;
     flex-direction: column;
-    padding: 1.5rem 1rem 1.5rem 1.5rem;
+    padding: 1.25rem 0.75rem 1.25rem 1.25rem;
     position: fixed;
     height: 100vh;
     height: 100dvh;
     left: 0;
     top: 0;
     z-index: 50;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden; /* Elimina scroll anidado: el sidebar exterior permanece estricto y fijo */
 }
 
 .logo {
@@ -147,7 +146,7 @@
     color: hsl(var(--primary));
 }
 
-/* Responsive */
+/* Responsive: Tablet / Mobile */
 @media (max-width: 1024px) {
     .sidebar {
         display: none;
@@ -162,5 +161,56 @@
 
     .mobileNav {
         display: flex;
+    }
+}
+
+/* Responsive: Notebooks y pantallas con baja resolución vertical (768px, 720px o zoom al 125%) */
+@media (max-height: 820px) and (min-width: 1025px) {
+    .sidebar {
+        padding: 0.85rem 0.6rem 0.85rem 1rem;
+    }
+    .logo {
+        margin-bottom: 0.75rem;
+    }
+    .logo picture {
+        width: 85px !important;
+    }
+    .nav {
+        gap: 0.15rem;
+    }
+    .navItem {
+        padding: 0.45rem 0.75rem;
+        gap: 0.5rem;
+        font-size: 0.825rem;
+    }
+    .userSection {
+        padding-top: 0.5rem;
+        gap: 0.25rem;
+    }
+}
+
+@media (max-height: 700px) and (min-width: 1025px) {
+    .sidebar {
+        padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+    }
+    .logo {
+        margin-bottom: 0.35rem;
+    }
+    .logo picture {
+        width: 75px !important;
+    }
+    .nav {
+        gap: 0.1rem;
+    }
+    .navItem {
+        padding: 0.35rem 0.5rem;
+        font-size: 0.785rem;
+    }
+    .userSection {
+        padding-top: 0.35rem;
+    }
+    .logoutBtn {
+        padding: 0.35rem;
+        font-size: 0.8rem;
     }
 }

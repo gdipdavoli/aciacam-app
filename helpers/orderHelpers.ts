@@ -20,12 +20,41 @@ export const getStatusLabel = (status: OrderStatus, type: OrderType): string => 
     }
 };
 
-export const getNextStatusOptions = (type: OrderType): { value: OrderStatus, label: string }[] => {
-    // Rules:
-    // 1 -> En preparación
-    // 2 -> Confirmado (Retiro) / Despachado (Delivery)
-    // 3 -> Entregado
+export const getNextStatusOptions = (type: OrderType, currentStatus?: OrderStatus): { value: OrderStatus, label: string }[] => {
+    // Si el pedido ya se encuentra en un estado terminal, no se admiten transiciones
+    if (currentStatus && isFinalStatus(currentStatus)) {
+        return [];
+    }
 
+    // Reglas de progresión según estado actual:
+    // pendiente -> en_preparacion | cancelado
+    // en_preparacion -> confirmado (retiro) / en_camino (delivery) | cancelado
+    // confirmado / en_camino -> entregado | cancelado
+    if (currentStatus === 'pendiente') {
+        return [
+            { value: 'en_preparacion', label: '1. En preparación' },
+            { value: 'cancelado', label: 'Cancelado' }
+        ];
+    }
+
+    if (currentStatus === 'en_preparacion') {
+        const nextStep = type === 'retiro_sede'
+            ? { value: 'confirmado' as OrderStatus, label: '2. Confirmado (Para Retirar)' }
+            : { value: 'en_camino' as OrderStatus, label: '2. Despachado' };
+        return [
+            nextStep,
+            { value: 'cancelado', label: 'Cancelado' }
+        ];
+    }
+
+    if (currentStatus === 'confirmado' || currentStatus === 'en_camino') {
+        return [
+            { value: 'entregado', label: '3. Entregado' },
+            { value: 'cancelado', label: 'Cancelado' }
+        ];
+    }
+
+    // Fallback retrocompatible si no se especificó currentStatus
     const options: { value: OrderStatus, label: string }[] = [
         { value: 'en_preparacion', label: '1. En preparación' },
     ];
@@ -36,14 +65,7 @@ export const getNextStatusOptions = (type: OrderType): { value: OrderStatus, lab
         options.push({ value: 'en_camino', label: '2. Despachado' });
     }
 
-    // Unify 3 as 'entregado' for simplicity in filtering, 
-    // or keep 'retirado' if backend needs specific distinction.
-    // User requested "Status 3 => Entregado" label.
-    // Let's use 'entregado' as the canonical final state for now, 
-    // or map 'retirado' to have 'Entregado' label.
     options.push({ value: 'entregado', label: '3. Entregado' });
-
-    // Legacy/Extra options can be appended or kept separate
     options.push({ value: 'cancelado', label: 'Cancelado' });
     options.push({ value: 'pendiente', label: 'Pendiente (Inicial)' });
 

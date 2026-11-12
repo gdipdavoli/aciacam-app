@@ -221,7 +221,7 @@ export default function PaymentRegistrationModal({
                         <div className="text-xs font-semibold text-foreground space-y-1.5">
                             {orderItems.map((item, idx) => (
                                 <div key={idx} className="flex justify-between">
-                                    <span>{item.productoNombre}</span>
+                                    <span>{item.productoNombre || (item as any).nombre || (item.productoId ? `Producto no identificado (${item.productoId.slice(0, 8)})` : 'Producto no identificado')}</span>
                                     <span className="text-muted-foreground">x{item.cantidad}</span>
                                 </div>
                             ))}

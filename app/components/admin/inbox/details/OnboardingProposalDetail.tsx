@@ -49,9 +49,9 @@ export function OnboardingProposalDetail({
                 detail.status === 'AWAITING_REVIEW'
                   ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
                   : detail.status === 'APPROVED'
-                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
-                  : detail.status === 'READY_FOR_INVITATION'
                   ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                  : detail.status === 'READY_FOR_INVITATION'
+                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
                   : detail.status === 'INVITING'
                   ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
                   : detail.status === 'INVITE_FAILED'
@@ -63,7 +63,19 @@ export function OnboardingProposalDetail({
                   : 'bg-muted text-muted-foreground'
               }`}
             >
-              {isCompleted ? 'Invitación procesada' : isInviting ? 'Invitación en proceso' : isReadyForInvitation ? 'Listo para invitación' : detail.status}
+              {detail.status === 'AWAITING_REVIEW'
+                ? 'Pendiente de revisión'
+                : detail.status === 'APPROVED'
+                ? 'Propuesta aprobada — Alta pendiente de aplicar'
+                : detail.status === 'READY_FOR_INVITATION'
+                ? 'Ficha creada — Invitación pendiente'
+                : isCompleted
+                ? 'Invitación procesada'
+                : isInviting
+                ? 'Invitación en proceso'
+                : isInviteFailed
+                ? 'Invitación fallida'
+                : detail.status}
             </span>
             {detail.test_mode && (
               <span className="text-[10px] font-mono px-2 py-0.5 bg-muted rounded text-muted-foreground border border-border">
@@ -257,7 +269,10 @@ export function OnboardingProposalDetail({
       )}
 
       {isAdmin && isApproved && onApply && (
-        <div className="pt-4 border-t border-border flex items-center justify-end gap-3">
+        <div className="pt-4 border-t border-border flex flex-col items-end gap-3">
+          <p className="text-xs text-muted-foreground text-right max-w-lg bg-muted/30 p-2.5 rounded-xl border border-border/60">
+            <strong>Aclaración institucional:</strong> La aprobación de la propuesta valida los antecedentes documentales para la creación técnica de la ficha, pero no equivale automáticamente a la admisión institucional definitiva del socio por Comisión Directiva. Para materializar la ficha en la base de datos, presione «Aplicar alta».
+          </p>
           <button
             onClick={onApply}
             className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-colors min-h-[44px]"

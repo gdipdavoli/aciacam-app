@@ -674,21 +674,31 @@ export const StoreService = {
     updatePedidoStatus: async (pedidoId: string, status: Pedido['estado']): Promise<void> => {
         if (!supabase) return;
 
+        // 1. Verificar estado actual del pedido para prevenir modificaciones sobre estados terminales
+        const { data: currentOrder, error: checkErr } = await supabase
+            .from('pedidos')
+            .select('id, estado, tipo_pedido, items')
+            .eq('id', pedidoId)
+            .single();
+
+        if (checkErr || !currentOrder) {
+            throw new Error("No se pudo cargar la información del pedido para actualizar su estado.");
+        }
+
+        const TERMINAL_STATES: Pedido['estado'][] = ['cancelado', 'entregado', 'retirado'];
+        if (TERMINAL_STATES.includes(currentOrder.estado)) {
+            throw new Error(`Operación inválida: El pedido se encuentra en estado terminal '${currentOrder.estado}' y no admite cambios de estado.`);
+        }
+
+        if (currentOrder.estado === status) {
+            return; // Ya se encuentra en el estado deseado
+        }
+
         // Validation for legal transport limits (Resolution 800/2021)
         if (status === 'entregado' || status === 'retirado') {
-            const { data: orderData, error: fetchError } = await supabase
-                .from('pedidos')
-                .select('*')
-                .eq('id', pedidoId)
-                .single();
-
-            if (fetchError || !orderData) {
-                throw new Error("No se pudo cargar la información del pedido para validación.");
-            }
-
-            const items = orderData.items as any[];
+            const items = currentOrder.items as any[];
             if (Array.isArray(items) && items.length > 0) {
-                const productIds = items.map(i => i.productoId);
+                const productIds = items.map(i => i.productoId || i.producto_id);
                 const { data: products, error: prodError } = await supabase
                     .from('products')
                     .select('id, tipo, nombre, peso_gramos')
@@ -702,7 +712,8 @@ export const StoreService = {
                 let totalGoteros = 0;
 
                 items.forEach(item => {
-                    const product = products.find(p => p.id === item.productoId);
+                    const pid = item.productoId || item.producto_id;
+                    const product = products.find(p => p.id === pid);
                     if (product) {
                         if (product.tipo === 'flor') {
                             const pesoUnitario = product.peso_gramos || 1;
@@ -754,6 +765,21 @@ export const StoreService = {
     updatePedidoItems: async (pedidoId: string, items: OrderItem[]): Promise<void> => {
         if (!supabase) return;
 
+        const { data: currentOrder, error: checkErr } = await supabase
+            .from('pedidos')
+            .select('estado')
+            .eq('id', pedidoId)
+            .single();
+
+        if (checkErr || !currentOrder) {
+            throw new Error("No se pudo cargar la información del pedido para actualizar sus ítems.");
+        }
+
+        const TERMINAL_STATES: Pedido['estado'][] = ['cancelado', 'entregado', 'retirado'];
+        if (TERMINAL_STATES.includes(currentOrder.estado)) {
+            throw new Error(`Operación inválida: No se pueden modificar los ítems de un pedido en estado terminal '${currentOrder.estado}'.`);
+        }
+
         const { error } = await supabase
             .from('pedidos')
             .update({ items: items }) // JSONB Update
@@ -764,6 +790,21 @@ export const StoreService = {
 
     updatePedidoDelivery: async (pedidoId: string, deliveryInfo: { entrega_estimada?: string }): Promise<void> => {
         if (!supabase) return;
+
+        const { data: currentOrder, error: checkErr } = await supabase
+            .from('pedidos')
+            .select('estado')
+            .eq('id', pedidoId)
+            .single();
+
+        if (checkErr || !currentOrder) {
+            throw new Error("No se pudo cargar la información del pedido.");
+        }
+
+        const TERMINAL_STATES: Pedido['estado'][] = ['cancelado', 'entregado', 'retirado'];
+        if (TERMINAL_STATES.includes(currentOrder.estado)) {
+            throw new Error(`Operación inválida: No se puede modificar la entrega de un pedido en estado terminal '${currentOrder.estado}'.`);
+        }
 
         const { error } = await supabase
             .from('pedidos')

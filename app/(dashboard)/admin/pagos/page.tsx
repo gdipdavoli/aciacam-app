@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { StoreService } from '@/services/storeService';
 import { EmailService } from '@/services/emailService';
 import { Pago, Socio, CierreMensual } from '@/types';
@@ -31,9 +31,35 @@ import {
 export default function AdminPagosPage() {
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const pathname = usePathname();
 
+    const tabParam = searchParams.get('tab');
     // Navigation Tabs: 'caja' | 'cierres'
-    const [activeTab, setActiveTab] = useState<'caja' | 'cierres'>('caja');
+    const [activeTab, setActiveTab] = useState<'caja' | 'cierres'>(() => {
+        return tabParam === 'cierres' ? 'cierres' : 'caja';
+    });
+
+    // Sincronizar activeTab cuando cambia el parámetro de URL
+    useEffect(() => {
+        if (tabParam === 'cierres' && activeTab !== 'cierres') {
+            setActiveTab('cierres');
+        } else if (tabParam !== 'cierres' && tabParam !== null && activeTab !== 'caja') {
+            setActiveTab('caja');
+        }
+    }, [tabParam, activeTab]);
+
+    const handleTabChange = (newTab: 'caja' | 'cierres') => {
+        setActiveTab(newTab);
+        const params = new URLSearchParams(searchParams.toString());
+        if (newTab === 'cierres') {
+            params.set('tab', 'cierres');
+        } else {
+            params.delete('tab');
+        }
+        const qs = params.toString();
+        router.replace(`${pathname}${qs ? `?${qs}` : ''}`, { scroll: false });
+    };
 
     // Caja State
     const [pagos, setPagos] = useState<Pago[]>([]);
@@ -307,7 +333,7 @@ export default function AdminPagosPage() {
             {/* Navigation Tabs */}
             <div className="flex border-b border-border gap-2">
                 <button
-                    onClick={() => setActiveTab('caja')}
+                    onClick={() => handleTabChange('caja')}
                     className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
                         activeTab === 'caja' 
                             ? 'border-primary text-primary' 
@@ -318,7 +344,7 @@ export default function AdminPagosPage() {
                     Control de Caja
                 </button>
                 <button
-                    onClick={() => setActiveTab('cierres')}
+                    onClick={() => handleTabChange('cierres')}
                     className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
                         activeTab === 'cierres' 
                             ? 'border-primary text-primary' 

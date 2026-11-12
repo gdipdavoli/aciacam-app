@@ -327,7 +327,7 @@ export default function AdminInboxPage() {
       if (action === 'approve') {
         return {
           title: 'Aprobar propuesta de onboarding',
-          description: 'Aprobar la propuesta registrará la revisión administrativa favorable. La propuesta quedará en estado APROBADA, pendiente de materialización posterior.',
+          description: 'Aprobar la propuesta registrará la revisión administrativa favorable de los antecedentes. La propuesta pasará a «Propuesta aprobada — Alta pendiente de aplicar». La aprobación técnica no equivale a la admisión institucional definitiva por CD.',
           confirmLabel: 'Aprobar propuesta',
           confirmVariant: 'success' as const,
           requiresNote: false,
@@ -337,7 +337,7 @@ export default function AdminInboxPage() {
       } else if (action === 'apply') {
         return {
           title: 'Aplicar alta de onboarding',
-          description: 'La propuesta ya fue aprobada. Esta acción materializará el alta del socio y su información previamente revisada. No enviará todavía la invitación de acceso.',
+          description: 'Esta acción creará formalmente la ficha del socio en la base de datos institucional. La propuesta pasará al estado «Ficha creada — Invitación pendiente». No enviará todavía la invitación de acceso.',
           confirmLabel: 'Aplicar alta',
           confirmVariant: 'success' as const,
           requiresNote: false,

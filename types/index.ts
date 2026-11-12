@@ -140,6 +140,9 @@ export interface OrderItem {
     productoId: string;
     cantidad: number;
     productoNombre: string; // denormalized for easier display
+    nombre?: string; // compatibilidad con fuentes alternativas
+    precioUnitario?: number;
+    nombreOrigen?: 'original' | 'catalogo' | 'desconocido';
 }
 
 export type OrigenPedido = 'app' | 'admin';

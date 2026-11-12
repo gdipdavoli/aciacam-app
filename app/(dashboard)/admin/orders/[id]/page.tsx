@@ -7,7 +7,7 @@ import { StoreService } from '@/services/storeService';
 import { Pedido, Socio, OrderType } from '@/types';
 import { ArrowLeft, CheckCircle, Clock, Package, ExternalLink, Send, Calendar, Bell } from 'lucide-react';
 
-import { getStatusLabel, getNextStatusOptions } from '@/helpers/orderHelpers';
+import { getStatusLabel, getNextStatusOptions, isFinalStatus } from '@/helpers/orderHelpers';
 import { NotificationService } from '@/services/notificationService';
 import PaymentRegistrationModal from '@/app/components/admin/PaymentRegistrationModal';
 
@@ -92,6 +92,10 @@ export default function OrderDetailsPage() {
         }
     }, [user, authLoading, router, id]);
     const handleStatusChangeRequest = (newStatus: string) => {
+        if (order && isFinalStatus(order.estado)) {
+            alert(`El pedido ya se encuentra en estado terminal '${order.estado}' y no admite modificaciones.`);
+            return;
+        }
         setPendingStatus(newStatus);
         setShowStatusConfirm(true);
         updateUrl({ statusConfirm: 'true', pendingStatus: newStatus });
@@ -270,12 +274,18 @@ export default function OrderDetailsPage() {
                         <select
                             value={order.estado}
                             onChange={(e) => handleStatusChangeRequest(e.target.value)}
-                            className={`w-full appearance-none px-4 py-2 pr-10 rounded-lg border border-input text-base font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors cursor-pointer ${pendingStatus
-                                    ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-700'
-                                    : 'bg-background text-foreground'
+                            disabled={isFinalStatus(order.estado)}
+                            title={isFinalStatus(order.estado) ? "Los pedidos finalizados o cancelados no admiten cambios de estado" : undefined}
+                            className={`w-full appearance-none px-4 py-2 pr-10 rounded-lg border border-input text-base font-medium focus:outline-none focus:ring-2 focus:ring-ring transition-colors ${
+                                isFinalStatus(order.estado)
+                                    ? 'opacity-60 cursor-not-allowed bg-muted/50 text-muted-foreground'
+                                    : pendingStatus
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-700 cursor-pointer'
+                                    : 'bg-background text-foreground cursor-pointer'
                                 }`}
                         >
-                            {getNextStatusOptions(order.tipoPedido).map(opt => (
+                            <option value="" disabled>{isFinalStatus(order.estado) ? 'Inmutable' : 'Cambiar...'}</option>
+                            {getNextStatusOptions(order.tipoPedido, order.estado).map(opt => (
                                 <option key={opt.value} value={opt.value}>
                                     {opt.label}
                                 </option>
@@ -519,7 +529,7 @@ export default function OrderDetailsPage() {
                                         >x</button>
                                     )}
                                     <span style={{ fontWeight: 500 }}>
-                                        {item.productoNombre}
+                                        {item.productoNombre || (item as any).nombre || (item.productoId ? `Producto no identificado (${item.productoId.slice(0, 8)})` : 'Producto no identificado')}
                                     </span>
                                 </div>
 

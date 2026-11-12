@@ -214,6 +214,10 @@ export default function AdminOrdersPage() {
     const handleStatusChangeRequest = (pedidoId: string, newStatus: string) => {
         const order = orders.find(o => o.id === pedidoId);
         if (order) {
+            if (isFinalStatus(order.estado)) {
+                alert(`El pedido ya se encuentra en estado terminal '${order.estado}' y no admite modificaciones.`);
+                return;
+            }
             setPendingChange({
                 id: pedidoId,
                 newStatus,
@@ -729,10 +733,19 @@ export default function AdminOrdersPage() {
 
                                             {/* Solicitud / Productos */}
                                             <td className="py-3.5 px-4 max-w-[220px]">
-                                                <div className="text-xs text-muted-foreground truncate" title={order.items?.map(i => `${i.cantidad}x ${i.productoNombre}`).join(', ')}>
+                                                <div 
+                                                    className="text-xs text-muted-foreground truncate" 
+                                                    title={order.items?.map(i => {
+                                                        const name = i.productoNombre || (i as any).nombre || (i.productoId ? `Producto no identificado (${i.productoId.slice(0, 8)})` : 'Producto no identificado');
+                                                        return `${i.cantidad}x ${name}`;
+                                                    }).join(', ')}
+                                                >
                                                     {order.items && order.items.length > 0
-                                                        ? order.items.map(i => `${i.cantidad}x ${i.productoNombre}`).join(', ')
-                                                        : 'Sin productos informados'}
+                                                        ? order.items.map(i => {
+                                                            const name = i.productoNombre || (i as any).nombre || (i.productoId ? `Producto no identificado (${i.productoId.slice(0, 8)})` : 'Producto no identificado');
+                                                            return `${i.cantidad}x ${name}`;
+                                                        }).join(', ')
+                                                        : <span className="italic text-muted-foreground/60">Sin productos informados</span>}
                                                 </div>
                                             </td>
 
@@ -777,10 +790,16 @@ export default function AdminOrdersPage() {
                                                     <select
                                                         value={order.estado}
                                                         onChange={(e) => handleStatusChangeRequest(order.id, e.target.value)}
-                                                        className="py-1 px-2.5 rounded-lg border border-input bg-background text-xs font-semibold hover:bg-muted focus:ring-2 focus:ring-primary focus:outline-none cursor-pointer max-w-[140px]"
+                                                        disabled={isFinalStatus(order.estado)}
+                                                        title={isFinalStatus(order.estado) ? "Los pedidos finalizados o cancelados no admiten cambios de estado" : undefined}
+                                                        className={`py-1 px-2.5 rounded-lg border border-input bg-background text-xs font-semibold focus:ring-2 focus:ring-primary focus:outline-none max-w-[140px] ${
+                                                            isFinalStatus(order.estado)
+                                                                ? 'opacity-60 cursor-not-allowed bg-muted/50 text-muted-foreground'
+                                                                : 'hover:bg-muted cursor-pointer'
+                                                        }`}
                                                     >
-                                                        <option value="" disabled>Cambiar...</option>
-                                                        {getNextStatusOptions(order.tipoPedido).map(opt => (
+                                                        <option value="" disabled>{isFinalStatus(order.estado) ? 'Inmutable' : 'Cambiar...'}</option>
+                                                        {getNextStatusOptions(order.tipoPedido, order.estado).map(opt => (
                                                             <option key={opt.value} value={opt.value}>
                                                                 {opt.label}
                                                             </option>
@@ -887,7 +906,10 @@ export default function AdminOrdersPage() {
                                     </div>
                                     {order.items && (
                                         <div className="truncate">
-                                            Items: {order.items.map(i => `${i.cantidad}x ${i.productoNombre}`).join(', ')}
+                                            Items: {order.items.map(i => {
+                                                const name = i.productoNombre || (i as any).nombre || (i.productoId ? `Producto no identificado (${i.productoId.slice(0, 8)})` : 'Producto no identificado');
+                                                return `${i.cantidad}x ${name}`;
+                                            }).join(', ')}
                                         </div>
                                     )}
                                 </div>
@@ -896,10 +918,16 @@ export default function AdminOrdersPage() {
                                     <select
                                         value={order.estado}
                                         onChange={(e) => handleStatusChangeRequest(order.id, e.target.value)}
-                                        className="py-1 px-2.5 rounded-lg border border-input bg-background text-xs font-semibold focus:outline-none"
+                                        disabled={isFinalStatus(order.estado)}
+                                        title={isFinalStatus(order.estado) ? "Los pedidos finalizados o cancelados no admiten cambios de estado" : undefined}
+                                        className={`py-1 px-2.5 rounded-lg border border-input bg-background text-xs font-semibold focus:outline-none ${
+                                            isFinalStatus(order.estado)
+                                                ? 'opacity-60 cursor-not-allowed bg-muted/50 text-muted-foreground'
+                                                : 'hover:bg-muted cursor-pointer'
+                                        }`}
                                     >
-                                        <option value="" disabled>Cambiar estado...</option>
-                                        {getNextStatusOptions(order.tipoPedido).map(opt => (
+                                        <option value="" disabled>{isFinalStatus(order.estado) ? 'Inmutable' : 'Cambiar estado...'}</option>
+                                        {getNextStatusOptions(order.tipoPedido, order.estado).map(opt => (
                                             <option key={opt.value} value={opt.value}>
                                                 {opt.label}
                                             </option>
