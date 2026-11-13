@@ -270,7 +270,8 @@ export default function PickingPage() {
     const handlePaymentConfirm = async (
         payments: Array<{ amount: number, method: string, reference?: string, concepto: string }>,
         isDonation: boolean,
-        donationReason?: string
+        donationReason?: string,
+        commandId?: string
     ) => {
         if (!paymentModalOrder || !paymentModalTargetStatus || !user) return;
 
@@ -283,7 +284,8 @@ export default function PickingPage() {
             payments,
             isDonation,
             donationReason,
-            actorId
+            actorId,
+            commandId
         );
 
         setSelectedOrderId(null);

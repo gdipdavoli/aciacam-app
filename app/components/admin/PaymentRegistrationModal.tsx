@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StoreService } from '@/services/storeService';
 import { OrderItem, Producto, PagoConcepto } from '@/types';
 import { X, Plus, Trash2, ShieldAlert, Loader2, Landmark, CreditCard, Coins, Gift } from 'lucide-react';
@@ -17,7 +17,8 @@ interface PaymentRegistrationModalProps {
     onConfirm: (
         payments: Array<{ amount: number, method: string, reference?: string, concepto: string }>,
         isDonation: boolean,
-        donationReason?: string
+        donationReason?: string,
+        commandId?: string
     ) => Promise<void>;
     orderItems: OrderItem[];
     socioName: string;
@@ -54,6 +55,7 @@ export default function PaymentRegistrationModal({
     const [products, setProducts] = useState<Producto[]>([]);
     const [loadingProducts, setLoadingProducts] = useState(true);
     const [submitting, setSubmitting] = useState(false);
+    const attemptCommandIdsRef = useRef<Map<string, string>>(new Map());
     
     // Limits
     const [exceedsFlowers, setExceedsFlowers] = useState(false);
@@ -81,6 +83,8 @@ export default function PaymentRegistrationModal({
                 .then(setProducts)
                 .catch(err => console.error("Error loading products:", err))
                 .finally(() => setLoadingProducts(false));
+        } else {
+            attemptCommandIdsRef.current.clear();
         }
     }, [isOpen]);
 
@@ -133,8 +137,18 @@ export default function PaymentRegistrationModal({
         );
     };
 
+    const getStableCommandId = (signature: string): string => {
+        const existing = attemptCommandIdsRef.current.get(signature);
+        if (existing) return existing;
+        const nextId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `${Date.now()}-0000-4000-8000-000000000000`;
+        attemptCommandIdsRef.current.set(signature, nextId);
+        return nextId;
+    };
+
     const handleConfirm = async () => {
-        if (exceedsFlowers || exceedsGoteros) return; // Prevent saving if limits exceeded
+        if (submitting || exceedsFlowers || exceedsGoteros) return; // Prevent double-click & invalid limits
         
         setSubmitting(true);
         try {
@@ -144,8 +158,10 @@ export default function PaymentRegistrationModal({
                     setSubmitting(false);
                     return;
                 }
+                const signature = JSON.stringify({ isBonificado: true, bonificadoReason: bonificadoReason.trim() });
+                const commandId = getStableCommandId(signature);
                 // Donación / Bonificación
-                await onConfirm([], true, bonificadoReason);
+                await onConfirm([], true, bonificadoReason, commandId);
             } else {
                 // Regular payment lines
                 const validLines = paymentLines.filter(l => l.amount > 0);
@@ -160,8 +176,11 @@ export default function PaymentRegistrationModal({
                     reference: l.reference ? l.reference.trim() : undefined,
                     concepto: l.concepto
                 }));
-                await onConfirm(formatted, false);
+                const signature = JSON.stringify({ isBonificado: false, formatted });
+                const commandId = getStableCommandId(signature);
+                await onConfirm(formatted, false, undefined, commandId);
             }
+            attemptCommandIdsRef.current.clear();
             onClose();
         } catch (error: any) {
             console.error("Error in PaymentRegistrationModal confirm:", error);

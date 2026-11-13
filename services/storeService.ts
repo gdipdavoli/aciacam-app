@@ -193,6 +193,21 @@ const mapPedidoFromDB = (row: any): Pedido => ({
     updated_at: row.updated_at
 });
 
+const pendingPaymentCommands = new Map<string, { commandId: string; expiresAt: number }>();
+
+const isTransientNetworkError = (err: unknown): boolean => {
+    const msg = String((err as any)?.message || err || '').toLowerCase();
+    return msg.includes('network')
+        || msg.includes('fetch')
+        || msg.includes('timeout')
+        || msg.includes('timed out')
+        || msg.includes('econnreset')
+        || msg.includes('failed to fetch')
+        || msg.includes('502')
+        || msg.includes('503')
+        || msg.includes('504');
+};
+
 export const StoreService = {
     getProductos: async (includeInactive = false): Promise<Producto[]> => {
         if (!supabase) return [];
@@ -630,7 +645,8 @@ export const StoreService = {
         payments: Array<{ amount: number, method: string, reference?: string, concepto: string }>,
         isDonation: boolean,
         donationReason?: string,
-        actorId?: string
+        actorId?: string,
+        commandId?: string
     ): Promise<void> => {
         if (!supabase) throw new Error("Supabase client not initialized");
 
@@ -654,21 +670,63 @@ export const StoreService = {
             };
         });
 
-        const { data, error } = await supabase.rpc('confirm_order_and_payments', {
+        const attemptKey = JSON.stringify({
+            orderId,
+            targetStatus,
+            payments: formattedPayments,
+            actorId: actorId || null
+        });
+        const now = Date.now();
+        const cached = pendingPaymentCommands.get(attemptKey);
+        const resolvedCommandId = commandId
+            || (cached && cached.expiresAt > now ? cached.commandId : null)
+            || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${now}-0000-4000-8000-000000000000`);
+
+        if (!commandId) {
+            pendingPaymentCommands.set(attemptKey, { commandId: resolvedCommandId, expiresAt: now + 5 * 60 * 1000 });
+        }
+
+        const executeRpc = () => supabase.rpc('confirm_order_payment_command', {
+            p_command_id: resolvedCommandId,
             p_order_id: orderId,
             p_target_status: targetStatus,
             p_payments: formattedPayments,
             p_actor_id: actorId || null
         });
 
+        let rpcResult: { data: any; error: any };
+        try {
+            rpcResult = await executeRpc();
+            if (rpcResult.error && isTransientNetworkError(rpcResult.error)) {
+                rpcResult = await executeRpc();
+            }
+        } catch (err) {
+            if (isTransientNetworkError(err)) {
+                rpcResult = await executeRpc();
+            } else {
+                pendingPaymentCommands.delete(attemptKey);
+                throw err;
+            }
+        }
+
+        const { data, error } = rpcResult;
+
         if (error) {
+            if (!isTransientNetworkError(error)) {
+                pendingPaymentCommands.delete(attemptKey);
+            }
             console.error("StoreService: confirmOrderAndPayments failed", error);
             throw new Error(error.message || "Error al procesar el pago y confirmar pedido.");
         }
 
         if (data && data.success === false) {
+            pendingPaymentCommands.delete(attemptKey);
             throw new Error(data.error || "Error al procesar el pago.");
         }
+
+        pendingPaymentCommands.delete(attemptKey);
     },
 
     updatePedidoStatus: async (pedidoId: string, status: Pedido['estado']): Promise<void> => {
@@ -734,32 +792,25 @@ export const StoreService = {
             }
         }
 
-        // If status is "Entregado", use RPC to deduct stock safely
-        if (status === 'entregado') {
-            const { data, error } = await supabase.rpc('confirm_order_delivery', {
-                p_order_id: pedidoId
-            });
+        const resolvedCommandId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : null;
 
-            if (error) {
-                console.error("StoreService: RPC Delivery Failed", error);
-                throw error;
-            }
+        const { data, error } = await supabase.rpc('transition_order_status_transaccional', {
+            p_pedido_id: pedidoId,
+            p_target_status: status,
+            p_motivo: null,
+            p_command_id: resolvedCommandId
+        });
 
-            // The RPC returns { success: boolean, error?: string }
-            if (data && !data.success) {
-                throw new Error(data.error || 'Error al confirmar entrega y stock');
-            }
-
-            return;
+        if (error) {
+            console.error("StoreService: transition_order_status_transaccional failed", error);
+            throw new Error(error.message || "Error al actualizar el estado del pedido.");
         }
 
-        // Standard update for other statuses
-        const { error } = await supabase
-            .from('pedidos')
-            .update({ estado: status })
-            .eq('id', pedidoId);
-
-        if (error) throw error;
+        if (data && data.success === false) {
+            throw new Error(data.error || 'Error al actualizar el estado del pedido.');
+        }
     },
 
     updatePedidoItems: async (pedidoId: string, items: OrderItem[]): Promise<void> => {
@@ -817,7 +868,7 @@ export const StoreService = {
     cancelOrderSocio: async (pedidoId: string, socioId: string): Promise<void> => {
         if (!supabase) return;
 
-        // 1. Check if allowed (Must be own order and 'pendiente')
+        // 1. Check if allowed (Must be own order and 'pendiente' or 'confirmado')
         const { data: order, error: fetchError } = await supabase
             .from('pedidos')
             .select('estado, socio_id')
@@ -826,17 +877,20 @@ export const StoreService = {
 
         if (fetchError || !order) throw new Error("Pedido no encontrado");
         if (order.socio_id !== socioId) throw new Error("No autorizado");
-        if (order.estado !== 'pendiente' && order.estado !== 'procesando') {
-            throw new Error("Solo se pueden cancelar pedidos pendientes o en proceso");
+        if (order.estado !== 'pendiente' && order.estado !== 'confirmado') {
+            throw new Error("Solo se pueden cancelar pedidos pendientes o confirmados");
         }
 
-        // 2. Update
-        const { error } = await supabase
-            .from('pedidos')
-            .update({ estado: 'cancelado' })
-            .eq('id', pedidoId);
+        // 2. Transactional RPC (bypasses direct UPDATE RLS safely with ownership + state checks)
+        const { data, error } = await supabase.rpc('cancelar_pedido_socio_transaccional', {
+            p_pedido_id: pedidoId,
+            p_motivo: 'Cancelado por el socio'
+        });
 
-        if (error) throw error;
+        if (error) throw new Error(error.message || "Error al cancelar el pedido.");
+        if (data && data.success === false) {
+            throw new Error(data.error || "Error al cancelar el pedido.");
+        }
     },
 
     archiveFinishedOrders: async (motivo = 'Archivado masivo de pedidos finalizados', actorId?: string): Promise<number> => {

@@ -6,11 +6,14 @@ export const getStatusLabel = (status: OrderStatus, type: OrderType): string => 
             return 'En preparación'; // Status 1
         case 'confirmado':
             return type === 'retiro_sede' ? 'Confirmado' : 'Confirmado'; // Status 2 (Retiro)
+        case 'listo_para_retiro':
+            return 'Listo para retiro';
         case 'en_camino':
             return 'Despachado'; // Status 2 (Delivery)
         case 'entregado':
+            return 'Entregado'; // Status 3 (Delivery)
         case 'retirado':
-            return 'Entregado'; // Status 3
+            return 'Retirado'; // Status 3 (Retiro en sede)
         case 'pendiente':
             return 'Pendiente';
         case 'cancelado':
@@ -26,20 +29,34 @@ export const getNextStatusOptions = (type: OrderType, currentStatus?: OrderStatu
         return [];
     }
 
-    // Reglas de progresión según estado actual:
-    // pendiente -> en_preparacion | cancelado
-    // en_preparacion -> confirmado (retiro) / en_camino (delivery) | cancelado
-    // confirmado / en_camino -> entregado | cancelado
+    // Reglas de progresión canónicas según estado actual y modalidad (SEC-01):
+    // retiro_sede finaliza en 'retirado'; delivery finaliza en 'entregado'.
     if (currentStatus === 'pendiente') {
         return [
+            { value: 'confirmado', label: 'Confirmado' },
             { value: 'en_preparacion', label: '1. En preparación' },
+            { value: 'cancelado', label: 'Cancelado' }
+        ];
+    }
+
+    if (currentStatus === 'confirmado') {
+        const finalStep = type === 'retiro_sede'
+            ? { value: 'retirado' as OrderStatus, label: '3. Retirado' }
+            : { value: 'entregado' as OrderStatus, label: '3. Entregado' };
+        const midStep = type === 'retiro_sede'
+            ? { value: 'listo_para_retiro' as OrderStatus, label: '2. Listo para retiro' }
+            : { value: 'en_camino' as OrderStatus, label: '2. Despachado' };
+        return [
+            { value: 'en_preparacion', label: '1. En preparación' },
+            midStep,
+            finalStep,
             { value: 'cancelado', label: 'Cancelado' }
         ];
     }
 
     if (currentStatus === 'en_preparacion') {
         const nextStep = type === 'retiro_sede'
-            ? { value: 'confirmado' as OrderStatus, label: '2. Confirmado (Para Retirar)' }
+            ? { value: 'listo_para_retiro' as OrderStatus, label: '2. Listo para retiro' }
             : { value: 'en_camino' as OrderStatus, label: '2. Despachado' };
         return [
             nextStep,
@@ -47,7 +64,17 @@ export const getNextStatusOptions = (type: OrderType, currentStatus?: OrderStatu
         ];
     }
 
-    if (currentStatus === 'confirmado' || currentStatus === 'en_camino') {
+    if (currentStatus === 'listo_para_retiro') {
+        const nextStep = type === 'retiro_sede'
+            ? { value: 'retirado' as OrderStatus, label: '3. Retirado' }
+            : { value: 'en_camino' as OrderStatus, label: '2. Despachado' };
+        return [
+            nextStep,
+            { value: 'cancelado', label: 'Cancelado' }
+        ];
+    }
+
+    if (currentStatus === 'en_camino') {
         return [
             { value: 'entregado', label: '3. Entregado' },
             { value: 'cancelado', label: 'Cancelado' }
@@ -60,12 +87,14 @@ export const getNextStatusOptions = (type: OrderType, currentStatus?: OrderStatu
     ];
 
     if (type === 'retiro_sede') {
-        options.push({ value: 'confirmado', label: '2. Confirmado (Para Retirar)' });
+        options.push({ value: 'confirmado', label: 'Confirmado' });
+        options.push({ value: 'listo_para_retiro', label: '2. Listo para retiro' });
+        options.push({ value: 'retirado', label: '3. Retirado' });
     } else {
         options.push({ value: 'en_camino', label: '2. Despachado' });
+        options.push({ value: 'entregado', label: '3. Entregado' });
     }
 
-    options.push({ value: 'entregado', label: '3. Entregado' });
     options.push({ value: 'cancelado', label: 'Cancelado' });
     options.push({ value: 'pendiente', label: 'Pendiente (Inicial)' });
 

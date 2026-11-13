@@ -129,7 +129,8 @@ export default function OrderDetailsPage() {
     const handlePaymentConfirm = async (
         payments: Array<{ amount: number, method: string, reference?: string, concepto: string }>,
         isDonation: boolean,
-        donationReason?: string
+        donationReason?: string,
+        commandId?: string
     ) => {
         if (!order || !pendingStatus || !user) return;
 
@@ -142,7 +143,8 @@ export default function OrderDetailsPage() {
             payments,
             isDonation,
             donationReason,
-            actorId
+            actorId,
+            commandId
         );
 
         setShowPaymentModal(false);
