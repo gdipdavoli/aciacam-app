@@ -64,7 +64,7 @@ export default function PaymentRegistrationModal({
     const [totalGoterosUnits, setTotalGoterosUnits] = useState(0);
 
     // Payments Form
-    const [isBonificado, setIsBonificado] = useState(false);
+    const [paymentMode, setPaymentMode] = useState<'aporte' | 'pendiente' | 'bonificado'>('aporte');
     const [bonificadoReason, setBonificadoReason] = useState('');
     const [paymentLines, setPaymentLines] = useState<PaymentLine[]>([
         {
@@ -85,6 +85,8 @@ export default function PaymentRegistrationModal({
                 .finally(() => setLoadingProducts(false));
         } else {
             attemptCommandIdsRef.current.clear();
+            setPaymentMode('aporte');
+            setBonificadoReason('');
         }
     }, [isOpen]);
 
@@ -152,18 +154,23 @@ export default function PaymentRegistrationModal({
         
         setSubmitting(true);
         try {
-            if (isBonificado) {
+            if (paymentMode === 'bonificado') {
                 if (!bonificadoReason.trim()) {
                     alert("Por favor, ingresá el motivo del aporte bonificado.");
                     setSubmitting(false);
                     return;
                 }
-                const signature = JSON.stringify({ isBonificado: true, bonificadoReason: bonificadoReason.trim() });
+                const signature = JSON.stringify({ paymentMode: 'bonificado', bonificadoReason: bonificadoReason.trim() });
                 const commandId = getStableCommandId(signature);
-                // Donación / Bonificación
-                await onConfirm([], true, bonificadoReason, commandId);
+                // Donación / Bonificación expresamente autorizada
+                await onConfirm([], true, bonificadoReason.trim(), commandId);
+            } else if (paymentMode === 'pendiente') {
+                const signature = JSON.stringify({ paymentMode: 'pendiente' });
+                const commandId = getStableCommandId(signature);
+                // Entrega sin aporte inicial: p_payments = [], sin bonificación ni cancelación automática
+                await onConfirm([], false, undefined, commandId);
             } else {
-                // Regular payment lines
+                // Regular payment lines (completo o parcial)
                 const validLines = paymentLines.filter(l => l.amount > 0);
                 if (validLines.length === 0) {
                     alert("Por favor, cargá al menos un medio de pago con un monto mayor a cero.");
@@ -176,7 +183,7 @@ export default function PaymentRegistrationModal({
                     reference: l.reference ? l.reference.trim() : undefined,
                     concepto: l.concepto
                 }));
-                const signature = JSON.stringify({ isBonificado: false, formatted });
+                const signature = JSON.stringify({ paymentMode: 'aporte', formatted });
                 const commandId = getStableCommandId(signature);
                 await onConfirm(formatted, false, undefined, commandId);
             }
@@ -247,23 +254,54 @@ export default function PaymentRegistrationModal({
                         </div>
                     </div>
 
-                    {/* Payment/Donation Option Select */}
+                    {/* Payment/Pending/Bonification Option Select */}
                     {!(exceedsFlowers || exceedsGoteros) && (
                         <div className="space-y-4">
-                            <label className="flex items-center gap-2.5 cursor-pointer bg-muted/20 p-3 rounded-xl border hover:bg-muted/40 transition-colors">
-                                <input
-                                    type="checkbox"
-                                    className="w-5 h-5 rounded border-input text-primary focus:ring-primary"
-                                    checked={isBonificado}
-                                    onChange={e => setIsBonificado(e.target.checked)}
-                                />
-                                <div className="text-xs">
-                                    <strong className="text-foreground font-black block">Aporte institucional bonificado (Sin cargo)</strong>
-                                    <span className="text-muted-foreground block text-[11px] mt-0.5">Marcar si esta entrega corresponde a un tratamiento médico bonificado por razones extraordinarias.</span>
-                                </div>
-                            </label>
+                            <div className="grid grid-cols-1 gap-2">
+                                <label className={`flex items-start gap-2.5 cursor-pointer p-3 rounded-xl border transition-colors ${paymentMode === 'aporte' ? 'bg-primary/5 border-primary/40' : 'bg-muted/20 hover:bg-muted/40'}`}>
+                                    <input
+                                        type="radio"
+                                        name="paymentResolutionMode"
+                                        className="mt-0.5 w-4 h-4 text-primary focus:ring-primary"
+                                        checked={paymentMode === 'aporte'}
+                                        onChange={() => setPaymentMode('aporte')}
+                                    />
+                                    <div className="text-xs">
+                                        <strong className="text-foreground font-black block">Registrar aporte ahora (completo o parcial)</strong>
+                                        <span className="text-muted-foreground block text-[11px] mt-0.5">Carga uno o más medios de pago recibidos en el acto de entrega.</span>
+                                    </div>
+                                </label>
 
-                            {isBonificado ? (
+                                <label className={`flex items-start gap-2.5 cursor-pointer p-3 rounded-xl border transition-colors ${paymentMode === 'pendiente' ? 'bg-amber-500/10 border-amber-500/40' : 'bg-muted/20 hover:bg-muted/40'}`}>
+                                    <input
+                                        type="radio"
+                                        name="paymentResolutionMode"
+                                        className="mt-0.5 w-4 h-4 text-amber-600 focus:ring-amber-600"
+                                        checked={paymentMode === 'pendiente'}
+                                        onChange={() => setPaymentMode('pendiente')}
+                                    />
+                                    <div className="text-xs">
+                                        <strong className="text-foreground font-black block">Entregar sin aporte inicial (Pendiente de cobro posterior)</strong>
+                                        <span className="text-muted-foreground block text-[11px] mt-0.5">Confirma la entrega sin registrar pagos ni bonificación; el aporte queda pendiente para registro posterior.</span>
+                                    </div>
+                                </label>
+
+                                <label className={`flex items-start gap-2.5 cursor-pointer p-3 rounded-xl border transition-colors ${paymentMode === 'bonificado' ? 'bg-primary/5 border-primary/40' : 'bg-muted/20 hover:bg-muted/40'}`}>
+                                    <input
+                                        type="radio"
+                                        name="paymentResolutionMode"
+                                        className="mt-0.5 w-4 h-4 text-primary focus:ring-primary"
+                                        checked={paymentMode === 'bonificado'}
+                                        onChange={() => setPaymentMode('bonificado')}
+                                    />
+                                    <div className="text-xs">
+                                        <strong className="text-foreground font-black block">Aporte institucional bonificado (Sin cargo)</strong>
+                                        <span className="text-muted-foreground block text-[11px] mt-0.5">Marcar únicamente si esta entrega cuenta con autorización expresa de bonificación por razones extraordinarias.</span>
+                                    </div>
+                                </label>
+                            </div>
+
+                            {paymentMode === 'bonificado' ? (
                                 /* Bonificación Reason */
                                 <div className="space-y-1.5 animate-in fade-in duration-200">
                                     <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider block flex items-center gap-1.5">
@@ -278,6 +316,12 @@ export default function PaymentRegistrationModal({
                                         rows={3}
                                         className="w-full p-3 rounded-xl border border-input bg-background text-sm focus:ring-2 focus:ring-primary focus:outline-none"
                                     />
+                                </div>
+                            ) : paymentMode === 'pendiente' ? (
+                                /* Entrega sin aporte inicial */
+                                <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/20 text-xs text-amber-900 dark:text-amber-200 space-y-1 animate-in fade-in duration-200">
+                                    <strong className="font-black block">Entrega sin aporte inicial</strong>
+                                    <p>No se creará ningún registro de pago ni se marcará bonificación. El saldo no se considera cancelado y el aporte deberá registrarse posteriormente.</p>
                                 </div>
                             ) : (
                                 /* Regular Payment lines */

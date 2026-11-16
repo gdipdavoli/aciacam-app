@@ -492,13 +492,22 @@ export const StoreService = {
     createPago: async (pago: Omit<Pago, 'id'>, actorId: string): Promise<Pago> => {
         if (!supabase) throw new Error("Supabase client not initialized");
 
+        const sessionRes = await supabase.auth.getSession();
+        const sessionUserId = sessionRes.data.session?.user?.id;
+        if (!sessionUserId) {
+            throw new Error("No hay una sesión activa de usuario para registrar el aporte.");
+        }
+        if (!actorId || actorId !== sessionUserId) {
+            throw new Error("La identidad del operador no coincide con la sesión autenticada.");
+        }
+
         const dbRow: any = {
             socio_id: pago.socioId,
             fecha: pago.fecha,
             concepto: pago.concepto,
             monto: pago.monto,
             medio_de_pago: pago.medioDePago,
-            created_by: actorId
+            created_by: sessionUserId
         };
 
         if (pago.pedidoId) dbRow.pedido_id = pago.pedidoId;
@@ -515,7 +524,7 @@ export const StoreService = {
             throw error;
         }
 
-        await StoreService.createAuditLog(actorId, 'CREATE', 'PAYMENT', data.id, dbRow);
+        await StoreService.createAuditLog(sessionUserId, 'CREATE', 'PAYMENT', data.id, dbRow);
 
         return mapPagoFromDB(data);
     },

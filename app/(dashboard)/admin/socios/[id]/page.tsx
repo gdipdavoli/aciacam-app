@@ -1020,7 +1020,7 @@ const UpdateFromDocumentModal = ({ socio, onClose, onUpdated }: { socio: Socio; 
 };
 
 export default function SocioDetailsPage() {
-    const { user, loading: authLoading } = useAuth();
+    const { user, session, loading: authLoading } = useAuth();
     const router = useRouter();
     const params = useParams();
     const id = params?.id as string;
@@ -1418,10 +1418,18 @@ export default function SocioDetailsPage() {
     };
 
     const handleRegisterPago = async () => {
-        if (!user) return;
+        if (!user || (user.rol !== 'admin' && user.rol !== 'staff')) {
+            alert('No tenés permisos para registrar aportes.');
+            return;
+        }
+        const actorAuthUserId = session?.user?.id || user.auth_user_id;
+        if (!actorAuthUserId) {
+            alert('No se pudo verificar la identidad autenticada del operador.');
+            return;
+        }
         setRegisteringPago(true);
         try {
-            const result = await StoreService.createPago(newPago, user.id);
+            const result = await StoreService.createPago(newPago, actorAuthUserId);
             setPagos([result, ...pagos]);
             setShowPagoForm(false);
             updateUrl({ pago: null });
