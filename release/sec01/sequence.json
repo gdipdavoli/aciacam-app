@@ -1,0 +1,15 @@
+[
+  "release/sec01/preflight.sql",
+  "release/sec01/expand.sql",
+  "migrations/58_atomic_stock_reservation.sql",
+  "migrations/20261016000000_order_idempotency_and_audit.sql",
+  "migrations/20261008190000_fix_sprint5_stock_trigger_rls.sql",
+  "migrations/20261008013328_order_payment_command_idempotency.sql",
+  "migrations/20261019000000_sprint7b4_delegated_execution_and_socio_checkout.sql",
+  "proposals/sprint7b5/20261022000000_sprint7b5_proposals_and_cancellation.sql",
+  "proposals/sprint7b7/20261026000000_sprint7b7_fix_grant_hash_and_expiration.sql",
+  "supabase/migrations/20261117090000_sec01_m2_transactional_order_rpcs.sql",
+  "release/sec01/compatibility.sql",
+  "supabase/migrations/20261117090100_sec01_m1_order_state_machine_and_stock_guard.sql",
+  "release/sec01/postflight.sql"
+]
