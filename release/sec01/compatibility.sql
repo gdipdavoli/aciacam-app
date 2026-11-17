@@ -8,6 +8,7 @@ END IF;
 RETURN NEW;
 END $$;
 REVOKE ALL ON FUNCTION app_private.fill_legacy_order_actor() FROM PUBLIC,anon,authenticated,service_role;
+DROP TRIGGER IF EXISTS tr_0_legacy_order_actor ON public.pedidos;
 CREATE TRIGGER tr_0_legacy_order_actor BEFORE INSERT ON public.pedidos
 FOR EACH ROW EXECUTE FUNCTION app_private.fill_legacy_order_actor();
 REVOKE ALL ON public.order_transition_commands FROM PUBLIC,anon,authenticated,service_role;
