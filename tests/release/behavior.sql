@@ -200,6 +200,32 @@ BEGIN
     -- 8c. Positiva: Socio1 cancela su propio pedido mediante RPC cancelar_pedido_socio_transaccional
     PERFORM set_config('request.jwt.claim.sub', v_socio1_uid::text, true);
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_socio1_uid, 'role', 'authenticated')::text, true);
+
+    -- 8d. Negativa: una sesión real de authenticated no puede escalar a postgres para evadir check_pedidos_update_only_status()
+    BEGIN
+        EXECUTE 'SET LOCAL SESSION AUTHORIZATION authenticated';
+        EXECUTE 'SET LOCAL ROLE postgres';
+        RAISE EXCEPTION 'H5B_ROLE_ESCALATION_FAIL: authenticated pudo cambiar a postgres';
+    EXCEPTION WHEN insufficient_privilege THEN
+        NULL;
+    END;
+
+    -- 8e. Negativa: Socio1 no puede alterar motivo_admin ni items en UPDATE directo
+    IF to_regprocedure('public.check_pedidos_update_only_status()') IS NOT NULL THEN
+        BEGIN
+            EXECUTE 'SET LOCAL ROLE authenticated';
+            UPDATE public.pedidos
+            SET motivo_admin = 'bypass'
+            WHERE id = v_ord3;
+            RAISE EXCEPTION 'H5B_DIRECT_MOTIVO_FAIL: socio pudo alterar motivo_admin';
+        EXCEPTION WHEN OTHERS THEN
+            EXECUTE 'RESET ROLE';
+            IF SQLERRM NOT LIKE '%Los socios sólo pueden modificar el estado de sus pedidos%' THEN
+                RAISE EXCEPTION 'H5B_DIRECT_MOTIVO_UNEXPECTED: %', SQLERRM;
+            END IF;
+        END;
+    END IF;
+
     PERFORM public.cancelar_pedido_socio_transaccional(v_ord3, 'H3 Cancelacion valida');
 
     SELECT stock_disponible INTO v_stock FROM public.products WHERE id = v_prod_id;
