@@ -48,10 +48,12 @@ async function runTests() {
         !optsPendienteRetiro.some(o => o.value === 'entregado'));
 
     const optsPrepRetiro = getNextStatusOptions('retiro_sede', 'en_preparacion');
-    assert("getNextStatusOptions para 'en_preparacion' en retiro_sede sugiere 'confirmado' y cancelado",
-        optsPrepRetiro.some(o => o.value === 'confirmado') && 
+    assert("getNextStatusOptions para 'en_preparacion' en retiro_sede sugiere 'listo_para_retiro' y 'cancelado' (sin delivery ni salto a retirado)",
+        optsPrepRetiro.some(o => o.value === 'listo_para_retiro') &&
         optsPrepRetiro.some(o => o.value === 'cancelado') &&
-        !optsPrepRetiro.some(o => o.value === 'en_camino'));
+        !optsPrepRetiro.some(o => o.value === 'en_camino') &&
+        !optsPrepRetiro.some(o => o.value === 'entregado') &&
+        !optsPrepRetiro.some(o => o.value === 'retirado'));
 
     const optsPrepDelivery = getNextStatusOptions('delivery', 'en_preparacion');
     assert("getNextStatusOptions para 'en_preparacion' en delivery sugiere 'en_camino' y cancelado",

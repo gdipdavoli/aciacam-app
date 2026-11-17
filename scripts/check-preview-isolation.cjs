@@ -109,11 +109,11 @@ function verifyPreviewEnvironment(env = process.env) {
   // Si no hay indicadores de entorno (ni VERCEL_ENV, ni NEXT_PUBLIC_VERCEL_ENV, ni NODE_ENV,
   // ni VERCEL, ni CI, ni referencia de Supabase preview configurada), abortar.
   // ---------------------------------------------------------------------------
-  // Resolver automáticamente indicadores canónicos de Integration cuando provienen de archivo local validado
-  if (!env.ACIACAM_PREVIEW_SUPABASE_REF && env.NEXT_PUBLIC_SUPABASE_URL && env.NEXT_PUBLIC_SUPABASE_URL.includes(INTEGRATION_SUPABASE_REF)) {
+  // Resolver automáticamente indicadores canónicos de Integration solo en ejecución local (!isVercel)
+  if (!isVercel && !env.ACIACAM_PREVIEW_SUPABASE_REF && env.NEXT_PUBLIC_SUPABASE_URL && env.NEXT_PUBLIC_SUPABASE_URL.includes(INTEGRATION_SUPABASE_REF)) {
     env.ACIACAM_PREVIEW_SUPABASE_REF = INTEGRATION_SUPABASE_REF;
   }
-  if (!env.COMMS_DISABLE_EXTERNAL && env.EMAIL_DISABLE_EXTERNAL === 'true') {
+  if (!isVercel && !env.COMMS_DISABLE_EXTERNAL && env.EMAIL_DISABLE_EXTERNAL === 'true') {
     env.COMMS_DISABLE_EXTERNAL = 'true';
   }
 
