@@ -1,14 +1,20 @@
 
+import { requireStaff } from '@/app/lib/agent/order-auth';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
 export async function POST(request: Request) {
     try {
+        const access = await requireStaff(request, supabaseAdmin);
+        if (access.response || !access.user) {
+            return access.response || NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+        }
         const formData = await request.formData();
         const file = formData.get('file') as File;
         const productId = formData.get('productId') as string;

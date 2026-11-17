@@ -252,21 +252,49 @@ function verifyPreviewEnvironment(env = process.env) {
     if (env.COMMS_DISABLE_EXTERNAL !== 'true') {
       throw new Error("[ISOLATION_GUARD_ABORT] COMMS_DISABLE_EXTERNAL debe ser 'true' para la rama consolidada.");
     }
+    if (env.AGENT_CORE_ENABLED === 'true' || env.AGENT_ORDER_EXECUTION_ENABLED === 'true') {
+      throw new Error('[ISOLATION_GUARD_ABORT] AGENT_CORE_ENABLED y AGENT_ORDER_EXECUTION_ENABLED deben permanecer deshabilitados en Preview.');
+    }
 
     return { status: 'CONSOLIDATED_INTEGRATION_VERIFIED' };
   }
 
   // ---------------------------------------------------------------------------
   // 8. REQUISITOS GENERALES PARA OTRAS RAMAS PREVIEW
+  // Nunca confiar en VERCEL_GIT_COMMIT_REF como sustituto de configuración segura:
+  // todo Preview debe apuntar a Integration, tener flags de aislamiento y Agent Core apagado.
   // ---------------------------------------------------------------------------
   const ref = (env.ACIACAM_PREVIEW_SUPABASE_REF || '').trim();
   if (!ref || ref === PRODUCTION_SUPABASE_REF || !/^[a-z0-9]+$/.test(ref)) {
     throw new Error('[ISOLATION_GUARD_ABORT] Preview necesita ACIACAM_PREVIEW_SUPABASE_REF de un proyecto separado no productivo.');
   }
+  if (ref !== INTEGRATION_SUPABASE_REF) {
+    throw new Error(`[ISOLATION_GUARD_ABORT] ACIACAM_PREVIEW_SUPABASE_REF debe ser '${INTEGRATION_SUPABASE_REF}' en Preview.`);
+  }
 
   const expectedPreviewUrl = `https://${ref}.supabase.co`;
   if (env.NEXT_PUBLIC_SUPABASE_URL !== expectedPreviewUrl || (env.SUPABASE_URL && env.SUPABASE_URL !== expectedPreviewUrl)) {
     throw new Error('[ISOLATION_GUARD_ABORT] Las URLs de Supabase de Preview deben apuntar al proyecto separado.');
+  }
+
+  if (!anonKey || !anonClaims || anonClaims.ref !== ref || anonClaims.role !== 'anon') {
+    throw new Error(`[ISOLATION_GUARD_ABORT] NEXT_PUBLIC_SUPABASE_ANON_KEY debe ser un JWT válido con role 'anon' y ref '${ref}'.`);
+  }
+  if (!servKey || !servClaims || servClaims.ref !== ref || servClaims.role !== 'service_role') {
+    throw new Error(`[ISOLATION_GUARD_ABORT] SUPABASE_SERVICE_ROLE_KEY debe ser un JWT válido con role 'service_role' y ref '${ref}'.`);
+  }
+
+  if (env.INTEGRATION_E2E !== 'true') {
+    throw new Error("[ISOLATION_GUARD_ABORT] INTEGRATION_E2E debe ser 'true' en todo entorno Preview.");
+  }
+  if (env.EMAIL_DISABLE_EXTERNAL !== 'true') {
+    throw new Error("[ISOLATION_GUARD_ABORT] EMAIL_DISABLE_EXTERNAL debe ser 'true' en todo entorno Preview.");
+  }
+  if (env.COMMS_DISABLE_EXTERNAL !== 'true') {
+    throw new Error("[ISOLATION_GUARD_ABORT] COMMS_DISABLE_EXTERNAL debe ser 'true' en todo entorno Preview.");
+  }
+  if (env.AGENT_CORE_ENABLED === 'true' || env.AGENT_ORDER_EXECUTION_ENABLED === 'true') {
+    throw new Error('[ISOLATION_GUARD_ABORT] AGENT_CORE_ENABLED y AGENT_ORDER_EXECUTION_ENABLED deben permanecer deshabilitados en Preview.');
   }
 
   return { status: 'GENERIC_PREVIEW_VERIFIED' };

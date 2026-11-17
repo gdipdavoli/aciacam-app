@@ -63,6 +63,35 @@ export function validateEnvironmentOrThrow(): EnvValidationResult {
     );
   }
 
+  const isVercelPreview = process.env.VERCEL_ENV === 'preview' || process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview';
+  if (isVercelPreview) {
+    if (urlRef !== INTEGRATION_REF) {
+      throw new Error(
+        `ABORTAR CRÍTICO DE SEGURIDAD: Entorno Vercel Preview detectado con proyecto '${urlRef}'. Producción está prohibida en Preview.`
+      );
+    }
+    const previewRef = (process.env.ACIACAM_PREVIEW_SUPABASE_REF || '').trim();
+    if (previewRef && previewRef !== INTEGRATION_REF) {
+      throw new Error(
+        `ABORTAR CRÍTICO DE SEGURIDAD: ACIACAM_PREVIEW_SUPABASE_REF ('${previewRef}') no coincide con Integration ('${INTEGRATION_REF}').`
+      );
+    }
+    if (
+      process.env.INTEGRATION_E2E !== 'true' ||
+      process.env.EMAIL_DISABLE_EXTERNAL !== 'true' ||
+      process.env.COMMS_DISABLE_EXTERNAL !== 'true'
+    ) {
+      throw new Error(
+        'ABORTAR CRÍTICO DE SEGURIDAD: Entorno Preview sin flags de aislamiento completos (INTEGRATION_E2E, EMAIL_DISABLE_EXTERNAL, COMMS_DISABLE_EXTERNAL).'
+      );
+    }
+    if (process.env.AGENT_CORE_ENABLED === 'true' || process.env.AGENT_ORDER_EXECUTION_ENABLED === 'true') {
+      throw new Error(
+        'ABORTAR CRÍTICO DE SEGURIDAD: Agent Core y la ejecución delegada deben permanecer deshabilitados en Preview.'
+      );
+    }
+  }
+
   const isE2EIntegrationMode = process.env.INTEGRATION_E2E === 'true' || process.env.EMAIL_DISABLE_EXTERNAL === 'true';
 
   // Si se fuerza modo E2E Integration, verificar que no haya referencias a Producción

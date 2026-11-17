@@ -362,6 +362,36 @@ async function runIsolationGuardSuite() {
     record('TC-PIG-20', 'Rechazo Fail-Closed ante Entorno Vercel Ambiguo en Rama Main', 'FAIL', e.message);
   }
 
+  // ---------------------------------------------------------------------------
+  // TC-PIG-21: Negativa: Agent Core o ejecución delegada habilitados en Preview
+  // ---------------------------------------------------------------------------
+  try {
+    const envAgent = { ...baseValidConsolidatedEnv, AGENT_CORE_ENABLED: 'true' };
+    assert.throws(() => verifyPreviewEnvironment(envAgent), /AGENT_CORE_ENABLED y AGENT_ORDER_EXECUTION_ENABLED/);
+    const envExec = { ...baseValidConsolidatedEnv, AGENT_ORDER_EXECUTION_ENABLED: 'true' };
+    assert.throws(() => verifyPreviewEnvironment(envExec), /AGENT_CORE_ENABLED y AGENT_ORDER_EXECUTION_ENABLED/);
+    record('TC-PIG-21', 'Rechazo si Agent Core o Ejecución Delegada están activos en Preview', 'PASS',
+      'Preview rechaza fail-closed cualquier activación de Agent Core');
+  } catch (e: any) {
+    record('TC-PIG-21', 'Rechazo si Agent Core o Ejecución Delegada están activos en Preview', 'FAIL', e.message);
+  }
+
+  // ---------------------------------------------------------------------------
+  // TC-PIG-22: Negativa: Preview genérico sin flags obligatorios de aislamiento
+  // ---------------------------------------------------------------------------
+  try {
+    const otherPreviewEnv = {
+      ...baseValidConsolidatedEnv,
+      VERCEL_GIT_COMMIT_REF: 'codex/remediacion-sec01-rc-20261117',
+      INTEGRATION_E2E: 'false'
+    };
+    assert.throws(() => verifyPreviewEnvironment(otherPreviewEnv), /INTEGRATION_E2E debe ser 'true'/);
+    record('TC-PIG-22', 'Rechazo en Preview no consolidado sin flags de aislamiento', 'PASS',
+      'VERCEL_GIT_COMMIT_REF no relaja las exigencias de aislamiento ni flags');
+  } catch (e: any) {
+    record('TC-PIG-22', 'Rechazo en Preview no consolidado sin flags de aislamiento', 'FAIL', e.message);
+  }
+
   console.log('\n' + '='.repeat(78));
   console.log(`RESUMEN GUARD PREVIEW: ${results.filter(r => r.status === 'PASS').length}/${results.length} PASARON`);
   console.log('='.repeat(78));
