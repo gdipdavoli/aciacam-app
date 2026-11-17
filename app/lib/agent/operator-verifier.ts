@@ -49,7 +49,7 @@ export class SupabaseOperatorVerifier implements IOperatorVerifier {
             };
         }
 
-        if (!socios || socios.length === 0) {
+        if (!socios || socios.length !== 1) {
             return {
                 valid: false,
                 role: 'other',

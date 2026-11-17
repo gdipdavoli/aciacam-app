@@ -72,7 +72,7 @@ export class AgentCoreServer {
     const env = (config?.environment || process.env.AGENT_CORE_ENV || 'integration') as 'integration' | 'production' | 'test';
     const bffUrl = config?.bffBaseUrl || process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const bffSecret = config?.bffSecret || process.env.AGENT_CORE_BFF_SECRET || process.env.AGENT_ORDER_CALLBACK_SECRET || '';
-    const adminSecret = config?.adminSecret || process.env.AGENT_CORE_ADMIN_SECRET || bffSecret;
+    const adminSecret = config?.adminSecret || process.env.AGENT_CORE_ADMIN_SECRET || '';
     const supabaseUrl = config?.supabaseUrl || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const port = config?.port !== undefined ? config.port : parseInt(process.env.PORT || '8000', 10);
     const maxConcurrency = config?.maxConcurrency || 50;
@@ -98,6 +98,9 @@ export class AgentCoreServer {
 
     // Barrera de entorno inicial
     this.assertEnvironmentSafety();
+    if (env !== 'test' && (!adminSecret || adminSecret === bffSecret)) {
+      throw new Error('AGENT_CORE_ADMIN_SECRET debe existir y ser distinto del secreto BFF');
+    }
 
     // Requisito 4: Precedencia absoluta de variable de entorno inmutable
     const envKillswitch = config?.forceKillswitchEnvActive || process.env.AGENT_CORE_KILLSWITCH_ACTIVE === 'true';
