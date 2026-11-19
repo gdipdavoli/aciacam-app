@@ -720,6 +720,7 @@ export default function OrderDetailsPage() {
                         orderItems={order.items}
                         socioName={socio ? `${socio.nombre} ${socio.apellido}` : 'Socio'}
                         orderSummary={{
+                            estado: order.estado,
                             tipoPedido: order.tipoPedido,
                             fechaRetiroPreferida: order.fechaRetiroPreferida,
                             franjaHoraria: order.franjaHoraria,

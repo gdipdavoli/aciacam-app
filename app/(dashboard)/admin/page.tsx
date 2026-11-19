@@ -1163,6 +1163,7 @@ export default function AdminOrdersPage() {
                     orderItems={paymentModalOrder.items || []}
                     socioName={paymentModalOrder.socio ? `${paymentModalOrder.socio.nombre} ${paymentModalOrder.socio.apellido}` : 'Socio'}
                     orderSummary={{
+                        estado: paymentModalOrder.estado,
                         tipoPedido: paymentModalOrder.tipoPedido,
                         fechaRetiroPreferida: paymentModalOrder.fechaRetiroPreferida,
                         franjaHoraria: paymentModalOrder.franjaHoraria,

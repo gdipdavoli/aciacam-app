@@ -113,7 +113,5 @@ export const shouldShowInDefaultList = (status: OrderStatus): boolean => {
 
 export const getQuickDeliveryTarget = (type: OrderType, currentStatus: OrderStatus): 'retirado' | 'entregado' | null => {
     if (isFinalStatus(currentStatus)) return null;
-    const expectedTarget: 'retirado' | 'entregado' = type === 'retiro_sede' ? 'retirado' : 'entregado';
-    const allowed = getNextStatusOptions(type, currentStatus);
-    return allowed.some(opt => opt.value === expectedTarget) ? expectedTarget : null;
+    return type === 'retiro_sede' ? 'retirado' : 'entregado';
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StoreService } from '@/services/storeService';
-import { OrderItem, OrderType, Producto, PagoConcepto } from '@/types';
+import { OrderItem, OrderStatus, OrderType, Producto, PagoConcepto } from '@/types';
 import { isOilProduct, resolveOrderTotal } from '@/app/lib/order-pricing';
 import { X, Plus, Trash2, ShieldAlert, Loader2, Landmark, CreditCard, Coins, Gift } from 'lucide-react';
 
@@ -24,6 +24,7 @@ interface PaymentRegistrationModalProps {
     orderItems: OrderItem[];
     socioName: string;
     orderSummary?: {
+        estado?: OrderStatus;
         tipoPedido?: OrderType;
         fechaRetiroPreferida?: string;
         franjaHoraria?: string;
@@ -287,6 +288,11 @@ export default function PaymentRegistrationModal({
                                                     : (orderSummary.entrega_estimada || orderSummary.localidad || 'A coordinar')}
                                             </span>
                                         </div>
+                                    </div>
+                                )}
+                                {(orderSummary?.estado === 'pendiente' || orderSummary?.estado === 'en_preparacion') && (
+                                    <div className="text-[11px] bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 text-amber-900 dark:text-amber-200 px-3 py-2 rounded-lg font-medium">
+                                        Entrega directa desde estado <strong>{orderSummary.estado === 'pendiente' ? 'Pendiente' : 'En preparación'}</strong>: al confirmar se aprobará y finalizará el pedido de forma atómica.
                                     </div>
                                 )}
                                 <div>

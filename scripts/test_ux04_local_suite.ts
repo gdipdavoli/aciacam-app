@@ -72,18 +72,18 @@ test('INC-05.3: Pedidos históricos conservan su total persistido ante cambios d
 });
 
 // 2. INC-06: Entrega rápida desde listado respetando SEC-01 y protección ante repetición/fallos
-test('INC-06.1: getQuickDeliveryTarget respeta estrictamente transiciones SEC-01', () => {
-    assert.equal(getQuickDeliveryTarget('retiro_sede', 'listo_para_retiro'), 'retirado');
+test('INC-06.1: getQuickDeliveryTarget habilita Entregar en todos los estados activos y rechaza terminales', () => {
+    assert.equal(getQuickDeliveryTarget('retiro_sede', 'pendiente'), 'retirado');
+    assert.equal(getQuickDeliveryTarget('retiro_sede', 'en_preparacion'), 'retirado');
     assert.equal(getQuickDeliveryTarget('retiro_sede', 'confirmado'), 'retirado');
-    assert.equal(getQuickDeliveryTarget('retiro_sede', 'pendiente'), null);
-    assert.equal(getQuickDeliveryTarget('retiro_sede', 'en_preparacion'), null);
+    assert.equal(getQuickDeliveryTarget('retiro_sede', 'listo_para_retiro'), 'retirado');
     assert.equal(getQuickDeliveryTarget('retiro_sede', 'retirado'), null);
     assert.equal(getQuickDeliveryTarget('retiro_sede', 'cancelado'), null);
 
-    assert.equal(getQuickDeliveryTarget('delivery', 'en_camino'), 'entregado');
+    assert.equal(getQuickDeliveryTarget('delivery', 'pendiente'), 'entregado');
+    assert.equal(getQuickDeliveryTarget('delivery', 'en_preparacion'), 'entregado');
     assert.equal(getQuickDeliveryTarget('delivery', 'confirmado'), 'entregado');
-    assert.equal(getQuickDeliveryTarget('delivery', 'pendiente'), null);
-    assert.equal(getQuickDeliveryTarget('delivery', 'en_preparacion'), null);
+    assert.equal(getQuickDeliveryTarget('delivery', 'en_camino'), 'entregado');
     assert.equal(getQuickDeliveryTarget('delivery', 'entregado'), null);
     assert.equal(getQuickDeliveryTarget('delivery', 'cancelado'), null);
 });
