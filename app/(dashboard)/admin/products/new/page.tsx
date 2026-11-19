@@ -30,7 +30,8 @@ export default function NewProductPage() {
         stockDisponible: 0,
         activo: true,
         imagen: '',
-        peso_gramos: 10
+        peso_gramos: 0,
+        aporte_unidad: undefined as number | undefined
     });
 
     // Load draft or duplicate product on mount
@@ -48,7 +49,8 @@ export default function NewProductPage() {
                             stockDisponible: prod.stockDisponible || 0,
                             activo: prod.activo,
                             imagen: prod.imagen || '',
-                            peso_gramos: prod.peso_gramos || 10
+                            peso_gramos: prod.peso_gramos ?? 0,
+                            aporte_unidad: prod.aporte_unidad
                         });
                         if (prod.imagen) {
                             setPreviewUrl(prod.imagen);
@@ -109,7 +111,10 @@ export default function NewProductPage() {
                 ...formData,
                 tipo: formData.tipo as any,
                 stockDisponible: Number(formData.stockDisponible),
-                peso_gramos: Number(formData.peso_gramos)
+                peso_gramos: Number(formData.peso_gramos || 0),
+                aporte_unidad: formData.aporte_unidad !== undefined && formData.aporte_unidad !== ('' as any)
+                    ? Number(formData.aporte_unidad)
+                    : undefined
             }, user.id);
 
             if (imageFile) {
@@ -261,13 +266,15 @@ export default function NewProductPage() {
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium mb-1">Peso por unidad (gramos)</label>
+                        <label className="block text-sm font-medium mb-1">
+                            {formData.tipo === 'gotero' ? 'Peso referencial (gramos, opcional)' : 'Peso por unidad (gramos)'}
+                        </label>
                         <input
                             type="number"
-                            required
-                            min="1"
+                            required={formData.tipo !== 'gotero'}
+                            min={formData.tipo === 'gotero' ? '0' : '1'}
                             className="w-full p-2 border rounded-md bg-background text-foreground"
-                            value={formData.peso_gramos.toString()}
+                            value={(formData.peso_gramos ?? 0).toString()}
                             onChange={e => {
                                 const val = e.target.value;
                                 setFormData({
@@ -276,6 +283,31 @@ export default function NewProductPage() {
                                 } as any)
                             }}
                         />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium mb-1">
+                            Aporte por unidad / frasco (ARS){formData.tipo === 'gotero' ? ' *' : ' (opcional)'}
+                        </label>
+                        <input
+                            type="number"
+                            required={formData.tipo === 'gotero'}
+                            min="0"
+                            step="100"
+                            placeholder={formData.tipo === 'gotero' ? 'Ej: 25000' : 'Solo si aplica aporte fijo'}
+                            className="w-full p-2 border rounded-md bg-background text-foreground"
+                            value={formData.aporte_unidad !== undefined && formData.aporte_unidad !== null ? formData.aporte_unidad.toString() : ''}
+                            onChange={e => {
+                                const val = e.target.value;
+                                setFormData({
+                                    ...formData,
+                                    aporte_unidad: val === '' ? undefined : Number(val)
+                                } as any)
+                            }}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                            Para aceites/goteros se calcula por frasco, independiente del peso en gramos.
+                        </p>
                     </div>
 
                     <div className="flex items-center gap-3 pt-6">

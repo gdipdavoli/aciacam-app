@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { Trash2, Plus, Minus, MapPin, CheckCircle, Navigation } from 'lucide-react';
 import { SlotSelector } from '@/app/components/SlotSelector';
 import { toast } from 'sonner';
+import { calculateCartSummary, getUnitAporte, isOilProduct } from '@/app/lib/order-pricing';
 
 export default function CheckoutPage() {
     const { items, removeItem, itemCount, clearCart, updateQuantity, pesoTotal } = useCart();
@@ -167,12 +168,19 @@ export default function CheckoutPage() {
                 ? `${observaciones}\n\nSOLICITUD: Coordinar retiro con administración.` 
                 : observaciones;
 
-            await StoreService.createPedido(user.id, items, orderType, {
+            const itemsWithSnapshot = items.map(item => ({
+                ...item,
+                precioUnitario: getUnitAporte(item.producto, globalConfigs.aporte_por_gramo),
+            }));
+            const cartSummary = calculateCartSummary(itemsWithSnapshot, globalConfigs.aporte_por_gramo);
+
+            await StoreService.createPedido(user.id, itemsWithSnapshot, orderType, {
                 observaciones: finalObservaciones,
                 direccionEntrega: orderType === 'delivery' ? direccion : undefined,
                 localidad: orderType === 'delivery' ? localidad : undefined,
                 ubicacion_gps: orderType === 'delivery' ? ubicacionGps : undefined,
                 fechaRetiroPreferida: orderType === 'retiro_sede' ? (coordinarConAdmin ? undefined : slotDate) : undefined,
+                franjaHoraria: orderType === 'retiro_sede' ? (coordinarConAdmin ? undefined : (slotLabel || undefined)) : undefined,
                 slotId: orderType === 'retiro_sede' ? (coordinarConAdmin ? undefined : selectedSlotId!) : undefined,
                 created_by_user_id: user.auth_user_id || user.userId,
                 idempotency_key: checkoutIdempotencyKeyRef.current || undefined
@@ -190,7 +198,7 @@ export default function CheckoutPage() {
                 }
             }
 
-            setFinalAporte(pesoTotal * globalConfigs.aporte_por_gramo);
+            setFinalAporte(cartSummary.aporteTotal);
             setShowSuccessModal(true);
             if (typeof crypto !== 'undefined' && crypto.randomUUID) {
                 checkoutIdempotencyKeyRef.current = crypto.randomUUID();
@@ -555,17 +563,29 @@ export default function CheckoutPage() {
                         ))}
                     </ul>
                     <div style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: '1rem' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 500, fontSize: '1rem' }}>
-                                <span>Total solicitado (gramos)</span>
-                                <span>{pesoTotal}g</span>
-                            </div>
-
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '1.1rem', marginTop: '1rem', borderTop: '1px dashed hsl(var(--border))', paddingTop: '1rem' }}>
-                                <span>Aporte estimado</span>
-                                <span>${(pesoTotal * globalConfigs.aporte_por_gramo).toLocaleString('es-AR')}</span>
-                            </div>
-                        </div>
+                        {(() => {
+                            const summary = calculateCartSummary(items, globalConfigs.aporte_por_gramo);
+                            return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    {summary.floresGramos > 0 && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 500, fontSize: '1rem' }}>
+                                            <span>Total flores solicitado (gramos)</span>
+                                            <span>{summary.floresGramos}g</span>
+                                        </div>
+                                    )}
+                                    {summary.aceitesUnidades > 0 && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 500, fontSize: '1rem' }}>
+                                            <span>Total aceites / goteros</span>
+                                            <span>{summary.aceitesUnidades} {summary.aceitesUnidades === 1 ? 'frasco' : 'frascos'}</span>
+                                        </div>
+                                    )}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '1.1rem', marginTop: '1rem', borderTop: '1px dashed hsl(var(--border))', paddingTop: '1rem' }}>
+                                        <span>Aporte estimado</span>
+                                        <span>${summary.aporteTotal.toLocaleString('es-AR')}</span>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
 

@@ -6,6 +6,7 @@ import { Producto } from '@/types';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
 import { Plus, Minus, ImageIcon, Info, Check } from 'lucide-react';
+import { isOilProduct } from '@/app/lib/order-pricing';
 
 interface ProductCardProps {
     product: Producto;
@@ -129,6 +130,11 @@ export default function ProductCard({ product }: ProductCardProps) {
                         ) : (
                             <span className={`text-xs font-semibold ${isOutOfStock ? "text-destructive" : "text-emerald-600 dark:text-emerald-400"}`}>
                                 {isOutOfStock ? "Sin stock" : "Disponible"}
+                            </span>
+                        )}
+                        {isOilProduct(product.tipo) && (product.aporte_unidad ?? product.precio) != null && Number(product.aporte_unidad ?? product.precio) > 0 && (
+                            <span className="text-[11px] font-bold text-primary mt-0.5">
+                                ${Number(product.aporte_unidad ?? product.precio).toLocaleString('es-AR')} / frasco
                             </span>
                         )}
                     </div>

@@ -7,6 +7,10 @@ import {
     consolidateDocumentExtractions,
     validateIdentityMatch,
     sanitizeDiagnosis,
+    sanitizeLocalDoctorName,
+    sanitizeLocalMatricula,
+    normalizeCalendarDate,
+    normalizeDni,
     UnifiedDocumentExtraction 
 } from '@/app/lib/ocr-contract';
 
@@ -213,25 +217,29 @@ export async function POST(req: NextRequest) {
                                     }
                                 }
 
-                                agentCoreExtraction = {
-                                    documentType: (['reprocann', 'consentimiento', 'dni', 'receta'].includes(acData.document_type)
-                                        ? acData.document_type
-                                        : 'desconocido') as any,
-                                    titular: (f.nombre?.value || f.apellido?.value) ? {
-                                        nombre: f.nombre?.value || undefined,
-                                        apellido: f.apellido?.value || undefined,
-                                    } : undefined,
-                                    dni: f.dni?.value || undefined,
-                                    fechaNacimiento: f.fecha_nacimiento?.value || undefined,
-                                    numeroTramite: f.numero_tramite?.value || undefined,
-                                    fechaEmision: f.fecha_emision?.value || f.fecha_alta?.value || undefined,
-                                    fechaVencimiento: f.fecha_vencimiento?.value || undefined,
-                                    tipoAutorizacion: f.tipo_autorizacion?.value || undefined,
-                                    medico: (f.medico_nombre?.value || f.medico_matricula?.value) ? {
-                                        nombre: f.medico_nombre?.value || undefined,
-                                        matricula: f.medico_matricula?.value || undefined,
-                                    } : undefined,
-                                    diagnostico: sanitizeDiagnosis(f.diagnostico?.value) || f.diagnostico?.value || undefined,
+                                    const cleanDoctor = sanitizeLocalDoctorName(f.medico_nombre?.value);
+                                    const cleanMatricula = sanitizeLocalMatricula(f.medico_matricula?.value);
+                                    const cleanDiag = sanitizeDiagnosis(f.diagnostico?.value);
+
+                                    agentCoreExtraction = {
+                                        documentType: (['reprocann', 'consentimiento', 'dni', 'receta'].includes(acData.document_type)
+                                            ? acData.document_type
+                                            : 'desconocido') as any,
+                                        titular: (f.nombre?.value || f.apellido?.value) ? {
+                                            nombre: f.nombre?.value || undefined,
+                                            apellido: f.apellido?.value || undefined,
+                                        } : undefined,
+                                        dni: normalizeDni(f.dni?.value) || undefined,
+                                        fechaNacimiento: normalizeCalendarDate(f.fecha_nacimiento?.value) || undefined,
+                                        numeroTramite: f.numero_tramite?.value || undefined,
+                                        fechaEmision: normalizeCalendarDate(f.fecha_emision?.value || f.fecha_alta?.value) || undefined,
+                                        fechaVencimiento: normalizeCalendarDate(f.fecha_vencimiento?.value) || undefined,
+                                        tipoAutorizacion: f.tipo_autorizacion?.value || undefined,
+                                        medico: (cleanDoctor || cleanMatricula) ? {
+                                            nombre: cleanDoctor,
+                                            matricula: cleanMatricula,
+                                        } : undefined,
+                                        diagnostico: cleanDiag,
                                     confidence: {
                                         overall: typeof acData.confidence === 'number' ? acData.confidence : 0.9,
                                         fields: Object.fromEntries(
@@ -281,6 +289,78 @@ export async function POST(req: NextRequest) {
                 } catch (acErr: any) {
                     console.warn(`[Extraction] Excepción no controlada con Agent Core (${acErr.message || acErr}). Aplicando fallback local.`);
                     failureReason = acErr.message || 'Error inesperado';
+                }
+            }
+
+            if (!agentCoreExtraction) {
+                // Intento secundario read-only: Gemini Vision directo sin activar orquestador Agent Core
+                const directGeminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+                if (directGeminiKey && (!isPdf || detectedPages <= 6)) {
+                    try {
+                        const geminiModel = process.env.GEMINI_VISION_MODEL || 'gemini-2.5-flash';
+                        const prompt = [
+                            'Extrae en JSON estricto los datos visibles de esta credencial/documento argentino (REPROCANN, Consentimiento Informado, DNI o Receta).',
+                            'No inventes ni inferiras campos no legibles; usa null cuando falten.',
+                            'Claves exactas: document_type ("reprocann"|"consentimiento"|"dni"|"receta"|"desconocido"), nombre, apellido, dni, fecha_nacimiento (YYYY-MM-DD), numero_tramite, fecha_emision (YYYY-MM-DD), fecha_vencimiento (YYYY-MM-DD), tipo_autorizacion, medico_nombre, medico_matricula, diagnostico, is_legible (boolean).'
+                        ].join(' ');
+                        const gRes = await fetch(
+                            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent?key=${encodeURIComponent(directGeminiKey)}`,
+                            {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    contents: [{
+                                        parts: [
+                                            { text: prompt },
+                                            { inline_data: { mime_type: fileMime, data: base64Content } }
+                                        ]
+                                    }],
+                                    generationConfig: { responseMimeType: 'application/json', temperature: 0 }
+                                }),
+                                signal: AbortSignal.timeout(AGENT_CORE_TIMEOUT_MS),
+                            }
+                        );
+                        if (gRes.ok) {
+                            const gJson: any = await gRes.json();
+                            const rawText = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                            const parsed = JSON.parse(rawText);
+                            const cleanDoc = sanitizeLocalDoctorName(parsed?.medico_nombre || undefined);
+                            const cleanMat = sanitizeLocalMatricula(parsed?.medico_matricula || undefined);
+                            const cleanDiag = sanitizeDiagnosis(parsed?.diagnostico || undefined);
+                            agentCoreExtraction = {
+                                documentType: (['reprocann', 'consentimiento', 'dni', 'receta'].includes(parsed?.document_type)
+                                    ? parsed.document_type
+                                    : 'desconocido') as any,
+                                titular: (parsed?.nombre || parsed?.apellido) ? {
+                                    nombre: parsed?.nombre || undefined,
+                                    apellido: parsed?.apellido || undefined,
+                                } : undefined,
+                                dni: normalizeDni(parsed?.dni) || undefined,
+                                fechaNacimiento: normalizeCalendarDate(parsed?.fecha_nacimiento) || undefined,
+                                numeroTramite: parsed?.numero_tramite || undefined,
+                                fechaEmision: normalizeCalendarDate(parsed?.fecha_emision) || undefined,
+                                fechaVencimiento: normalizeCalendarDate(parsed?.fecha_vencimiento) || undefined,
+                                tipoAutorizacion: parsed?.tipo_autorizacion || undefined,
+                                medico: (cleanDoc || cleanMat) ? { nombre: cleanDoc, matricula: cleanMat } : undefined,
+                                diagnostico: cleanDiag,
+                                confidence: { overall: parsed?.is_legible ? 0.85 : 0.3, fields: {} },
+                                isLegible: Boolean(parsed?.is_legible),
+                                extractionSource: 'agent_core_gemini',
+                                sourceDescription: `Gemini Vision Read-Only (${geminiModel})`,
+                                warnings: ['Extracción visual asistida (solo lectura). Requiere validación humana obligatoria.'],
+                                errors: [],
+                                humanValidated: false,
+                                totalPages: detectedPages,
+                                requiresVisualOcr: false,
+                                hasImageOnlyLayer: !isPdf,
+                                canRetryGemini: false,
+                            };
+                        } else {
+                            failureReason = failureReason || `Gemini Vision retornó HTTP ${gRes.status}`;
+                        }
+                    } catch (gErr: any) {
+                        failureReason = failureReason || gErr?.message || 'Error al invocar Gemini Vision directo';
+                    }
                 }
             }
 

@@ -7,9 +7,10 @@ import { StoreService } from '@/services/storeService';
 import { Pedido, Socio, OrderType } from '@/types';
 import { ArrowLeft, CheckCircle, Clock, Package, ExternalLink, Send, Calendar, Bell } from 'lucide-react';
 
-import { getStatusLabel, getNextStatusOptions, isFinalStatus } from '@/helpers/orderHelpers';
+import { getStatusLabel, getNextStatusOptions, isFinalStatus, getQuickDeliveryTarget } from '@/helpers/orderHelpers';
 import { NotificationService } from '@/services/notificationService';
 import PaymentRegistrationModal from '@/app/components/admin/PaymentRegistrationModal';
+import { isOilProduct, resolveOrderTotal } from '@/app/lib/order-pricing';
 
 export default function OrderDetailsPage() {
     const { user, session, loading: authLoading } = useAuth();
@@ -243,36 +244,60 @@ export default function OrderDetailsPage() {
     if (loading || authLoading) return <div style={{ padding: '2rem' }}>Cargando detalle...</div>;
     if (!order) return <div style={{ padding: '2rem' }}>Pedido no encontrado.</div>;
 
+    const productsById = new Map(allProducts.map(p => [p.id, p]));
+    const orderTotalAporte = resolveOrderTotal(order, productsById, 10000);
+
     return (
-        <div style={{ maxWidth: '800px', margin: '0 auto', paddingBottom: '2rem' }}>
+        <div className="max-w-4xl mx-auto pb-10 space-y-6">
             <button
                 onClick={() => router.back()}
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    marginBottom: '1rem',
-                    color: 'hsl(var(--muted-foreground))'
-                }}
+                className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
-                <ArrowLeft size={20} />
-                Volver
+                <ArrowLeft size={18} />
+                Volver al listado
             </button>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '2rem' }}>
-                <div>
-                    <h1 style={{ fontSize: '2rem', fontWeight: 700 }}>Pedido #{order.id.slice(-6)}</h1>
-                    <p style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        Realizado el {new Date(order.fechaCreacion).toLocaleDateString()} a las {new Date(order.fechaCreacion).toLocaleTimeString()}
-                    </p>
-                </div>
+            <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                    <div>
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                            <h1 className="text-2xl font-bold tracking-tight">Pedido #{order.id.slice(-6)}</h1>
+                            <span className={`text-xs font-bold uppercase px-2.5 py-1 rounded-full ${
+                                order.tipoPedido === 'retiro_sede'
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                                    : 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'
+                            }`}>
+                                {order.tipoPedido === 'retiro_sede' ? 'Retiro en Sede' : 'Delivery'}
+                            </span>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1">
+                            Realizado el {new Date(order.fechaCreacion).toLocaleDateString()} a las {new Date(order.fechaCreacion).toLocaleTimeString()}
+                        </p>
+                    </div>
 
-                <div className="text-right">
-                    <div className="mb-2 font-semibold">Estado Actual</div>
-                    <div className="relative inline-block w-full max-w-[200px]">
+                    <div className="md:text-right">
+                        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Estado Actual</div>
+                        <div className="flex items-center gap-2 md:justify-end flex-wrap">
+                            {(() => {
+                                const quickTarget = getQuickDeliveryTarget(order.tipoPedido, order.estado);
+                                if (!quickTarget) return null;
+                                return (
+                                    <button
+                                        type="button"
+                                        disabled={showPaymentModal}
+                                        onClick={() => {
+                                            setPendingStatus(quickTarget);
+                                            setShowPaymentModal(true);
+                                        }}
+                                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-xs"
+                                        title={order.tipoPedido === 'retiro_sede' ? 'Registrar retiro y aporte' : 'Registrar entrega y aporte'}
+                                    >
+                                        <CheckCircle size={16} />
+                                        <span>Entregar</span>
+                                    </button>
+                                );
+                            })()}
+                            <div className="relative inline-block w-full max-w-[200px]">
                         <select
                             value={order.estado}
                             onChange={(e) => handleStatusChangeRequest(e.target.value)}
@@ -298,6 +323,42 @@ export default function OrderDetailsPage() {
                                 <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
                             </svg>
                         </div>
+                    </div>
+                </div>
+                </div>
+                </div>
+
+                {/* Resumen Prioritario UX-02: Socio, Modalidad, Horario y Aporte */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-5 pt-5 border-t border-border/60">
+                    <div className="rounded-xl bg-muted/30 p-3">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Socio</div>
+                        <div className="font-semibold text-sm mt-0.5">{socio ? `${socio.nombre} ${socio.apellido}` : 'No disponible'}</div>
+                        {socio?.dni && <div className="text-xs text-muted-foreground">DNI {socio.dni}</div>}
+                    </div>
+                    <div className="rounded-xl bg-muted/30 p-3">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Modalidad</div>
+                        <div className="font-semibold text-sm mt-0.5">{order.tipoPedido === 'retiro_sede' ? 'Retiro en Sede' : 'Delivery'}</div>
+                        {order.tipoPedido === 'delivery' && order.localidad && (
+                            <div className="text-xs text-muted-foreground truncate">{order.localidad}</div>
+                        )}
+                    </div>
+                    <div className="rounded-xl bg-muted/30 p-3">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Fecha y Horario</div>
+                        {order.tipoPedido === 'retiro_sede' ? (
+                            <>
+                                <div className="font-semibold text-sm mt-0.5">{order.fechaRetiroPreferida || 'A coordinar'}</div>
+                                <div className="text-xs text-muted-foreground">{order.franjaHoraria || 'Sin franja'}</div>
+                            </>
+                        ) : (
+                            <div className="font-semibold text-sm mt-0.5">{order.entrega_estimada || 'Pendiente de programar'}</div>
+                        )}
+                    </div>
+                    <div className="rounded-xl bg-muted/30 p-3">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Aporte</div>
+                        <div className="font-bold text-sm mt-0.5 text-primary">
+                            {orderTotalAporte > 0 ? `$${orderTotalAporte.toLocaleString('es-AR')}` : 'A calcular'}
+                        </div>
+                        <div className="text-xs text-muted-foreground">{order.items.length} {order.items.length === 1 ? 'ítem' : 'ítems'}</div>
                     </div>
                 </div>
             </div>
@@ -658,6 +719,15 @@ export default function OrderDetailsPage() {
                         onConfirm={handlePaymentConfirm}
                         orderItems={order.items}
                         socioName={socio ? `${socio.nombre} ${socio.apellido}` : 'Socio'}
+                        orderSummary={{
+                            tipoPedido: order.tipoPedido,
+                            fechaRetiroPreferida: order.fechaRetiroPreferida,
+                            franjaHoraria: order.franjaHoraria,
+                            entrega_estimada: order.entrega_estimada,
+                            direccionEntrega: order.direccionEntrega,
+                            localidad: order.localidad,
+                            total: order.total
+                        }}
                     />
                 )}
 

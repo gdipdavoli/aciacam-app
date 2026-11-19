@@ -328,37 +328,44 @@ export function sanitizeLocalDoctorName(raw: string | undefined): string | undef
     if (!raw) return undefined;
     const trimmed = raw.trim();
 
-    // Palabras de parada narrativas / jurídicas que indican que se capturó prosa o cláusulas
-    const narrativeStopWords = [
-        'de la', 'de el', 'del', 'actuante', 'tratante', 'que', 'para', 'por', 'con',
+    // Palabras/frases de parada narrativas o jurídicas (evita falsos positivos sin bloquear apellidos como "Del Valle")
+    const narrativePhraseStopWords = [
+        'de la salud', 'de la asociacion', 'de la asociación', 'actuante', 'tratante',
         'conforme', 'según', 'segun', 'declara', 'manifiesta', 'informa', 'informado',
         'paciente', 'asociación', 'asociacion', 'efectos', 'adversos', 'riesgos',
         'beneficios', 'tratamiento', 'marco', 'legal', 'normativa', 'decreto', 'ley',
-        'salud', 'certificado', 'reprocann', 'titular', 'socio', 'firma', 'sello',
+        'certificado', 'reprocann', 'titular', 'socio', 'firma', 'sello',
         'aclaración', 'aclaracion', 'suscribe', 'interviniente', 'garantía', 'garantia'
     ];
     const lower = trimmed.toLowerCase();
-    for (const sw of narrativeStopWords) {
+    for (const sw of narrativePhraseStopWords) {
         if (lower.includes(sw)) return undefined;
     }
+    if (/\b(?:que|para|por|con)\b/i.test(lower)) return undefined;
 
-    // Limpiar prefijo Dr. / Dra.
+    // Limpiar prefijo Dr. / Dra. / Médico / Profesional
     const cleanPrefix = trimmed.replace(/^(?:dr\.|dra\.|profesional|médico|medico)[\s:\.]*/i, '').trim();
     const words = cleanPrefix.split(/\s+/).filter(Boolean);
 
-    // Debe contener entre 2 y 4 palabras con mayúscula inicial (Nombre y Apellido)
-    if (words.length < 2 || words.length > 4) {
+    // Entre 2 y 5 palabras (admite segundo nombre, inicial con punto "A." o partícula "de"/"del")
+    if (words.length < 2 || words.length > 5) {
         return undefined;
     }
 
+    const particles = new Set(['de', 'del', 'la', 'las', 'los', 'y']);
+    let properNameCount = 0;
     for (const w of words) {
-        if (!/^[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ]+$/.test(w)) {
-            return undefined;
+        if (particles.has(w.toLowerCase())) continue;
+        if (/^[A-ZÁÉÍÓÚÑ]\.?$/.test(w) || /^[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ'\-]+$/.test(w)) {
+            properNameCount++;
+            continue;
         }
+        return undefined;
     }
+    if (properNameCount < 2) return undefined;
 
-    const hasDra = /dra\./i.test(trimmed);
-    const hasDr = /dr\./i.test(trimmed);
+    const hasDra = /\bdra\.?/i.test(trimmed);
+    const hasDr = /\bdr\.?/i.test(trimmed);
     const prefix = hasDra ? 'Dra. ' : (hasDr ? 'Dr. ' : '');
 
     return `${prefix}${words.join(' ')}`;
@@ -401,8 +408,8 @@ export function sanitizeDiagnosis(raw: string | undefined): string | undefined {
         return undefined;
     }
 
-    // Longitud razonable para una patología concisa
-    if (trimmed.length > 80 || trimmed.length < 4) return undefined;
+    // Longitud razonable para una patología concisa (admite siglas clínicas como TEA, TOC, ELA)
+    if (trimmed.length > 80 || trimmed.length < 3) return undefined;
 
     const lower = trimmed.toLowerCase();
 
@@ -450,7 +457,7 @@ export function sanitizeLocalDiagnosis(raw: string | undefined): string | undefi
 export function sanitizeLocalMatricula(rawMatricula?: string, fullContext?: string): string | undefined {
     if (!rawMatricula) return undefined;
     let val = rawMatricula.trim().replace(/^[:\.\-#\s]+/, '');
-    if (!val || val.length < 3) return undefined;
+    if (!val || !/\d{3,}/.test(val)) return undefined;
 
     const hasMN = /^(?:mn|m\.n\.)/i.test(val);
     const hasMP = /^(?:mp|m\.p\.)/i.test(val);
@@ -460,13 +467,13 @@ export function sanitizeLocalMatricula(rawMatricula?: string, fullContext?: stri
     } else if (hasMP) {
         val = val.replace(/^(?:mp|m\.p\.)\s*/i, 'MP ').trim();
     } else if (fullContext) {
-        if (/matr[ií]cula\s*nacional/i.test(fullContext)) {
+        if (/matr[ií]cula\s*nacional|\bm\.?n\.?\b/i.test(fullContext)) {
             val = `MN ${val}`;
-        } else if (/matr[ií]cula\s*provincial/i.test(fullContext)) {
+        } else if (/matr[ií]cula\s*provincial|\bm\.?p\.?\b/i.test(fullContext)) {
             val = `MP ${val}`;
         }
     }
-    return val;
+    return val.replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -643,10 +650,10 @@ export function extractDataFromDocumentText(text: string, filename?: string, tot
         }
     }
 
-    // 8. Extracción de Médico y Matrícula (Regla UX-03D.1: Sanitización clínica estricta)
+    // 8. Extracción de Médico y Matrícula (Regla UX-03D.1 / UX-04: Sanitización clínica estricta)
     let medico: { nombre?: string; matricula?: string } | undefined;
-    const medicoMatch = cleanText.match(/(?:profesional\s*m.*?dico\s*tratante|profesional\s*m.*?dico|m.*?dico\s*tratante|m.*?dico|profesional|dr\.|dra\.)[\s:\.#]*([A-ZÁÉÍÓÚÑa-záéíóúñ\.\s]{3,45}?)(?=\s*matr|\s*m\.n|\s*m\.p|\s*firma|\s*diagn|\s*,|\r|\n|$)/i);
-    const matriculaMatch = cleanText.match(/(?:matr[ií]cula(?:\s+(?:nacional|provincial))?(?:\s+n[ºo°]\.?)?|m\.n\.|m\.p\.|mp|mn)[\s:\.#\-]*((?:(?:MN|MP|M\.N\.|M\.P\.)\s*)?[0-9A-Z\-]{3,12})/i);
+    const medicoMatch = cleanText.match(/(?:profesional\s*m[eé]dico\s*tratante|profesional\s*m[eé]dico|m[eé]dico\s*tratante|m[eé]dico\s*interviniente|m[eé]dico|profesional|dr\.|dra\.)[\s:\.#]*([A-ZÁÉÍÓÚÑa-záéíóúñ\.\-\'\s]{3,55}?)(?=\s*matr|\s*m\.n|\s*m\.p|\s*firma|\s*diagn|\s*,|\r|\n|$)/i);
+    const matriculaMatch = cleanText.match(/(?:matr[ií]cula(?:\s+(?:nacional|provincial))?(?:\s+n[ºo°]\.?)?|m\.n\.|m\.p\.|mp|mn)[\s:\.#\-]*((?:(?:MN|MP|M\.N\.|M\.P\.)\s*)?[0-9][0-9\.\-]{2,14})/i);
 
     const sanitizedDocName = sanitizeLocalDoctorName(medicoMatch ? medicoMatch[1] : undefined);
     const sanitizedMatricula = sanitizeLocalMatricula(matriculaMatch ? matriculaMatch[1] : undefined, matriculaMatch ? matriculaMatch[0] : undefined);
@@ -841,8 +848,19 @@ export function consolidateDocumentExtractions(
                     };
                 }
             } else {
-                const normExisting = String(existing.value).trim().toLowerCase();
-                const normNew = String(newVal).trim().toLowerCase();
+                const normalizeConflictVal = (key: string, val: any): string => {
+                    const base = String(val ?? '')
+                        .normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g, '')
+                        .trim()
+                        .toLowerCase();
+                    if (key === 'dni') return base.replace(/\D/g, '');
+                    if (key === 'medicoNombre') return base.replace(/^(?:dr\.?|dra\.?)\s+/i, '').replace(/\s+/g, ' ');
+                    if (key === 'medicoMatricula') return base.replace(/^(?:m\.?n\.?|m\.?p\.?|mn|mp)\s*/i, '').replace(/[\.\-\s]/g, '');
+                    return base.replace(/\s+/g, ' ');
+                };
+                const normExisting = normalizeConflictVal(fieldKey, existing.value);
+                const normNew = normalizeConflictVal(fieldKey, newVal);
                 if (normExisting !== normNew) {
                     conflicts.push({
                         field: fieldKey,

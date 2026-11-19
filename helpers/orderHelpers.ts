@@ -41,7 +41,7 @@ export const getNextStatusOptions = (type: OrderType, currentStatus?: OrderStatu
 
     if (currentStatus === 'confirmado') {
         const finalStep = type === 'retiro_sede'
-            ? { value: 'retirado' as OrderStatus, label: '3. Retirado' }
+            ? { value: 'retirado' as OrderStatus, label: '3. Entregado' }
             : { value: 'entregado' as OrderStatus, label: '3. Entregado' };
         const midStep = type === 'retiro_sede'
             ? { value: 'listo_para_retiro' as OrderStatus, label: '2. Listo para retiro' }
@@ -66,7 +66,7 @@ export const getNextStatusOptions = (type: OrderType, currentStatus?: OrderStatu
 
     if (currentStatus === 'listo_para_retiro') {
         const nextStep = type === 'retiro_sede'
-            ? { value: 'retirado' as OrderStatus, label: '3. Retirado' }
+            ? { value: 'retirado' as OrderStatus, label: '3. Entregado' }
             : { value: 'en_camino' as OrderStatus, label: '2. Despachado' };
         return [
             nextStep,
@@ -109,4 +109,11 @@ export const shouldShowInDefaultList = (status: OrderStatus): boolean => {
     // Hide 'entregado' (3) and 'retirado' by default.
     // Show 1 and 2.
     return status !== 'entregado' && status !== 'retirado' && status !== 'cancelado';
+};
+
+export const getQuickDeliveryTarget = (type: OrderType, currentStatus: OrderStatus): 'retirado' | 'entregado' | null => {
+    if (isFinalStatus(currentStatus)) return null;
+    const expectedTarget: 'retirado' | 'entregado' = type === 'retiro_sede' ? 'retirado' : 'entregado';
+    const allowed = getNextStatusOptions(type, currentStatus);
+    return allowed.some(opt => opt.value === expectedTarget) ? expectedTarget : null;
 };

@@ -1,7 +1,7 @@
 "use client";
 import { DocumentHistory } from "@/components/DocumentHistory";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter, useParams, useSearchParams, usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
@@ -731,7 +731,7 @@ const UpdateFromDocumentModal = ({ socio, onClose, onUpdated }: { socio: Socio; 
                 verificacionObs
             });
 
-            onUpdated();
+            await onUpdated();
             onClose();
         } catch (e: any) {
             setError(e.message || 'Error al aplicar cambios');
@@ -1120,15 +1120,30 @@ export default function SocioDetailsPage() {
         router.push(`${pathname}${query ? `?${query}` : ''}`, { scroll: false });
     };
 
-    // Effect to sync URL -> Local State on back/forward
+    const prevUrlParamsRef = useRef<{ doc: string | null; section: string | null; pago: boolean }>({
+        doc: searchParams?.get('doc') || null,
+        section: searchParams?.get('section') || null,
+        pago: searchParams?.get('pago') === 'true',
+    });
+
+    // Effect to sync URL -> Local State only when URL params actually change (prevents modal reopening on async router.push)
     useEffect(() => {
-        const doc = searchParams?.get('doc');
-        const section = searchParams?.get('section');
+        const doc = searchParams?.get('doc') || null;
+        const section = searchParams?.get('section') || null;
         const pago = searchParams?.get('pago') === 'true';
 
-        if (doc !== editingDocKey) setEditingDocKey(doc as any);
-        if (section !== editingSection) setEditingSection(section);
-        if (pago !== showPagoForm) setShowPagoForm(pago);
+        if (doc !== prevUrlParamsRef.current.doc) {
+            prevUrlParamsRef.current.doc = doc;
+            setEditingDocKey(doc as any);
+        }
+        if (section !== prevUrlParamsRef.current.section) {
+            prevUrlParamsRef.current.section = section;
+            setEditingSection(section);
+        }
+        if (pago !== prevUrlParamsRef.current.pago) {
+            prevUrlParamsRef.current.pago = pago;
+            setShowPagoForm(pago);
+        }
     }, [searchParams]);
 
 
@@ -1391,13 +1406,10 @@ export default function SocioDetailsPage() {
             );
 
             setEditingDocKey(null);
+            prevUrlParamsRef.current.doc = null;
             updateUrl({ doc: null });
-            
-            const refreshed = await StoreService.getSocioById(socio.id);
-            if (refreshed) setSocio(refreshed);
 
-            // Refresh compliance data
-            fetch(`/api/socios/${id}/compliance`).then(res => res.ok ? res.json() : null).then(setCompliance);
+            await refreshSocioData();
 
         } catch (e: any) {
             console.error(e);

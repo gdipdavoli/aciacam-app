@@ -118,7 +118,8 @@ export interface Producto {
     stockDisponible: number;
     activo: boolean;
     imagen?: string;
-    peso_gramos: number; // Peso por unidad (ej. 10 para flores)
+    peso_gramos: number; // Peso por unidad (ej. 10 para flores; 0 para aceites/goteros)
+    aporte_unidad?: number; // Aporte unitario fijo en ARS para aceites/goteros
     stockReal?: number;
     stockReservado?: number;
     precio?: number;
@@ -168,6 +169,7 @@ export interface Pedido {
 
     // Delivery schedule
     entrega_estimada?: string;
+    total?: number;
 
     // Soft delete/Archive
     archivado?: boolean;

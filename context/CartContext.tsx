@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Producto, OrderItem } from '@/types';
+import { isOilProduct } from '@/app/lib/order-pricing';
 
 interface CartItem extends OrderItem {
     producto: Producto;
@@ -72,7 +73,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     };
 
     const itemCount = items.reduce((acc, item) => acc + item.cantidad, 0);
-    const pesoTotal = items.reduce((acc, item) => acc + (item.cantidad * (item.producto?.peso_gramos || 0)), 0);
+    // Solo las flores computan en gramos; los aceites/goteros se miden por frasco/unidad
+    const pesoTotal = items.reduce((acc, item) => {
+        if (isOilProduct(item.producto?.tipo)) return acc;
+        return acc + (item.cantidad * (item.producto?.peso_gramos || 0));
+    }, 0);
 
     return (
         <CartContext.Provider value={{ items, addItem, removeItem, updateQuantity, clearCart, itemCount, pesoTotal }}>

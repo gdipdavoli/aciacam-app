@@ -6,7 +6,7 @@ import { StoreService } from '@/services/storeService';
 import { Pedido, OrderStatus, OrderType, PedidosFilterOptions } from '@/types';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { getStatusLabel, getNextStatusOptions, isFinalStatus } from '@/helpers/orderHelpers';
+import { getStatusLabel, getNextStatusOptions, isFinalStatus, getQuickDeliveryTarget } from '@/helpers/orderHelpers';
 import { 
     Search, 
     Filter, 
@@ -283,7 +283,7 @@ export default function AdminOrdersPage() {
             await fetchOrders();
         } catch (err: any) {
             console.error("Error confirmando cobro y entrega:", err);
-            alert(err.message || "Error al confirmar cobro y entrega del pedido.");
+            throw err;
         }
     };
 
@@ -634,10 +634,10 @@ export default function AdminOrdersPage() {
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="border-b border-border bg-muted/30 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                    <th className="py-3.5 px-4">Pedido / Origen</th>
                                     <th className="py-3.5 px-4">Socio</th>
-                                    <th className="py-3.5 px-4">Tipo & Destino / Turno</th>
+                                    <th className="py-3.5 px-4">Modalidad y Horario</th>
                                     <th className="py-3.5 px-4">Solicitud</th>
+                                    <th className="py-3.5 px-4">Pedido / Origen</th>
                                     <th className="py-3.5 px-4">Fechas</th>
                                     <th className="py-3.5 px-4">Estado</th>
                                     <th className="py-3.5 px-4 text-right">Acciones</th>
@@ -657,30 +657,7 @@ export default function AdminOrdersPage() {
                                             className="hover:bg-muted/40 transition-colors cursor-pointer group"
                                             onClick={() => router.push(`/admin/orders/${order.id}`)}
                                         >
-                                            {/* ID y Origen */}
-                                            <td className="py-3.5 px-4 font-mono">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-bold text-foreground">
-                                                        #{order.id.slice(0, 8)}
-                                                    </span>
-                                                    {order.origen === 'admin' ? (
-                                                        <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-300">
-                                                            SEDE
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                                                            APP
-                                                        </span>
-                                                    )}
-                                                    {order.archivado && (
-                                                        <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300" title="Pedido archivado">
-                                                            Archivado
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </td>
-
-                                            {/* Socio */}
+                                            {/* Socio (Priorizado) */}
                                             <td className="py-3.5 px-4">
                                                 <div>
                                                     <div className="font-bold text-foreground group-hover:text-primary transition-colors">
@@ -694,7 +671,7 @@ export default function AdminOrdersPage() {
                                                 </div>
                                             </td>
 
-                                            {/* Tipo y Turno / Destino */}
+                                            {/* Modalidad, Retiro y Horario (Priorizado) */}
                                             <td className="py-3.5 px-4">
                                                 <div className="flex items-center gap-1.5">
                                                     {order.tipoPedido === 'retiro_sede' ? (
@@ -720,15 +697,24 @@ export default function AdminOrdersPage() {
                                                         </a>
                                                     )}
                                                 </div>
-                                                {order.tipoPedido === 'retiro_sede' && order.fechaRetiroPreferida && (
-                                                    <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                                                        <Clock size={12} />
-                                                        <span>Turno: {order.fechaRetiroPreferida} {order.franjaHoraria ? `(${order.franjaHoraria})` : ''}</span>
+                                                {order.tipoPedido === 'retiro_sede' && (order.fechaRetiroPreferida || order.franjaHoraria) && (
+                                                    <div className="text-xs font-medium text-foreground/90 flex items-center gap-1.5 mt-1 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 rounded-md px-2 py-0.5 w-fit">
+                                                        <Clock size={12} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                                                        <span>
+                                                            {order.fechaRetiroPreferida || 'Fecha a coordinar'}
+                                                            {order.franjaHoraria ? ` · ${order.franjaHoraria}` : ''}
+                                                        </span>
                                                     </div>
                                                 )}
                                                 {order.tipoPedido === 'delivery' && order.direccionEntrega && (
-                                                    <div className="text-xs text-muted-foreground truncate max-w-[200px] mt-0.5">
+                                                    <div className="text-xs text-muted-foreground truncate max-w-[220px] mt-0.5">
                                                         {order.direccionEntrega} {order.localidad ? `(${order.localidad})` : ''}
+                                                    </div>
+                                                )}
+                                                {order.tipoPedido === 'delivery' && order.entrega_estimada && (
+                                                    <div className="text-xs font-medium text-blue-700 dark:text-blue-300 flex items-center gap-1 mt-0.5">
+                                                        <Clock size={11} />
+                                                        <span>{order.entrega_estimada}</span>
                                                     </div>
                                                 )}
                                             </td>
@@ -748,6 +734,29 @@ export default function AdminOrdersPage() {
                                                             return `${i.cantidad}x ${name}`;
                                                         }).join(', ')
                                                         : <span className="italic text-muted-foreground/60">Sin productos informados</span>}
+                                                </div>
+                                            </td>
+
+                                            {/* ID y Origen */}
+                                            <td className="py-3.5 px-4 font-mono">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-semibold text-xs text-muted-foreground">
+                                                        #{order.id.slice(0, 8)}
+                                                    </span>
+                                                    {order.origen === 'admin' ? (
+                                                        <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-300">
+                                                            SEDE
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                                            APP
+                                                        </span>
+                                                    )}
+                                                    {order.archivado && (
+                                                        <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300" title="Pedido archivado">
+                                                            Archivado
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </td>
 
@@ -788,6 +797,23 @@ export default function AdminOrdersPage() {
                                             {/* Selector de Estado y Botones de Acción */}
                                             <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                                                 <div className="flex items-center justify-end gap-2">
+                                                    {(() => {
+                                                        const quickTarget = getQuickDeliveryTarget(order.tipoPedido, order.estado);
+                                                        if (!quickTarget) return null;
+                                                        return (
+                                                            <button
+                                                                type="button"
+                                                                disabled={showPaymentModal}
+                                                                onClick={() => handleStatusChangeRequest(order.id, quickTarget)}
+                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-xs"
+                                                                title={order.tipoPedido === 'retiro_sede' ? 'Registrar retiro y aporte' : 'Registrar entrega y aporte'}
+                                                            >
+                                                                <CheckCircle2 size={13} />
+                                                                <span>Entregar</span>
+                                                            </button>
+                                                        );
+                                                    })()}
+
                                                     {/* Selector de Estado */}
                                                     <select
                                                         value={order.estado}
@@ -901,11 +927,27 @@ export default function AdminOrdersPage() {
                                     )}
                                 </div>
 
-                                <div className="text-xs text-muted-foreground flex flex-col gap-1 border-t border-border/40 pt-2">
+                                <div className="text-xs text-muted-foreground flex flex-col gap-1.5 border-t border-border/40 pt-2">
                                     <div className="flex items-center justify-between">
-                                        <span>Tipo: <strong className="text-foreground">{order.tipoPedido === 'retiro_sede' ? 'Retiro en Sede' : 'Delivery'}</strong></span>
+                                        <span className={`font-semibold ${order.tipoPedido === 'retiro_sede' ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                                            {order.tipoPedido === 'retiro_sede' ? 'Retiro en Sede' : 'Delivery'}
+                                        </span>
                                         <span>{new Date(order.fechaCreacion).toLocaleDateString()}</span>
                                     </div>
+                                    {order.tipoPedido === 'retiro_sede' && (order.fechaRetiroPreferida || order.franjaHoraria) && (
+                                        <div className="text-xs font-medium text-foreground flex items-center gap-1.5 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 rounded-md px-2 py-1 w-fit">
+                                            <Clock size={12} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                                            <span>
+                                                {order.fechaRetiroPreferida || 'Fecha a coordinar'}
+                                                {order.franjaHoraria ? ` · ${order.franjaHoraria}` : ''}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {order.tipoPedido === 'delivery' && order.direccionEntrega && (
+                                        <div className="truncate">
+                                            {order.direccionEntrega} {order.localidad ? `(${order.localidad})` : ''}
+                                        </div>
+                                    )}
                                     {order.items && (
                                         <div className="truncate">
                                             Items: {order.items.map(i => {
@@ -937,6 +979,21 @@ export default function AdminOrdersPage() {
                                     </select>
 
                                     <div className="flex items-center gap-1.5">
+                                        {(() => {
+                                            const quickTarget = getQuickDeliveryTarget(order.tipoPedido, order.estado);
+                                            if (!quickTarget) return null;
+                                            return (
+                                                <button
+                                                    type="button"
+                                                    disabled={showPaymentModal}
+                                                    onClick={() => handleStatusChangeRequest(order.id, quickTarget)}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-bold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                                                >
+                                                    <CheckCircle2 size={14} />
+                                                    <span>Entregar</span>
+                                                </button>
+                                            );
+                                        })()}
                                         {order.archivado ? (
                                             <button
                                                 onClick={() => setArchiveModalTarget({ id: order.id, socioNombre: socioName, archivado: false })}
@@ -1105,6 +1162,15 @@ export default function AdminOrdersPage() {
                     isOpen={showPaymentModal}
                     orderItems={paymentModalOrder.items || []}
                     socioName={paymentModalOrder.socio ? `${paymentModalOrder.socio.nombre} ${paymentModalOrder.socio.apellido}` : 'Socio'}
+                    orderSummary={{
+                        tipoPedido: paymentModalOrder.tipoPedido,
+                        fechaRetiroPreferida: paymentModalOrder.fechaRetiroPreferida,
+                        franjaHoraria: paymentModalOrder.franjaHoraria,
+                        entrega_estimada: paymentModalOrder.entrega_estimada,
+                        direccionEntrega: paymentModalOrder.direccionEntrega,
+                        localidad: paymentModalOrder.localidad,
+                        total: paymentModalOrder.total
+                    }}
                     onClose={() => {
                         setShowPaymentModal(false);
                         setPaymentModalOrder(null);

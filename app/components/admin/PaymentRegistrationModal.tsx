@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StoreService } from '@/services/storeService';
-import { OrderItem, Producto, PagoConcepto } from '@/types';
+import { OrderItem, OrderType, Producto, PagoConcepto } from '@/types';
+import { isOilProduct, resolveOrderTotal } from '@/app/lib/order-pricing';
 import { X, Plus, Trash2, ShieldAlert, Loader2, Landmark, CreditCard, Coins, Gift } from 'lucide-react';
 
 interface PaymentLine {
@@ -22,6 +23,15 @@ interface PaymentRegistrationModalProps {
     ) => Promise<void>;
     orderItems: OrderItem[];
     socioName: string;
+    orderSummary?: {
+        tipoPedido?: OrderType;
+        fechaRetiroPreferida?: string;
+        franjaHoraria?: string;
+        entrega_estimada?: string;
+        direccionEntrega?: string;
+        localidad?: string;
+        total?: number;
+    };
 }
 
 const parsePaymentAmount = (rawValue: string): number => {
@@ -50,9 +60,11 @@ export default function PaymentRegistrationModal({
     onClose,
     onConfirm,
     orderItems,
-    socioName
+    socioName,
+    orderSummary
 }: PaymentRegistrationModalProps) {
     const [products, setProducts] = useState<Producto[]>([]);
+    const [aportePorGramo, setAportePorGramo] = useState<number>(10000);
     const [loadingProducts, setLoadingProducts] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const attemptCommandIdsRef = useRef<Map<string, string>>(new Map());
@@ -79,8 +91,16 @@ export default function PaymentRegistrationModal({
     useEffect(() => {
         if (isOpen) {
             setLoadingProducts(true);
-            StoreService.getProductos(true)
-                .then(setProducts)
+            Promise.all([
+                StoreService.getProductos(true),
+                StoreService.getGlobalConfigs().catch(() => ({ aporte_por_gramo: 10000 }))
+            ])
+                .then(([prods, cfg]) => {
+                    setProducts(prods);
+                    if (cfg && typeof (cfg as any).aporte_por_gramo === 'number') {
+                        setAportePorGramo((cfg as any).aporte_por_gramo);
+                    }
+                })
                 .catch(err => console.error("Error loading products:", err))
                 .finally(() => setLoadingProducts(false));
         } else {
@@ -98,10 +118,10 @@ export default function PaymentRegistrationModal({
             orderItems.forEach(item => {
                 const prod = products.find(p => p.id === item.productoId);
                 if (prod) {
-                    if (prod.tipo === 'flor') {
-                        flowers += item.cantidad * (prod.peso_gramos || 1);
-                    } else if (prod.tipo === 'gotero') {
+                    if (isOilProduct(prod.tipo)) {
                         goteros += item.cantidad;
+                    } else if (prod.tipo === 'flor') {
+                        flowers += item.cantidad * (prod.peso_gramos || 1);
                     }
                 }
             });
@@ -242,17 +262,53 @@ export default function PaymentRegistrationModal({
                     )}
 
                     {/* Order summary box */}
-                    <div className="bg-muted/30 p-4 rounded-xl border border-border/80">
-                        <span className="text-[10px] font-black text-muted-foreground uppercase tracking-wider block mb-2">Detalle de Dispensas del Pedido</span>
-                        <div className="text-xs font-semibold text-foreground space-y-1.5">
-                            {orderItems.map((item, idx) => (
-                                <div key={idx} className="flex justify-between">
-                                    <span>{item.productoNombre || (item as any).nombre || (item.productoId ? `Producto no identificado (${item.productoId.slice(0, 8)})` : 'Producto no identificado')}</span>
-                                    <span className="text-muted-foreground">x{item.cantidad}</span>
+                    {(() => {
+                        const productsById = new Map(products.map(p => [p.id, p]));
+                        const expectedAporte = resolveOrderTotal(
+                            { total: orderSummary?.total, items: orderItems },
+                            productsById,
+                            aportePorGramo
+                        );
+                        return (
+                            <div className="bg-muted/30 p-4 rounded-xl border border-border/80 space-y-3">
+                                {orderSummary && (
+                                    <div className="grid grid-cols-2 gap-2 pb-2.5 border-b border-border/60 text-xs">
+                                        <div>
+                                            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Modalidad</span>
+                                            <span className="font-semibold text-foreground">
+                                                {orderSummary.tipoPedido === 'retiro_sede' ? 'Retiro en Sede' : 'Delivery'}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Fecha y Horario</span>
+                                            <span className="font-semibold text-foreground">
+                                                {orderSummary.tipoPedido === 'retiro_sede'
+                                                    ? `${orderSummary.fechaRetiroPreferida || 'A coordinar'}${orderSummary.franjaHoraria ? ` · ${orderSummary.franjaHoraria}` : ''}`
+                                                    : (orderSummary.entrega_estimada || orderSummary.localidad || 'A coordinar')}
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                                <div>
+                                    <span className="text-[10px] font-black text-muted-foreground uppercase tracking-wider block mb-2">Detalle de Dispensas del Pedido</span>
+                                    <div className="text-xs font-semibold text-foreground space-y-1.5">
+                                        {orderItems.map((item, idx) => (
+                                            <div key={idx} className="flex justify-between">
+                                                <span>{item.productoNombre || (item as any).nombre || (item.productoId ? `Producto no identificado (${item.productoId.slice(0, 8)})` : 'Producto no identificado')}</span>
+                                                <span className="text-muted-foreground">x{item.cantidad}</span>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
-                            ))}
-                        </div>
-                    </div>
+                                <div className="flex items-center justify-between pt-2.5 border-t border-border/60 text-xs">
+                                    <span className="font-bold text-muted-foreground uppercase tracking-wider">Aporte correspondiente</span>
+                                    <span className="text-sm font-black text-primary">
+                                        {expectedAporte > 0 ? `$${expectedAporte.toLocaleString('es-AR')}` : 'A definir'}
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* Payment/Pending/Bonification Option Select */}
                     {!(exceedsFlowers || exceedsGoteros) && (

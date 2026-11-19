@@ -1,5 +1,6 @@
 import { Producto, Pedido, OrderType, OrderItem, Socio, Pago, ProductoWithStockInfo, CierreMensual, PedidosFilterOptions, PaginatedPedidosResult } from '@/types';
 import { supabase } from './supabaseClient';
+import { calculateCartSummary, getUnitAporte, isOilProduct } from '@/app/lib/order-pricing';
 import * as DocService from './documentacionService';
 import { fetchLinkedProfile } from './linkedProfile';
 
@@ -164,7 +165,10 @@ const mapProductFromDB = (row: any): Producto => ({
     stockDisponible: row.stock_disponible,
     activo: row.activo,
     imagen: row.imagen,
-    peso_gramos: row.peso_gramos || 1, // Fallback to 1 if not set
+    peso_gramos: row.peso_gramos !== undefined && row.peso_gramos !== null
+        ? Number(row.peso_gramos)
+        : (String(row.tipo || '').toLowerCase() === 'gotero' || String(row.tipo || '').toLowerCase() === 'aceite' ? 0 : 1),
+    aporte_unidad: row.aporte_unidad !== undefined && row.aporte_unidad !== null ? Number(row.aporte_unidad) : undefined,
     precio: row.precio !== undefined && row.precio !== null ? Number(row.precio) : undefined,
     ratio: row.ratio,
     concentracion: row.concentracion,
@@ -187,6 +191,7 @@ const mapPedidoFromDB = (row: any): Pedido => ({
     franjaHoraria: row.franja_horaria,
     entrega_estimada: row.entrega_estimada,
     archivado: row.archivado,
+    total: row.total !== undefined && row.total !== null ? Number(row.total) : undefined,
     socio: row.socio ? mapSocioFromDB(row.socio) : undefined,
     created_by_user_id: row.created_by_user_id,
     idempotency_key: row.idempotency_key,
@@ -375,9 +380,39 @@ export const StoreService = {
         // 3. Generate or preserve idempotency key to prevent double submissions
         const idempotencyKey = details.idempotency_key || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined);
 
+        // 4. Authoritative aporte calculation from DB catalog + global_configs (consistent with checkout & preserves historical orders)
+        let authoritativeItems = items;
+        let authoritativeTotal: number | undefined = undefined;
+        try {
+            const productIds = Array.from(new Set(items.map(i => i.productoId).filter(Boolean)));
+            const [{ data: dbProds }, cfg] = await Promise.all([
+                productIds.length > 0
+                    ? supabase.from('products').select('id, tipo, peso_gramos, aporte_unidad, precio').in('id', productIds)
+                    : Promise.resolve({ data: [] as any[] }),
+                StoreService.getGlobalConfigs().catch(() => ({ aporte_por_gramo: 10000 }))
+            ]);
+            const prodMap = new Map((dbProds || []).map((p: any) => [p.id, p]));
+            const rate = Number((cfg as any)?.aporte_por_gramo || 10000);
+            authoritativeItems = items.map(item => {
+                const dbProd = prodMap.get(item.productoId);
+                if (!dbProd) return item;
+                const unitAporte = getUnitAporte(dbProd, rate);
+                return { ...item, precioUnitario: unitAporte };
+            });
+            const summary = calculateCartSummary(
+                authoritativeItems.map(i => ({ ...i, producto: prodMap.get(i.productoId) || null })),
+                rate
+            );
+            if (summary.aporteTotal > 0) {
+                authoritativeTotal = summary.aporteTotal;
+            }
+        } catch (pricingErr) {
+            console.warn("Authoritative pricing lookup fallback:", pricingErr);
+        }
+
         const dbRow: any = {
             socio_id: socioId,
-            items: items,
+            items: authoritativeItems,
             tipo_pedido: tipo,
             origen: details.origen || 'app',
             estado: 'pendiente', // tr_order_operator_guard strictly requires initial status 'pendiente' on INSERT
@@ -389,6 +424,7 @@ export const StoreService = {
             franja_horaria: details.franjaHoraria,
             entrega_estimada: details.entrega_estimada,
             slot_id: details.slotId,
+            total: authoritativeTotal,
             created_by_user_id: currentAuthUserId,
             idempotency_key: idempotencyKey
         };
@@ -949,7 +985,8 @@ export const StoreService = {
             stock_disponible: producto.stockDisponible,
             activo: producto.activo !== undefined ? producto.activo : true,
             imagen: producto.imagen,
-            peso_gramos: producto.peso_gramos || 10
+            peso_gramos: isOilProduct(producto.tipo) ? (producto.peso_gramos ?? 0) : (producto.peso_gramos || 10),
+            aporte_unidad: producto.aporte_unidad ?? null
         };
 
         const { data, error } = await supabase
@@ -975,6 +1012,7 @@ export const StoreService = {
         if (updates.activo !== undefined) dbUpdates.activo = updates.activo;
         if (updates.imagen !== undefined) dbUpdates.imagen = updates.imagen;
         if (updates.peso_gramos !== undefined) dbUpdates.peso_gramos = updates.peso_gramos;
+        if (updates.aporte_unidad !== undefined) dbUpdates.aporte_unidad = updates.aporte_unidad;
         if (updates.last_audit_note !== undefined) dbUpdates.last_audit_note = updates.last_audit_note;
 
         // Clear last_audit_order_id on manual updates to prevent carrying over previous order associations
