@@ -1,4 +1,5 @@
 import { Producto, Pedido, OrderType, OrderItem, Socio, Pago, ProductoWithStockInfo, CierreMensual, PedidosFilterOptions, PaginatedPedidosResult } from '@/types';
+import { selectPreferredCierre } from '@/app/lib/cierres/constancia-print';
 import { supabase } from './supabaseClient';
 import { calculateCartSummary, getUnitAporte, isOilProduct } from '@/app/lib/order-pricing';
 import * as DocService from './documentacionService';
@@ -1631,18 +1632,19 @@ export const StoreService = {
 
     getCierreMensual: async (socioId: string, periodo: string): Promise<CierreMensual | null> => {
         if (!supabase) return null;
-        const { data, error } = await supabase
+        const { data: rows, error } = await supabase
             .from('cierres_mensuales')
             .select('*')
             .eq('socio_id', socioId)
             .eq('periodo', periodo)
-            .maybeSingle();
+            .order('fecha_generacion', { ascending: false });
 
         if (error) {
             console.error("StoreService: getCierreMensual failed", error);
             throw error;
         }
 
+        const data = selectPreferredCierre(rows);
         if (!data) return null;
 
         return {

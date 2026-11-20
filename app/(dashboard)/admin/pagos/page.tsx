@@ -7,6 +7,11 @@ import { StoreService } from '@/services/storeService';
 import { EmailService } from '@/services/emailService';
 import { Pago, Socio, CierreMensual } from '@/types';
 import { formatCalendarDate } from '@/app/lib/date-format';
+import {
+    buildConstanciaPrintHtml,
+    printConstanciaHtml,
+    downloadConstanciaHtml,
+} from '@/app/lib/cierres/constancia-print';
 import { 
     Coins, 
     Search, 
@@ -16,6 +21,7 @@ import {
     CreditCard, 
     FileText, 
     Printer, 
+    Download,
     Mail, 
     Trash2, 
     UserCheck, 
@@ -256,9 +262,40 @@ export default function AdminPagosPage() {
         }
     };
 
-    // Native Printing Trigger
-    const handlePrint = () => {
-        window.print();
+    const buildCurrentPrintableHtml = () => {
+        const snapshot = cierreExistente || {
+            datos: cierrePreviewData,
+            numeroConstancia: 'PRE-VISTA',
+            fechaGeneracion: new Date().toISOString(),
+            estado: 'emitido' as const,
+            hashSha256: 'SIN CONGELAR (Pendiente de emisión)'
+        };
+        return buildConstanciaPrintHtml({
+            periodo: selectedPeriod,
+            numeroConstancia: snapshot.numeroConstancia,
+            fechaGeneracion: snapshot.fechaGeneracion,
+            hashSha256: snapshot.hashSha256,
+            estado: snapshot.estado,
+            isEmitted: Boolean(cierreExistente),
+            motivoAnulacion: cierreExistente?.motivoAnulacion,
+            fechaAnulacion: cierreExistente?.fechaAnulacion,
+            datos: snapshot.datos,
+        });
+    };
+
+    // Isolated A4 Print Trigger (hidden iframe, independent from DashboardLayout)
+    const handlePrint = async () => {
+        if (!cierreExistente && !cierrePreviewData) return;
+        const html = buildCurrentPrintableHtml();
+        await printConstanciaHtml(html);
+    };
+
+    // Download self-contained A4 HTML snapshot
+    const handleDownloadHtml = () => {
+        if (!cierreExistente && !cierrePreviewData) return;
+        const html = buildCurrentPrintableHtml();
+        const safeNum = (cierreExistente?.numeroConstancia || 'prevista').replace(/[^a-zA-Z0-9_-]/g, '_');
+        downloadConstanciaHtml(html, `constancia_${selectedPeriod}_${safeNum}.html`);
     };
 
     if (authLoading || loading) {
@@ -280,39 +317,7 @@ export default function AdminPagosPage() {
     };
 
     return (
-        <div className="space-y-6 max-w-5xl mx-auto pb-12 no-print">
-            
-            {/* Print Styles Injection */}
-            <style dangerouslySetInnerHTML={{ __html: `
-                @media print {
-                    body {
-                        background-color: white !important;
-                        color: black !important;
-                    }
-                    .no-print {
-                        display: none !important;
-                    }
-                    .print-only {
-                        display: block !important;
-                    }
-                    /* For print output optimization */
-                    #cierre-printable-area {
-                        display: block !important;
-                        position: absolute;
-                        left: 0;
-                        top: 0;
-                        width: 100%;
-                        background-color: white !important;
-                        color: black !important;
-                        padding: 1.5cm !important;
-                        box-shadow: none !important;
-                        border: none !important;
-                    }
-                }
-                .print-only {
-                    display: none;
-                }
-            `}} />
+        <div className="space-y-6 max-w-5xl mx-auto pb-12">
 
             {/* Header */}
             <div className="flex items-center gap-3">
@@ -536,14 +541,24 @@ export default function AdminPagosPage() {
                                         </button>
                                     )}
 
-                                    {/* Printer button */}
+                                    {/* Printer / Save PDF button */}
                                     <button
                                         type="button"
                                         onClick={handlePrint}
                                         className="px-4 py-2 bg-card border hover:bg-muted text-foreground rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
                                     >
                                         <Printer size={14} />
-                                        Imprimir Constancia
+                                        Imprimir / Guardar PDF
+                                    </button>
+
+                                    {/* Download HTML button */}
+                                    <button
+                                        type="button"
+                                        onClick={handleDownloadHtml}
+                                        className="px-4 py-2 bg-card border hover:bg-muted text-foreground rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                                    >
+                                        <Download size={14} />
+                                        Descargar HTML
                                     </button>
 
                                     {/* Email sending */}
@@ -793,177 +808,6 @@ export default function AdminPagosPage() {
                                 {annulling ? 'Anulando...' : 'Confirmar Anulación'}
                             </button>
                         </div>
-                    </div>
-                </div>
-            )}
-
-            {/* PRINT WRAPPER FOR NATIVE SYSTEM DIALOG (HIDDEN IN WEB VIEW) */}
-            {(cierreExistente || cierrePreviewData) && (
-                <div id="cierre-printable-area" className="print-only">
-                    {/* Block 1: Institutional Header */}
-                    <div style={{ textAlign: 'center', paddingBottom: '20px', borderBottom: '1px dashed #000' }}>
-                        <h2 style={{ margin: 0, fontSize: '22px', fontWeight: 'bold' }}>ACIACAM</h2>
-                        <p style={{ margin: '5px 0 0 0', fontSize: '12px' }}>
-                            Asociación Civil para la Investigación y el Acceso del Cannabis Medicinal
-                        </p>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', marginTop: '10px' }}>
-                            <tbody>
-                                <tr>
-                                    <td><strong>Personería Jurídica:</strong> N° 119/2023 (DPJ San Luis)</td>
-                                    <td style={{ textAlign: 'right' }}><strong>CUIT:</strong> 30-71825047-8</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Expte. Salud/ONG:</strong> Expte. DI-2023-162-APN-DNRIEI#MS</td>
-                                    <td style={{ textAlign: 'right' }}><strong>Nº Trámite REPROCANN:</strong> Trámite Nº 340155</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Title */}
-                    <div style={{ padding: '20px 0', textAlign: 'center' }}>
-                        <h3 style={{ margin: 0, fontSize: '15px', textTransform: 'uppercase', letterSpacing: '1px' }}>Constancia Mensual de Aportes y Dispensas</h3>
-                        <p style={{ margin: '5px 0 0 0', fontSize: '12px' }}>Período: <strong>{selectedPeriod}</strong></p>
-                        {renderedCierre.estado === 'anulado' && (
-                            <h4 style={{ color: 'red', margin: '10px 0 0 0', border: '2px solid red', display: 'inline-block', padding: '5px 15px', textTransform: 'uppercase' }}>DOCUMENTO ANULADO</h4>
-                        )}
-                    </div>
-
-                    {/* Block 2: Socio Info Box */}
-                    <div style={{ border: '1px solid #000', padding: '12px', fontSize: '11px', lineHeight: '1.5' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <tbody>
-                                <tr>
-                                    <td style={{ width: '120px' }}><strong>Asociado:</strong></td>
-                                    <td>{renderedCierre.datos?.socio?.nombre} {renderedCierre.datos?.socio?.apellido}</td>
-                                    <td style={{ width: '100px' }}><strong>DNI:</strong></td>
-                                    <td>{renderedCierre.datos?.socio?.dni || 'N/A'}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Nº Socio:</strong></td>
-                                    <td>{renderedCierre.datos?.socio?.numeroSocio || 'N/A'}</td>
-                                    <td><strong>Patología:</strong></td>
-                                    <td>{renderedCierre.datos?.socio?.diagnosticoPrincipal || 'N/A'}</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>REPROCANN N°:</strong></td>
-                                    <td>{renderedCierre.datos?.socio?.reprocann?.numeroTramite || 'N/A'}</td>
-                                    <td><strong>Vencimiento:</strong></td>
-                                    <td>{formatCalendarDate(renderedCierre.datos?.socio?.reprocann?.vencimiento, 'N/A')}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Block 3: Dispensas details */}
-                    <div style={{ marginTop: '20px' }}>
-                        <h4 style={{ margin: '0 0 8px 0', fontSize: '11px', textTransform: 'uppercase' }}>Detalle de Dispensas de Fitopreparados</h4>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
-                            <thead>
-                                <tr style={{ borderBottom: '2px solid #000', textAlign: 'left', fontWeight: 'bold' }}>
-                                    <th style={{ padding: '6px' }}>Fecha</th>
-                                    <th style={{ padding: '6px' }}>Remito ID</th>
-                                    <th style={{ padding: '6px' }}>Detalle Dispensado</th>
-                                    <th style={{ padding: '6px' }}>Responsable</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {!renderedCierre.datos?.dispensas || renderedCierre.datos.dispensas.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={4} style={{ padding: '10px', textAlign: 'center', fontStyle: 'italic' }}>No se registraron dispensas en este período.</td>
-                                    </tr>
-                                ) : (
-                                    renderedCierre.datos.dispensas.map((disp: any, i: number) => (
-                                        <tr key={i} style={{ borderBottom: '1px solid #ccc' }}>
-                                            <td style={{ padding: '6px' }}>{new Date(disp.fecha).toLocaleDateString('es-AR')}</td>
-                                            <td style={{ padding: '6px', fontFamily: 'monospace' }}>{disp.pedidoId.substring(0, 8)}</td>
-                                            <td style={{ padding: '6px' }}>
-                                                {disp.items.map((it: any, k: number) => (
-                                                    <div key={k}>{it.cantidad}x {it.productoNombre}</div>
-                                                ))}
-                                            </td>
-                                            <td style={{ padding: '6px' }}>{disp.operador || 'Sistema'}</td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Block 4: Aportes details */}
-                    <div style={{ marginTop: '20px' }}>
-                        <h4 style={{ margin: '0 0 8px 0', fontSize: '11px', textTransform: 'uppercase' }}>Detalle de Aportes Económicos</h4>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
-                            <thead>
-                                <tr style={{ borderBottom: '2px solid #000', textAlign: 'left', fontWeight: 'bold' }}>
-                                    <th style={{ padding: '6px' }}>Fecha</th>
-                                    <th style={{ padding: '6px' }}>Concepto</th>
-                                    <th style={{ padding: '6px' }}>Medio de Pago / Ref</th>
-                                    <th style={{ padding: '6px', textAlign: 'right' }}>Monto</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {!renderedCierre.datos?.aportes || renderedCierre.datos.aportes.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={4} style={{ padding: '10px', textAlign: 'center', fontStyle: 'italic' }}>No se registraron aportes económicos en este período.</td>
-                                    </tr>
-                                ) : (
-                                    renderedCierre.datos.aportes.map((apo: any, i: number) => (
-                                        <tr key={i} style={{ borderBottom: '1px solid #ccc' }}>
-                                            <td style={{ padding: '6px' }}>{new Date(apo.fecha).toLocaleDateString('es-AR')}</td>
-                                            <td style={{ padding: '6px' }}>{apo.concepto}</td>
-                                            <td style={{ padding: '6px', textTransform: 'capitalize' }}>
-                                                {apo.medioDePago === 'transferencia_galicia' ? 'Galicia Transf.' : 
-                                                 apo.medioDePago === 'mercadopago' ? 'MercadoPago' : 
-                                                 apo.medioDePago === 'efectivo' ? 'Efectivo' : apo.medioDePago}
-                                                {apo.referencia && ` (Ref: ${apo.referencia})`}
-                                            </td>
-                                            <td style={{ padding: '6px', textAlign: 'right', fontWeight: 'bold' }}>
-                                                ${apo.monto.toLocaleString('es-AR')}
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                        <div style={{ textAlign: 'right', fontSize: '11px', fontWeight: 'bold', marginTop: '10px' }}>
-                            Total Aportado: ${(renderedCierre.datos?.aportes || []).reduce((acc: number, a: any) => acc + (a.monto || 0), 0).toLocaleString('es-AR')}
-                        </div>
-                    </div>
-
-                    {/* Block 5: Legal Frame and Signatures */}
-                    <div style={{ marginTop: '30px', paddingTop: '15px', borderTop: '1px solid #000' }}>
-                        <p style={{ fontSize: '9px', textAlign: 'justify', lineHeight: '1.4', margin: 0 }}>
-                            {renderedCierre.datos?.pie_legal}
-                        </p>
-
-                        {renderedCierre.estado === 'anulado' && (
-                            <div style={{ border: '1px solid red', padding: '10px', margin: '15px 0', fontSize: '10px', color: 'red' }}>
-                                <strong>MOTIVO DE ANULACIÓN:</strong> "{cierreExistente?.motivoAnulacion || 'Sin motivo especificado'}" - Anulado el {new Date(cierreExistente?.fechaAnulacion || '').toLocaleString('es-AR')}
-                            </div>
-                        )}
-
-                        <table style={{ width: '100%', marginTop: '50px', fontSize: '9px' }}>
-                            <tbody>
-                                <tr>
-                                    <td style={{ width: '45%', textAlign: 'center' }}>
-                                        <div style={{ borderBottom: '1px solid #000', height: '30px', margin: '0 20px' }}></div>
-                                        <span style={{ fontWeight: 'bold', color: '#555', textTransform: 'uppercase', display: 'block', marginTop: '5px' }}>Responsable de Dispensa ACIACAM</span>
-                                    </td>
-                                    <td style={{ width: '10%' }}></td>
-                                    <td style={{ width: '45%', textAlign: 'center' }}>
-                                        <div style={{ borderBottom: '1px solid #000', height: '30px', margin: '0 20px' }}></div>
-                                        <span style={{ fontWeight: 'bold', color: '#555', textTransform: 'uppercase', display: 'block', marginTop: '5px' }}>Firma del Asociado / Recibido</span>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Document Info Footer */}
-                    <div style={{ marginTop: '60px', paddingTop: '10px', borderTop: '1px dashed #000', textAlign: 'center', fontSize: '8px', color: '#666' }}>
-                        <div><strong>Constancia N°:</strong> {renderedCierre.numeroConstancia} | <strong>Generado el:</strong> {new Date(renderedCierre.fechaGeneracion).toLocaleString('es-AR')}</div>
-                        <div><strong>Firma Criptográfica SHA-256:</strong> {renderedCierre.hashSha256}</div>
                     </div>
                 </div>
             )}
