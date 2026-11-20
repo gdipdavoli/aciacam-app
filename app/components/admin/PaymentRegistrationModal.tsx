@@ -498,8 +498,7 @@ export default function PaymentRegistrationModal({
                         type="button"
                         onClick={handleConfirm}
                         disabled={submitting || exceedsFlowers || exceedsGoteros}
-                        className="px-5 py-2 text-white bg-primary hover:bg-primary/95 rounded-xl text-sm font-black transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        style={!(submitting || exceedsFlowers || exceedsGoteros) ? { backgroundColor: '#0F3822' } : {}}
+                        className="btn-forest px-5 py-2 rounded-xl text-sm font-black transition-all shadow-md flex items-center justify-center gap-2"
                     >
                         {submitting ? (
                             <>

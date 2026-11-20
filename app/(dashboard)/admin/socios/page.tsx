@@ -168,9 +168,9 @@ const SocioMobileCard = React.memo(function SocioMobileCard({ socio, onViewDetai
             {/* Bottom Tactile Buttons */}
             <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
+                    type="button"
                     onClick={() => onViewDetail(socio.id)}
-                    className="text-white py-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 shadow-xs active:scale-95"
-                    style={{ backgroundColor: '#0F3822' }}
+                    className="btn-forest py-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1 shadow-xs active:scale-95"
                 >
                     Ver Ficha
                 </button>

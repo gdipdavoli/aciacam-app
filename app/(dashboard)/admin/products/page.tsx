@@ -143,7 +143,7 @@ export default function AdminProductsPage() {
                     </button>
                     <button
                         onClick={() => router.push('/admin/products/new')}
-                        className="flex-1 sm:flex-initial bg-primary text-primary-foreground px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 text-xs font-bold hover:bg-primary/95 transition-colors shadow-md"
+                        className="flex-1 sm:flex-initial bg-primary text-primary-foreground px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 text-xs font-bold hover:bg-primary/95 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors shadow-md"
                     >
                         <Plus size={16} />
                         Nuevo Producto
@@ -198,12 +198,13 @@ export default function AdminProductsPage() {
                                 </div>
                                 <button
                                     onClick={() => handleToggleActive(product)}
-                                    className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition-all shrink-0 ${
+                                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold transition-all shrink-0 ${
                                         product.activo
-                                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                                            : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                                            ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60'
+                                            : 'bg-muted text-foreground/80 hover:bg-muted/80'
                                     }`}
                                 >
+                                    {product.activo ? <CheckCircle size={11} /> : <XCircle size={11} />}
                                     {product.activo ? 'Activo' : 'Inactivo'}
                                 </button>
                             </div>
@@ -212,11 +213,11 @@ export default function AdminProductsPage() {
                             <div className="grid grid-cols-3 gap-2 bg-muted/30 p-3 rounded-xl text-center text-xs font-semibold">
                                 <div className="border-r">
                                     <span className="text-muted-foreground block mb-0.5 text-[10px]">Disponible</span>
-                                    <span className="text-green-600 block font-black">{product.stock_disponible}g</span>
+                                    <span className={`block font-black ${product.stock_disponible > 0 ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{product.stock_disponible}g</span>
                                 </div>
                                 <div className="border-r">
                                     <span className="text-muted-foreground block mb-0.5 text-[10px]">Reservado</span>
-                                    <span className="text-amber-600 block font-black">{product.stock_reservado}g</span>
+                                    <span className="text-amber-700 dark:text-amber-400 block font-black">{product.stock_reservado}g</span>
                                 </div>
                                 <div>
                                     <span className="text-muted-foreground block mb-0.5 text-[10px]">Físico</span>
@@ -227,28 +228,30 @@ export default function AdminProductsPage() {
                             {/* Action buttons (1-Tap Buttons) */}
                             <div className="grid grid-cols-3 gap-2 pt-1">
                                 <button
+                                    type="button"
                                     onClick={() => {
                                         setAdjustingProduct(product);
                                         setAdjustQty(0);
                                         setAdjustReason('');
                                         setAdjustType('add');
                                     }}
-                                    className="bg-primary hover:bg-primary/95 text-primary-foreground py-2.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1 shadow-sm"
-                                    style={{ backgroundColor: '#0F3822' }}
+                                    className="btn-forest py-2.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1 shadow-sm"
                                 >
                                     <Plus size={14} />
                                     Stock
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => handleOpenAudit(product)}
-                                    className="bg-card hover:bg-muted border text-foreground py-2.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1 shadow-sm"
+                                    className="bg-card hover:bg-muted active:bg-muted/80 border text-foreground py-2.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 >
                                     <History size={14} />
                                     Auditar
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => router.push(`/admin/products/${product.id}`)}
-                                    className="bg-card hover:bg-muted border text-foreground py-2.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1 shadow-sm"
+                                    className="bg-card hover:bg-muted active:bg-muted/80 border text-foreground py-2.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 >
                                     <Edit size={14} />
                                     Editar
@@ -400,20 +403,22 @@ export default function AdminProductsPage() {
                         {/* Adjust Type Selection */}
                         <div className="flex bg-muted/60 p-1 rounded-xl mb-4 text-xs font-bold">
                             <button
+                                type="button"
+                                aria-pressed={adjustType === 'add'}
                                 onClick={() => setAdjustType('add')}
                                 className={`flex-1 py-2.5 rounded-lg transition-all ${
-                                    adjustType === 'add' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground'
+                                    adjustType === 'add' ? 'btn-forest shadow-sm' : 'text-foreground/75 hover:text-foreground'
                                 }`}
-                                style={adjustType === 'add' ? { backgroundColor: '#0F3822' } : {}}
                             >
                                 Aumentar (+)
                             </button>
                             <button
+                                type="button"
+                                aria-pressed={adjustType === 'subtract'}
                                 onClick={() => setAdjustType('subtract')}
                                 className={`flex-1 py-2.5 rounded-lg transition-all ${
-                                    adjustType === 'subtract' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground'
+                                    adjustType === 'subtract' ? 'btn-forest shadow-sm' : 'text-foreground/75 hover:text-foreground'
                                 }`}
-                                style={adjustType === 'subtract' ? { backgroundColor: '#0F3822' } : {}}
                             >
                                 Disminuir (-)
                             </button>
@@ -447,10 +452,10 @@ export default function AdminProductsPage() {
                         {/* Action buttons */}
                         <div className="flex flex-col gap-2">
                             <button
+                                type="button"
                                 onClick={handleSaveAdjustment}
                                 disabled={submittingAdjust || !adjustQty || !adjustReason}
-                                className="w-full py-4 text-white rounded-xl text-sm font-black transition-all shadow-md disabled:opacity-50"
-                                style={{ backgroundColor: '#0F3822' }}
+                                className="btn-forest w-full py-4 rounded-xl text-sm font-black transition-all shadow-md"
                             >
                                 {submittingAdjust ? 'Guardando...' : 'Confirmar Ajuste'}
                             </button>
