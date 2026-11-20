@@ -8,7 +8,8 @@ REVOKE ALL ON SCHEMA aciacam_cc FROM PUBLIC, anon, authenticated, service_role;
 CREATE TABLE IF NOT EXISTS aciacam_cc.config (
     singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
     enabled boolean NOT NULL DEFAULT false,
-    periodo_corte varchar(7)
+    periodo_corte varchar(7),
+    created_at timestamptz NOT NULL DEFAULT transaction_timestamp()
 );
 INSERT INTO aciacam_cc.config (singleton, enabled)
 VALUES (true, false)
@@ -30,7 +31,7 @@ CREATE TABLE IF NOT EXISTS aciacam_cc.aportes (
     socio_id uuid NOT NULL,
     legacy_pago_id uuid UNIQUE REFERENCES public.pagos(id) ON DELETE RESTRICT,
     centavos bigint NOT NULL CHECK (centavos BETWEEN 1 AND 9007199254740991),
-    medio text NOT NULL CHECK (medio IN ('efectivo', 'transferencia_galicia', 'mercadopago')),
+    medio text NOT NULL CHECK (medio IN ('efectivo', 'transferencia_galicia', 'transferencia', 'mercadopago')),
     referencia text,
     created_at timestamptz NOT NULL DEFAULT transaction_timestamp(),
     created_by uuid NOT NULL REFERENCES auth.users(id),
@@ -165,7 +166,8 @@ SELECT
     COALESCE(sc.saldo_corriente_desde_corte_centavos, 0)::bigint AS saldo_corriente_desde_corte_centavos,
     CASE
         WHEN ch.id IS NOT NULL THEN 'conciliada'
-        WHEN EXISTS (SELECT 1 FROM public.pagos pg WHERE pg.socio_id = s.id AND NOT EXISTS (SELECT 1 FROM aciacam_cc.aportes a WHERE a.legacy_pago_id = pg.id))
+        WHEN s.created_at < (SELECT c.created_at FROM aciacam_cc.config c WHERE c.singleton)
+          OR EXISTS (SELECT 1 FROM public.pagos pg WHERE pg.socio_id = s.id AND NOT EXISTS (SELECT 1 FROM aciacam_cc.aportes a WHERE a.legacy_pago_id = pg.id))
           OR EXISTS (SELECT 1 FROM public.pedidos pe WHERE pe.socio_id = s.id AND pe.estado IN ('entregado', 'retirado') AND NOT EXISTS (SELECT 1 FROM aciacam_cc.cuentas_pedido cp WHERE cp.pedido_id = pe.id))
             THEN 'pendiente_conciliacion'
         ELSE 'nueva'
@@ -173,7 +175,8 @@ SELECT
     ch.saldo_apertura_centavos,
     CASE
         WHEN ch.id IS NOT NULL THEN (ch.saldo_apertura_centavos + COALESCE(sc.saldo_corriente_desde_corte_centavos, 0))::bigint
-        WHEN NOT EXISTS (SELECT 1 FROM public.pagos pg WHERE pg.socio_id = s.id AND NOT EXISTS (SELECT 1 FROM aciacam_cc.aportes a WHERE a.legacy_pago_id = pg.id))
+        WHEN s.created_at >= (SELECT c.created_at FROM aciacam_cc.config c WHERE c.singleton)
+         AND NOT EXISTS (SELECT 1 FROM public.pagos pg WHERE pg.socio_id = s.id AND NOT EXISTS (SELECT 1 FROM aciacam_cc.aportes a WHERE a.legacy_pago_id = pg.id))
          AND NOT EXISTS (SELECT 1 FROM public.pedidos pe WHERE pe.socio_id = s.id AND pe.estado IN ('entregado', 'retirado') AND NOT EXISTS (SELECT 1 FROM aciacam_cc.cuentas_pedido cp WHERE cp.pedido_id = pe.id))
             THEN COALESCE(sc.saldo_corriente_desde_corte_centavos, 0)::bigint
         ELSE NULL
@@ -228,7 +231,9 @@ DECLARE
     old_cmd record;
     target record;
     op text := p_payload->>'operacion';
-    order_id uuid := (p_payload->>'pedidoId')::uuid;
+    order_id_text text := p_payload->>'pedidoId';
+    order_id uuid;
+    target_id_text text;
     value bigint;
     direction smallint;
     current_balance bigint;
@@ -247,11 +252,13 @@ BEGIN
     IF NOT COALESCE((SELECT enabled FROM aciacam_cc.config WHERE singleton), false) THEN
         RAISE EXCEPTION 'CC_NO_HABILITADA';
     END IF;
-    IF p_command_id IS NULL OR order_id IS NULL OR p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object'
+    IF p_command_id IS NULL OR p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object'
+       OR order_id_text IS NULL OR order_id_text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
        OR op IS NULL OR op NOT IN ('abrir', 'aportar', 'bonificar', 'ajustar', 'revertir', 'conciliar')
        OR reason IS NULL OR length(reason) = 0 OR length(reason) > 2000 THEN
         RAISE EXCEPTION 'CC_COMANDO_INVALIDO';
     END IF;
+    order_id := order_id_text::uuid;
     IF op IN ('bonificar', 'ajustar', 'revertir', 'conciliar') AND a.rol <> 'admin' THEN
         RAISE EXCEPTION 'CC_ADMIN_REQUERIDO' USING ERRCODE = '42501';
     END IF;
@@ -320,16 +327,16 @@ BEGIN
             IF op = 'aportar' THEN
                 v_medio := p_payload->>'medio';
                 v_ref := nullif(btrim(p_payload->>'referencia'), '');
-                IF v_medio IS NULL OR v_medio NOT IN ('efectivo', 'transferencia_galicia', 'mercadopago') THEN
+                IF v_medio IS NULL OR v_medio NOT IN ('efectivo', 'transferencia_galicia', 'transferencia', 'mercadopago') THEN
                     RAISE EXCEPTION 'CC_MEDIO_INVALIDO';
                 END IF;
                 IF v_medio <> 'efectivo' AND v_ref IS NULL THEN
                     RAISE EXCEPTION 'CC_REFERENCIA_REQUERIDA';
                 END IF;
 
-                -- Registrar en public.pagos y enlazar 1:1 en aciacam_cc.aportes (anti-duplicación)
+                -- Registrar en public.pagos (fecha local Argentina) y enlazar 1:1 en aciacam_cc.aportes (anti-duplicación)
                 INSERT INTO public.pagos (socio_id, fecha, concepto, monto, medio_de_pago, pedido_id, referencia, created_by)
-                VALUES (o.socio_id, CURRENT_DATE, reason, round((value::numeric / 100.0), 2), v_medio, order_id, v_ref, auth.uid())
+                VALUES (o.socio_id, (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date, reason, round((value::numeric / 100.0), 2), v_medio, order_id, v_ref, auth.uid())
                 RETURNING id INTO legacy_pago;
 
                 INSERT INTO aciacam_cc.aportes (pedido_id, socio_id, legacy_pago_id, centavos, medio, referencia, created_by)
@@ -345,9 +352,13 @@ BEGIN
             )
             RETURNING id INTO movement;
         ELSIF op = 'revertir' THEN
+            target_id_text := p_payload->>'movimientoId';
+            IF target_id_text IS NULL OR target_id_text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+                RAISE EXCEPTION 'CC_REVERSION_INVALIDA';
+            END IF;
             SELECT * INTO target
             FROM aciacam_cc.movimientos
-            WHERE id = (p_payload->>'movimientoId')::uuid AND pedido_id = order_id AND socio_id = o.socio_id;
+            WHERE id = target_id_text::uuid AND pedido_id = order_id AND socio_id = o.socio_id;
 
             IF NOT FOUND OR target.tipo NOT IN ('pago', 'bonificacion', 'ajuste') THEN
                 RAISE EXCEPTION 'CC_REVERSION_INVALIDA';
@@ -363,7 +374,11 @@ BEGIN
             VALUES (order_id, o.socio_id, 'reversion', -target.signo, target.centavos, reason, p_command_id, 0, target.id, auth.uid())
             RETURNING id INTO movement;
         ELSIF op = 'conciliar' THEN
-            SELECT * INTO target FROM aciacam_cc.aportes WHERE id = (p_payload->>'aporteId')::uuid AND pedido_id = order_id AND socio_id = o.socio_id;
+            target_id_text := p_payload->>'aporteId';
+            IF target_id_text IS NULL OR target_id_text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+                RAISE EXCEPTION 'CC_CONCILIACION_INVALIDA';
+            END IF;
+            SELECT * INTO target FROM aciacam_cc.aportes WHERE id = target_id_text::uuid AND pedido_id = order_id AND socio_id = o.socio_id;
             IF NOT FOUND OR target.medio = 'efectivo' OR nullif(btrim(p_payload->>'referencia'), '') IS NULL
                OR EXISTS (SELECT 1 FROM aciacam_cc.movimientos m JOIN aciacam_cc.movimientos r ON r.revierte_id = m.id WHERE m.pago_id = target.id) THEN
                 RAISE EXCEPTION 'CC_CONCILIACION_INVALIDA';

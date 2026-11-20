@@ -41,8 +41,8 @@ CREATE TABLE IF NOT EXISTS public.cierres_periodo (
 );
 
 ALTER TABLE public.cierres_periodo ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.cierres_periodo FROM PUBLIC, anon;
-GRANT SELECT, INSERT, UPDATE ON public.cierres_periodo TO authenticated;
+REVOKE ALL ON public.cierres_periodo FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.cierres_periodo TO authenticated;
 
 DROP POLICY IF EXISTS cierres_periodo_read ON public.cierres_periodo;
 CREATE POLICY cierres_periodo_read ON public.cierres_periodo
@@ -50,10 +50,6 @@ CREATE POLICY cierres_periodo_read ON public.cierres_periodo
     USING (public.get_my_role() IN ('admin', 'staff'));
 
 DROP POLICY IF EXISTS cierres_periodo_write ON public.cierres_periodo;
-CREATE POLICY cierres_periodo_write ON public.cierres_periodo
-    FOR ALL TO authenticated
-    USING (public.get_my_role() IN ('admin', 'staff'))
-    WITH CHECK (public.get_my_role() IN ('admin', 'staff'));
 
 -- 3. Evolución compatible de public.cierres_mensuales (reemisión tras anulación + schema_version v2)
 ALTER TABLE public.cierres_mensuales
@@ -70,12 +66,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS cierres_mensuales_socio_periodo_emitido_uniq
     ON public.cierres_mensuales (socio_id, periodo)
     WHERE estado = 'emitido';
 
--- 4. Actualizar trigger prepare_monthly_close manteniendo intactos históricos v1 y soportando v2 sin datos clínicos
+-- 4. Actualizar trigger prepare_monthly_close manteniendo intactos históricos v1, privilegios mínimos (SECURITY DEFINER + search_path seguro) y v2 sin datos clínicos
 CREATE OR REPLACE FUNCTION app_private.prepare_monthly_close()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path = public, pg_temp
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     v_socio public.socios;
@@ -126,38 +122,42 @@ BEGIN
     NEW.schema_version := v_schema_ver;
 
     IF v_schema_ver >= 2 THEN
-        -- En v2 se usa fecha_entrega_efectiva (si existe) y se excluye diagnosticoPrincipal
-        SELECT
-            (SELECT COALESCE(jsonb_agg(jsonb_build_object(
-                'pedidoId', p.id,
-                'fecha', COALESCE(p.fecha_entrega_efectiva, p.updated_at),
-                'items', p.items,
-                'total', p.total,
-                'operador', 'Sistema ACIACAM'
-            ) ORDER BY COALESCE(p.fecha_entrega_efectiva, p.updated_at), p.id), '[]'::jsonb)
-             FROM public.pedidos p
-             WHERE p.socio_id = NEW.socio_id
-               AND p.estado IN ('entregado', 'retirado')
-               AND p.fecha_entrega_efectiva IS NOT NULL
-               AND p.fecha_entrega_efectiva >= v_start
-               AND p.fecha_entrega_efectiva < v_end),
-            (SELECT COALESCE(jsonb_agg(jsonb_build_object(
-                'pagoId', p.id,
-                'pedidoId', p.pedido_id,
-                'fecha', p.fecha,
-                'concepto', p.concepto,
-                'medioDePago', p.medio_de_pago,
-                'referencia', p.referencia,
-                'monto', p.monto
-            ) ORDER BY p.fecha, p.id), '[]'::jsonb)
-             FROM public.pagos p
-             WHERE p.socio_id = NEW.socio_id
-               AND p.fecha >= (NEW.periodo || '-01')::date
-               AND p.fecha < ((NEW.periodo || '-01')::date + interval '1 month')::date)
-        INTO v_orders, v_payments;
+        -- Si el caller (confirm_period_close_command) ya armó datos v2 enriquecidos con cuenta corriente, evitar consultas redundantes y solo asegurar 'version'
+        IF NEW.datos IS NOT NULL AND NEW.datos <> '{}'::jsonb AND (NEW.datos ? 'resumen_cuenta') THEN
+            IF NOT (NEW.datos ? 'version') THEN
+                NEW.datos := jsonb_set(NEW.datos, '{version}', to_jsonb(NEW.version), true);
+            END IF;
+        ELSE
+            -- En v2 se usa fecha_entrega_efectiva (si existe) y se excluye diagnosticoPrincipal
+            SELECT
+                (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                    'pedidoId', p.id,
+                    'fecha', COALESCE(p.fecha_entrega_efectiva, p.updated_at),
+                    'items', p.items,
+                    'total', p.total,
+                    'operador', 'Sistema ACIACAM'
+                ) ORDER BY COALESCE(p.fecha_entrega_efectiva, p.updated_at), p.id), '[]'::jsonb)
+                 FROM public.pedidos p
+                 WHERE p.socio_id = NEW.socio_id
+                   AND p.estado IN ('entregado', 'retirado')
+                   AND p.fecha_entrega_efectiva IS NOT NULL
+                   AND p.fecha_entrega_efectiva >= v_start
+                   AND p.fecha_entrega_efectiva < v_end),
+                (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                    'pagoId', p.id,
+                    'pedidoId', p.pedido_id,
+                    'fecha', p.fecha,
+                    'concepto', p.concepto,
+                    'medioDePago', p.medio_de_pago,
+                    'referencia', p.referencia,
+                    'monto', p.monto
+                ) ORDER BY p.fecha, p.id), '[]'::jsonb)
+                 FROM public.pagos p
+                 WHERE p.socio_id = NEW.socio_id
+                   AND p.fecha >= (NEW.periodo || '-01')::date
+                   AND p.fecha < ((NEW.periodo || '-01')::date + interval '1 month')::date)
+            INTO v_orders, v_payments;
 
-        -- Si el caller (confirm_period_close_command) ya armó datos v2 enriquecidos con cuenta corriente, se respeta y se sella con hash
-        IF NEW.datos IS NULL OR NEW.datos = '{}'::jsonb OR NOT (NEW.datos ? 'resumen_cuenta') THEN
             NEW.datos := jsonb_build_object(
                 'schema_version', 2,
                 'version', NEW.version,
@@ -167,11 +167,14 @@ BEGIN
                     'apellido', v_socio.apellido,
                     'dni', v_socio.dni,
                     'email', v_socio.email,
-                    'ordenLibro', v_socio.orden_libro,
-                    'actaNumero', v_socio.acta_numero,
+                    'ordenLibro', to_jsonb(v_socio)->>'orden_libro',
+                    'actaNumero', to_jsonb(v_socio)->>'acta_numero',
                     'reprocann', jsonb_build_object(
                         'numeroTramite', v_socio.reprocann_num_tramite,
-                        'estado', v_socio.reprocann_estado
+                        'fechaAlta', v_socio.reprocann_fecha_alta,
+                        'fechaVencimiento', v_socio.reprocann_fecha_vencimiento,
+                        'tipo', v_socio.reprocann_tipo,
+                        'estado', to_jsonb(v_socio)->>'reprocann_estado'
                     )
                 ),
                 'resumen_cuenta', jsonb_build_object(
@@ -224,7 +227,10 @@ BEGIN
                 'diagnosticoPrincipal', v_socio.diagnostico,
                 'reprocann', jsonb_build_object(
                     'numeroTramite', v_socio.reprocann_num_tramite,
-                    'estado', v_socio.reprocann_estado
+                    'fechaAlta', v_socio.reprocann_fecha_alta,
+                    'fechaVencimiento', v_socio.reprocann_fecha_vencimiento,
+                    'tipo', v_socio.reprocann_tipo,
+                    'estado', to_jsonb(v_socio)->>'reprocann_estado'
                 )
             ),
             'dispensas', v_orders,

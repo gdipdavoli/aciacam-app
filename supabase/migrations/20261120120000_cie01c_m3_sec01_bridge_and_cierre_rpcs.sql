@@ -69,7 +69,11 @@ BEGIN
             v_pago.id,
             round(v_pago.monto * 100)::bigint,
             CASE
-                WHEN v_pago.medio_de_pago IN ('efectivo', 'transferencia_galicia', 'mercadopago') THEN v_pago.medio_de_pago
+                WHEN lower(btrim(COALESCE(v_pago.medio_de_pago, ''))) IN ('efectivo', 'transferencia_galicia', 'transferencia', 'mercadopago')
+                    THEN lower(btrim(v_pago.medio_de_pago))
+                WHEN lower(btrim(COALESCE(v_pago.medio_de_pago, ''))) LIKE '%galicia%' THEN 'transferencia_galicia'
+                WHEN lower(btrim(COALESCE(v_pago.medio_de_pago, ''))) LIKE '%mercadopago%' THEN 'mercadopago'
+                WHEN lower(btrim(COALESCE(v_pago.medio_de_pago, ''))) LIKE '%transfer%' THEN 'transferencia'
                 ELSE 'efectivo'
             END,
             v_pago.referencia,
@@ -241,7 +245,7 @@ BEGIN
         RAISE EXCEPTION 'No autorizado' USING ERRCODE = '42501';
     END IF;
     IF v_role NOT IN ('admin', 'staff') AND NOT EXISTS (
-        SELECT 1 FROM public.socios s WHERE s.id = p_socio_id AND (s.auth_user_id = v_actor OR s.user_id = v_actor)
+        SELECT 1 FROM public.socios s WHERE s.id = p_socio_id AND (s.auth_user_id = v_actor OR NULLIF(to_jsonb(s)->>'user_id', '')::uuid = v_actor)
     ) THEN
         RAISE EXCEPTION 'No autorizado' USING ERRCODE = '42501';
     END IF;
@@ -316,6 +320,9 @@ BEGIN
     PERFORM pg_advisory_xact_lock(hashtextextended(p_command_id::text, 909));
     SELECT * INTO v_existing FROM public.cierres_periodo WHERE command_id = p_command_id;
     IF FOUND THEN
+        IF v_existing.periodo IS DISTINCT FROM p_periodo OR v_existing.cerrado_por IS DISTINCT FROM v_actor THEN
+            RAISE EXCEPTION 'CIERRE_COMMAND_CONFLICT' USING ERRCODE = '22023';
+        END IF;
         RETURN jsonb_build_object(
             'cierrePeriodoId', v_existing.id,
             'periodo', v_existing.periodo,
@@ -323,6 +330,8 @@ BEGIN
             'reused', true
         );
     END IF;
+
+    PERFORM pg_advisory_xact_lock(hashtextextended('cierre_periodo:' || p_periodo, 910));
 
     IF EXISTS (SELECT 1 FROM public.cierres_periodo WHERE periodo = p_periodo AND estado = 'cerrado') THEN
         RAISE EXCEPTION 'CIERRE_PERIODO_YA_CERRADO' USING ERRCODE = '22023';
@@ -397,8 +406,16 @@ BEGIN
             'schema_version', 2,
             'socio', jsonb_build_object(
                 'id', v_socio_rec.id, 'nombre', v_socio_rec.nombre, 'apellido', v_socio_rec.apellido,
-                'dni', v_socio_rec.dni, 'email', v_socio_rec.email, 'ordenLibro', v_socio_rec.orden_libro, 'actaNumero', v_socio_rec.acta_numero,
-                'reprocann', jsonb_build_object('numeroTramite', v_socio_rec.reprocann_num_tramite, 'estado', v_socio_rec.reprocann_estado)
+                'dni', v_socio_rec.dni, 'email', v_socio_rec.email,
+                'ordenLibro', to_jsonb(v_socio_rec)->>'orden_libro',
+                'actaNumero', to_jsonb(v_socio_rec)->>'acta_numero',
+                'reprocann', jsonb_build_object(
+                    'numeroTramite', v_socio_rec.reprocann_num_tramite,
+                    'fechaAlta', v_socio_rec.reprocann_fecha_alta,
+                    'fechaVencimiento', v_socio_rec.reprocann_fecha_vencimiento,
+                    'tipo', v_socio_rec.reprocann_tipo,
+                    'estado', to_jsonb(v_socio_rec)->>'reprocann_estado'
+                )
             ),
             'resumen_cuenta', jsonb_build_object(
                 'estado_historico', COALESCE(v_estado_hist, 'pendiente_conciliacion'),
@@ -437,5 +454,17 @@ $$;
 
 REVOKE ALL ON FUNCTION public.confirm_period_close_command(uuid, text, uuid) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.confirm_period_close_command(uuid, text, uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.cc_command(p_command_id uuid, p_payload jsonb)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, aciacam_cc
+AS $$
+    SELECT aciacam_cc.command(p_command_id, p_payload);
+$$;
+
+REVOKE ALL ON FUNCTION public.cc_command(uuid, jsonb) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.cc_command(uuid, jsonb) TO authenticated;
 
 COMMIT;
