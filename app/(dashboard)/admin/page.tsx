@@ -39,7 +39,11 @@ export default function AdminOrdersPage() {
     // Estados de datos
     const [orders, setOrders] = useState<Pedido[]>([]);
     const [loading, setLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+    const hasLoadedOnceRef = useRef(false);
+    const requestEpochRef = useRef(0);
+    const activeUserIdRef = useRef<string | null>(null);
 
     // Estados de conteos globales para las pestañas
     const [counts, setCounts] = useState<{
@@ -134,13 +138,21 @@ export default function AdminOrdersPage() {
     const userId = user?.id;
     const userRol = user?.rol;
 
-    // Carga de pedidos desde el backend BFF
+    // Carga de pedidos desde el backend BFF (distingue carga inicial de actualización en segundo plano)
     const fetchOrders = useCallback(async () => {
         if (!isInitialized || !userId || (userRol !== 'admin' && userRol !== 'staff')) {
             return;
         }
 
-        setLoading(true);
+        const myEpoch = ++requestEpochRef.current;
+        const myUserId = userId;
+        const isInitialLoad = !hasLoadedOnceRef.current;
+
+        if (isInitialLoad) {
+            setLoading(true);
+        } else {
+            setIsRefreshing(true);
+        }
         setErrorMsg(null);
 
         try {
@@ -165,14 +177,25 @@ export default function AdminOrdersPage() {
             };
 
             const result = await StoreService.getPedidosPaginated(options);
+            // Ignorar respuestas tardías de otra sesión o de una consulta superada
+            if (requestEpochRef.current !== myEpoch || activeUserIdRef.current !== myUserId) {
+                return;
+            }
             setOrders(result.pedidos);
             setPagination(result.pagination);
             setCounts(result.counts);
+            hasLoadedOnceRef.current = true;
         } catch (err: any) {
+            if (requestEpochRef.current !== myEpoch || activeUserIdRef.current !== myUserId) {
+                return;
+            }
             console.error('Error cargando pedidos en admin:', err);
             setErrorMsg(err.message || 'Error al cargar pedidos del servidor');
         } finally {
-            setLoading(false);
+            if (requestEpochRef.current === myEpoch) {
+                setLoading(false);
+                setIsRefreshing(false);
+            }
         }
     }, [
         isInitialized,
@@ -191,12 +214,24 @@ export default function AdminOrdersPage() {
         currentSortDir
     ]);
 
-    // Disparar carga cuando cambian los searchParams o el auth
+    // Disparar carga cuando cambian los searchParams o la identidad/permisos reales
     useEffect(() => {
         if (!authLoading && isInitialized) {
             if (!userId || (userRol !== 'admin' && userRol !== 'staff')) {
+                requestEpochRef.current += 1;
+                activeUserIdRef.current = null;
+                hasLoadedOnceRef.current = false;
+                setOrders([]);
+                setLoading(false);
+                setIsRefreshing(false);
                 router.replace('/');
                 return;
+            }
+            if (activeUserIdRef.current !== userId) {
+                requestEpochRef.current += 1;
+                activeUserIdRef.current = userId;
+                hasLoadedOnceRef.current = false;
+                setOrders([]);
             }
             fetchOrders();
         }
@@ -614,7 +649,7 @@ export default function AdminOrdersPage() {
                         <span className="text-sm font-semibold">{errorMsg}</span>
                     </div>
                     <button
-                        onClick={fetchOrders}
+                        onClick={() => fetchOrders()}
                         className="px-3 py-1 rounded-lg bg-destructive text-destructive-foreground text-xs font-bold hover:opacity-90"
                     >
                         Reintentar
@@ -622,7 +657,15 @@ export default function AdminOrdersPage() {
                 </div>
             )}
 
-            {/* Estado de Carga (Skeleton) */}
+            {/* Indicador discreto de actualización en segundo plano (sin desmontar la tabla) */}
+            {isRefreshing && !loading && (
+                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground px-1">
+                    <RotateCcw size={13} className="animate-spin" />
+                    <span>Actualizando pedidos...</span>
+                </div>
+            )}
+
+            {/* Estado de Carga Inicial (Skeleton) */}
             {loading && (
                 <div className="space-y-3">
                     {[1, 2, 3, 4, 5].map(i => (
