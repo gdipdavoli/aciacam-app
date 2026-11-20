@@ -42,6 +42,12 @@ function NewDispenseForm() {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [pendingOrder, setPendingOrder] = useState<Pedido | null>(null);
     const [cancellingPending, setCancellingPending] = useState(false);
+    const [eligibility, setEligibility] = useState<any>(null);
+    const [loadingEligibility, setLoadingEligibility] = useState(false);
+    const [exceptionReq, setExceptionReq] = useState<'admision_institucional' | 'consentimiento' | 'declaracion_jurada' | 'contrato'>('consentimiento');
+    const [exceptionJustif, setExceptionJustif] = useState('');
+    const [exceptionEvidencia, setExceptionEvidencia] = useState('');
+    const [savingException, setSavingException] = useState(false);
     const createIdempotencyKeyRef = useRef<string | null>(null);
     const createdOrderRef = useRef<Pedido | null>(null);
 
@@ -92,22 +98,56 @@ function NewDispenseForm() {
         s.dni.includes(searchTerm)
     );
 
-    const handleSelectSocio = (s: Socio) => {
-        if (s.bloqueado) {
-            if (!confirm(`Atención: El socio ${s.apellido}, ${s.nombre} tiene BLOQUEO PREVENTIVO ACTIVO. Las dispensas están restringidas en el backend. ¿Deseas continuar de todos modos para revisión?`)) {
-                return;
+    const loadEligibility = async (socioId: string) => {
+        setLoadingEligibility(true);
+        try {
+            const evalRes = await StoreService.getSocioDispensationEligibility(socioId);
+            setEligibility(evalRes);
+            if (Array.isArray(evalRes?.excepcionesAdmisibles) && evalRes.excepcionesAdmisibles.length > 0) {
+                setExceptionReq(evalRes.excepcionesAdmisibles[0]);
             }
-        } else if (s.status === 'draft') {
-            if (!confirm(`Atención: El socio ${s.apellido}, ${s.nombre} está en estado ALTA PRELIMINAR (Borrador). La base de datos rechazará la creación de pedidos. ¿Deseas continuar para revisión?`)) {
-                return;
-            }
+        } catch (err: any) {
+            setEligibility(null);
+            setErrorMessage(err?.message || 'No se pudo verificar la elegibilidad documental del socio.');
+        } finally {
+            setLoadingEligibility(false);
         }
+    };
+
+    const handleSelectSocio = (s: Socio) => {
         resetTransactionRefs();
         setSelectedSocio(s);
         setAddress(s.direccion || '');
         setLocalidad(s.localidad || '');
         setErrorMessage(null);
         setStep(2);
+        void loadEligibility(s.id);
+    };
+
+    const handleGrantException = async () => {
+        if (!selectedSocio || savingException) return;
+        if (exceptionJustif.trim().length < 10 || exceptionEvidencia.trim().length < 3) {
+            setErrorMessage('Para autorizar una excepción se requiere justificación (mín. 10 caracteres) y referencia documental.');
+            return;
+        }
+        setSavingException(true);
+        setErrorMessage(null);
+        try {
+            await StoreService.grantDispensationException({
+                commandId: crypto.randomUUID(),
+                socioId: selectedSocio.id,
+                requisitoPendiente: exceptionReq,
+                justificacion: exceptionJustif.trim(),
+                evidenciaReferencia: exceptionEvidencia.trim()
+            });
+            setExceptionJustif('');
+            setExceptionEvidencia('');
+            await loadEligibility(selectedSocio.id);
+        } catch (err: any) {
+            setErrorMessage(err?.message || 'No se pudo autorizar la excepción.');
+        } finally {
+            setSavingException(false);
+        }
     };
 
     const handleNextStep = () => {
@@ -321,17 +361,61 @@ function NewDispenseForm() {
             {/* STEP 2: ORDER DETAILS */}
             {step === 2 && selectedSocio && (
                 <div>
-                    {(selectedSocio.bloqueado || selectedSocio.status !== 'active') && (
+                    {loadingEligibility ? (
+                        <div style={{ padding: '0.75rem 1rem', backgroundColor: 'hsl(var(--muted))', borderRadius: 'var(--radius)', marginBottom: '1rem', fontSize: '0.85rem' }}>
+                            Verificando elegibilidad institucional y documental...
+                        </div>
+                    ) : eligibility && (
                         <div style={{
-                            padding: '0.75rem 1rem',
-                            backgroundColor: '#fef3c7',
-                            border: '1px solid #fcd34d',
+                            padding: '1rem',
                             borderRadius: 'var(--radius)',
                             marginBottom: '1rem',
-                            color: '#92400e',
+                            border: eligibility.estadoElegibilidad === 'HABILITADO'
+                                ? '1px solid #86efac'
+                                : eligibility.estadoElegibilidad === 'NO_HABILITADO'
+                                    ? '1px solid #fca5a5'
+                                    : '1px solid #fcd34d',
+                            backgroundColor: eligibility.estadoElegibilidad === 'HABILITADO'
+                                ? '#f0fdf4'
+                                : eligibility.estadoElegibilidad === 'NO_HABILITADO'
+                                    ? '#fef2f2'
+                                    : '#fffbeb',
                             fontSize: '0.85rem'
                         }}>
-                            ⚠️ <strong>Advertencia institucional:</strong> El socio seleccionado no cuenta con estado activo pleno ({selectedSocio.bloqueado ? 'posee Bloqueo Preventivo activo' : `estado: ${selectedSocio.status}`}). La base de datos rechazará la creación del pedido si no cuenta con habilitación vigente.
+                            <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>
+                                Habilitación para dispensar: {eligibility.estadoElegibilidad}
+                                {' '}| Acceso digital: {eligibility.accesoDigitalEstado}
+                            </div>
+                            {Array.isArray(eligibility.bloqueosObligatorios) && eligibility.bloqueosObligatorios.length > 0 && (
+                                <div style={{ color: '#991b1b', marginBottom: '0.35rem' }}>
+                                    <strong>Bloqueos obligatorios (no admiten excepción):</strong> {eligibility.bloqueosObligatorios.join(', ')}
+                                </div>
+                            )}
+                            {Array.isArray(eligibility.observacionesDocumentales) && eligibility.observacionesDocumentales.length > 0 && (
+                                <div style={{ color: '#92400e', marginBottom: '0.35rem' }}>
+                                    <strong>Observaciones documentales:</strong> {eligibility.observacionesDocumentales.join(', ')}
+                                </div>
+                            )}
+                            {eligibility.excepcionActivaId && (
+                                <div style={{ color: '#166534', marginBottom: '0.35rem' }}>
+                                    ✓ Excepción administrativa vigente registrada para regularización diferida ({eligibility.excepcionActivaRequisito}).
+                                </div>
+                            )}
+                            {eligibility.estadoElegibilidad === 'REQUIERE_REVISION' && !eligibility.elegibleParaDispensa && Array.isArray(eligibility.excepcionesAdmisibles) && eligibility.excepcionesAdmisibles.length > 0 && user?.rol === 'admin' && (
+                                <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #fde68a', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    <strong>Autorizar excepción administrativa controlada (solo Admin):</strong>
+                                    <select value={exceptionReq} onChange={e => setExceptionReq(e.target.value as any)} style={{ padding: '0.4rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
+                                        {eligibility.excepcionesAdmisibles.map((req: string) => (
+                                            <option key={req} value={req}>{req}</option>
+                                        ))}
+                                    </select>
+                                    <input type="text" placeholder="Evidencia o referencia de legajo físico" value={exceptionEvidencia} onChange={e => setExceptionEvidencia(e.target.value)} style={{ padding: '0.4rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }} />
+                                    <input type="text" placeholder="Justificación obligatoria (mín. 10 caracteres)" value={exceptionJustif} onChange={e => setExceptionJustif(e.target.value)} style={{ padding: '0.4rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }} />
+                                    <button type="button" onClick={handleGrantException} disabled={savingException} style={{ alignSelf: 'flex-start', padding: '0.45rem 0.85rem', borderRadius: 'var(--radius)', border: 'none', backgroundColor: '#d97706', color: 'white', fontWeight: 600, cursor: 'pointer' }}>
+                                        {savingException ? 'Autorizando...' : 'Autorizar excepción controlada'}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                     <div style={{ padding: '1rem', backgroundColor: 'hsl(var(--muted))', borderRadius: 'var(--radius)', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -429,9 +513,10 @@ function NewDispenseForm() {
 
                     <button
                         onClick={handleNextStep}
-                        style={{ width: '100%', padding: '1rem', backgroundColor: 'hsl(var(--primary))', color: 'white', border: 'none', borderRadius: 'var(--radius)', fontSize: '1rem', fontWeight: 600, cursor: 'pointer' }}
+                        disabled={Boolean(eligibility && !eligibility.elegibleParaDispensa)}
+                        style={{ width: '100%', padding: '1rem', backgroundColor: 'hsl(var(--primary))', color: 'white', border: 'none', borderRadius: 'var(--radius)', fontSize: '1rem', fontWeight: 600, cursor: eligibility && !eligibility.elegibleParaDispensa ? 'not-allowed' : 'pointer', opacity: eligibility && !eligibility.elegibleParaDispensa ? 0.5 : 1 }}
                     >
-                        Continuar
+                        {eligibility && !eligibility.elegibleParaDispensa ? 'Socio no habilitado para dispensar' : 'Continuar'}
                     </button>
                 </div>
             )}

@@ -456,6 +456,22 @@ export const StoreService = {
 
             console.error("StoreService: Create Order Failed", error);
             console.error("Full Error Details:", JSON.stringify(error, null, 2));
+            const rawMsg = String(error?.message || '');
+            if (rawMsg.includes('SOCIO_BLOQUEADO')) {
+                throw new Error('SOCIO_BLOQUEADO: El socio posee bloqueo preventivo o suspensión vigente.');
+            }
+            if (rawMsg.includes('REPROCANN_VENCIDO')) {
+                throw new Error('REPROCANN_VENCIDO: El certificado REPROCANN del socio está vencido o sin fecha válida.');
+            }
+            if (rawMsg.includes('REPROCANN_SIN_VERIFICAR')) {
+                throw new Error('REPROCANN_SIN_VERIFICAR: El certificado REPROCANN del socio aún no fue verificado.');
+            }
+            if (rawMsg.includes('REQUIERE_REVISION_DOCUMENTAL')) {
+                throw new Error(`REQUIERE_REVISION_DOCUMENTAL: ${rawMsg}`);
+            }
+            if (rawMsg.includes('DELIVERY_DISABLED_OR_ADDRESS_MISSING')) {
+                throw new Error('DELIVERY_DISABLED_OR_ADDRESS_MISSING: El socio no tiene envíos habilitados o falta dirección/localidad.');
+            }
             throw error;
         }
 
@@ -1098,6 +1114,51 @@ export const StoreService = {
     },
 
     // --- SOCIOS: NOW USING SUPABASE ---
+
+    getSocioDispensationEligibility: async (socioId: string): Promise<any> => {
+        if (!supabase) throw new Error("Supabase client not initialized");
+        const { data, error } = await supabase.rpc('get_socio_dispensation_eligibility', { p_socio_id: socioId });
+        if (error) throw new Error(error.message || 'No se pudo consultar la habilitación del socio.');
+        return data;
+    },
+
+    registerLegacyDocumentRecognition: async (params: {
+        commandId: string;
+        socioId: string;
+        requisito: 'admision_institucional' | 'consentimiento' | 'declaracion_jurada' | 'contrato';
+        referenciaFisica: string;
+        observaciones?: string;
+    }): Promise<any> => {
+        if (!supabase) throw new Error("Supabase client not initialized");
+        const { data, error } = await supabase.rpc('register_legacy_document_recognition_command', {
+            p_command_id: params.commandId,
+            p_socio_id: params.socioId,
+            p_requisito: params.requisito,
+            p_referencia_fisica: params.referenciaFisica,
+            p_observaciones: params.observaciones || null
+        });
+        if (error) throw new Error(error.message || 'No se pudo registrar el reconocimiento documental físico.');
+        return data;
+    },
+
+    grantDispensationException: async (params: {
+        commandId: string;
+        socioId: string;
+        requisitoPendiente: 'admision_institucional' | 'consentimiento' | 'declaracion_jurada' | 'contrato';
+        justificacion: string;
+        evidenciaReferencia: string;
+    }): Promise<any> => {
+        if (!supabase) throw new Error("Supabase client not initialized");
+        const { data, error } = await supabase.rpc('grant_dispensation_exception_command', {
+            p_command_id: params.commandId,
+            p_socio_id: params.socioId,
+            p_requisito_pendiente: params.requisitoPendiente,
+            p_justificacion: params.justificacion,
+            p_evidencia_referencia: params.evidenciaReferencia
+        });
+        if (error) throw new Error(error.message || 'No se pudo autorizar la excepción administrativa.');
+        return data;
+    },
 
     getAllSocios: async (role?: string): Promise<Socio[]> => {
         try {

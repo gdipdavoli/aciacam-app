@@ -1,15 +1,15 @@
--- INC-08: Separación de habilitación institucional/documental para dispensa vs acceso digital
--- No activa cuentas digitales ni altera documentos ni fechas REPROCANN existentes.
+-- INC-08: Habilitación institucional/documental independiente del acceso digital,
+-- con reconocimientos físicos auditables, excepciones administrativas controladas y registro histórico de entregas.
 BEGIN;
 
--- 1. Campos independientes de admisión institucional (sin tocar socios.status digital)
+-- 1. Campos independientes de admisión institucional en public.socios (sin alterar socios.status digital)
 ALTER TABLE public.socios
     ADD COLUMN IF NOT EXISTS admision_institucional_estado text NOT NULL DEFAULT 'pendiente'
         CHECK (admision_institucional_estado IN ('pendiente', 'admitido', 'rechazado', 'suspendido')),
     ADD COLUMN IF NOT EXISTS admision_institucional_at timestamptz,
     ADD COLUMN IF NOT EXISTS admision_institucional_por uuid;
 
--- Backfill conservador: solo acredita admisión cuando existe evidencia documental/registral previa
+-- Backfill conservador: solo acredita admisión cuando existe evidencia registral previa verificable
 UPDATE public.socios s
 SET admision_institucional_estado = CASE
         WHEN s.status = 'suspended' THEN 'suspendido'
@@ -29,7 +29,146 @@ SET admision_institucional_estado = CASE
     END
 WHERE s.admision_institucional_estado = 'pendiente';
 
--- 2. Función centralizada de evaluación (separa acceso digital de habilitación para dispensar)
+-- 2. Reconocimientos auditables de documentación física histórica (prohibido para REPROCANN; no marca docs como aprobados)
+CREATE TABLE IF NOT EXISTS public.socio_document_legacy_recognitions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    command_id uuid NOT NULL UNIQUE,
+    socio_id uuid NOT NULL REFERENCES public.socios(id) ON DELETE RESTRICT,
+    requisito text NOT NULL CHECK (requisito IN ('admision_institucional', 'consentimiento', 'declaracion_jurada', 'contrato')),
+    referencia_fisica text NOT NULL CHECK (length(btrim(referencia_fisica)) >= 3),
+    observaciones text,
+    reconocido_por uuid NOT NULL REFERENCES auth.users(id),
+    reconocido_at timestamptz NOT NULL DEFAULT now(),
+    revocado_at timestamptz,
+    revocado_por uuid REFERENCES auth.users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_legacy_recognitions_socio_req
+    ON public.socio_document_legacy_recognitions (socio_id, requisito)
+    WHERE revocado_at IS NULL;
+
+ALTER TABLE public.socio_document_legacy_recognitions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.socio_document_legacy_recognitions FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.socio_document_legacy_recognitions TO authenticated;
+
+DROP POLICY IF EXISTS legacy_recognitions_staff_read ON public.socio_document_legacy_recognitions;
+CREATE POLICY legacy_recognitions_staff_read ON public.socio_document_legacy_recognitions
+    FOR SELECT TO authenticated
+    USING (public.get_my_role() IN ('admin', 'staff'));
+
+-- 3. Excepciones administrativas controladas (solo para requisitos con regularización diferida admisible)
+CREATE TABLE IF NOT EXISTS public.dispensation_exceptions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    command_id uuid NOT NULL UNIQUE,
+    socio_id uuid NOT NULL REFERENCES public.socios(id) ON DELETE RESTRICT,
+    requisito_pendiente text NOT NULL CHECK (requisito_pendiente IN (
+        'admision_institucional',
+        'consentimiento',
+        'declaracion_jurada',
+        'contrato'
+    )),
+    justificacion text NOT NULL CHECK (length(btrim(justificacion)) >= 10),
+    evidencia_referencia text NOT NULL CHECK (length(btrim(evidencia_referencia)) >= 3),
+    autorizado_por uuid NOT NULL REFERENCES auth.users(id),
+    autorizado_rol text NOT NULL CHECK (autorizado_rol = 'admin'),
+    fecha_decision timestamptz NOT NULL DEFAULT now(),
+    vence_el date NOT NULL DEFAULT ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date + 30),
+    pedido_id uuid REFERENCES public.pedidos(id) ON DELETE RESTRICT,
+    estado_regularizacion text NOT NULL DEFAULT 'pendiente' CHECK (estado_regularizacion IN ('pendiente', 'regularizada', 'vencida', 'revocada')),
+    regularizada_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS idx_dispensation_exceptions_socio_active
+    ON public.dispensation_exceptions (socio_id, vence_el)
+    WHERE estado_regularizacion = 'pendiente';
+
+ALTER TABLE public.dispensation_exceptions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.dispensation_exceptions FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.dispensation_exceptions TO authenticated;
+
+DROP POLICY IF EXISTS dispensation_exceptions_staff_read ON public.dispensation_exceptions;
+CREATE POLICY dispensation_exceptions_staff_read ON public.dispensation_exceptions
+    FOR SELECT TO authenticated
+    USING (public.get_my_role() IN ('admin', 'staff'));
+
+CREATE OR REPLACE FUNCTION app_private.guard_inc08_append_only()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'INC08_APPEND_ONLY: No se permite eliminar registros auditados.' USING ERRCODE = '55000';
+    END IF;
+    IF TG_TABLE_NAME = 'socio_document_legacy_recognitions' THEN
+        IF NEW.id IS DISTINCT FROM OLD.id
+           OR NEW.command_id IS DISTINCT FROM OLD.command_id
+           OR NEW.socio_id IS DISTINCT FROM OLD.socio_id
+           OR NEW.requisito IS DISTINCT FROM OLD.requisito
+           OR NEW.referencia_fisica IS DISTINCT FROM OLD.referencia_fisica
+           OR NEW.reconocido_por IS DISTINCT FROM OLD.reconocido_por
+           OR NEW.reconocido_at IS DISTINCT FROM OLD.reconocido_at THEN
+            RAISE EXCEPTION 'INC08_APPEND_ONLY: Solo se permite revocar un reconocimiento histórico.' USING ERRCODE = '55000';
+        END IF;
+    ELSIF TG_TABLE_NAME = 'dispensation_exceptions' THEN
+        IF NEW.id IS DISTINCT FROM OLD.id
+           OR NEW.command_id IS DISTINCT FROM OLD.command_id
+           OR NEW.socio_id IS DISTINCT FROM OLD.socio_id
+           OR NEW.requisito_pendiente IS DISTINCT FROM OLD.requisito_pendiente
+           OR NEW.justificacion IS DISTINCT FROM OLD.justificacion
+           OR NEW.evidencia_referencia IS DISTINCT FROM OLD.evidencia_referencia
+           OR NEW.autorizado_por IS DISTINCT FROM OLD.autorizado_por
+           OR NEW.fecha_decision IS DISTINCT FROM OLD.fecha_decision THEN
+            RAISE EXCEPTION 'INC08_APPEND_ONLY: Solo se permite actualizar seguimiento de regularización.' USING ERRCODE = '55000';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS tr_inc08_legacy_recognitions_immutable ON public.socio_document_legacy_recognitions;
+CREATE TRIGGER tr_inc08_legacy_recognitions_immutable
+    BEFORE UPDATE OR DELETE ON public.socio_document_legacy_recognitions
+    FOR EACH ROW EXECUTE FUNCTION app_private.guard_inc08_append_only();
+
+DROP TRIGGER IF EXISTS tr_inc08_dispensation_exceptions_immutable ON public.dispensation_exceptions;
+CREATE TRIGGER tr_inc08_dispensation_exceptions_immutable
+    BEFORE UPDATE OR DELETE ON public.dispensation_exceptions
+    FOR EACH ROW EXECUTE FUNCTION app_private.guard_inc08_append_only();
+
+-- 4. Registro histórico independiente de entregas ya ocurridas (no descuenta stock ni duplica pagos/límites)
+CREATE TABLE IF NOT EXISTS public.historical_dispensation_records (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    command_id uuid NOT NULL UNIQUE,
+    socio_id uuid NOT NULL REFERENCES public.socios(id) ON DELETE RESTRICT,
+    fecha_entrega_real timestamptz NOT NULL,
+    fecha_registracion timestamptz NOT NULL DEFAULT now(),
+    operador_id uuid NOT NULL REFERENCES auth.users(id),
+    items jsonb NOT NULL CHECK (jsonb_typeof(items) = 'array' AND jsonb_array_length(items) > 0),
+    evidencia_entrega text NOT NULL CHECK (length(btrim(evidencia_entrega)) >= 3),
+    estado_documental_snapshot jsonb NOT NULL,
+    irregularidades text[] NOT NULL DEFAULT '{}'::text[],
+    estado_revision text NOT NULL DEFAULT 'pendiente_revision' CHECK (estado_revision IN ('pendiente_revision', 'conciliado', 'observado')),
+    pedido_conciliado_id uuid REFERENCES public.pedidos(id) ON DELETE RESTRICT,
+    notas_revision text,
+    revisado_por uuid REFERENCES auth.users(id),
+    revisado_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS idx_historical_dispensations_socio
+    ON public.historical_dispensation_records (socio_id, fecha_entrega_real DESC);
+
+ALTER TABLE public.historical_dispensation_records ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.historical_dispensation_records FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.historical_dispensation_records TO authenticated;
+
+DROP POLICY IF EXISTS historical_dispensations_staff_read ON public.historical_dispensation_records;
+CREATE POLICY historical_dispensations_staff_read ON public.historical_dispensation_records
+    FOR SELECT TO authenticated
+    USING (public.get_my_role() IN ('admin', 'staff'));
+
+-- 5. Función centralizada de elegibilidad: HABILITADO / REQUIERE_REVISION / NO_HABILITADO
 CREATE OR REPLACE FUNCTION public.evaluate_socio_dispensation_eligibility(p_socio_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -43,27 +182,45 @@ DECLARE
     v_acceso_digital text;
     v_repro_doc record;
     v_repro_prof record;
+    v_consent_doc record;
+    v_ddjj_doc record;
+    v_contrato_estado text := NULL;
     v_repro_verified boolean := false;
     v_repro_vencimiento date := NULL;
     v_repro_vigente boolean := false;
-    v_has_ddjj boolean := false;
-    v_has_consent boolean := false;
-    v_has_contrato boolean := true;
+    v_admision_rec boolean := false;
+    v_consent_rec boolean := false;
+    v_ddjj_rec boolean := false;
+    v_contrato_rec boolean := false;
+    v_admision_ok boolean := false;
+    v_consent_ok boolean := false;
+    v_ddjj_ok boolean := false;
+    v_contrato_ok boolean := true;
     v_tipo_repro text;
     v_bloqueado boolean := false;
-    v_motivos text[] := ARRAY[]::text[];
-    v_elegible boolean := false;
+    v_bloqueos text[] := ARRAY[]::text[];
+    v_observaciones text[] := ARRAY[]::text[];
+    v_excepciones_admisibles text[] := ARRAY[]::text[];
+    v_alertas_legajo text[] := ARRAY[]::text[];
+    v_excepcion_activa record;
+    v_estado_elegibilidad text := 'NO_HABILITADO';
+    v_elegible_para_dispensa boolean := false;
+    v_has_pending_exc boolean := false;
 BEGIN
     SELECT * INTO v_socio FROM public.socios WHERE id = p_socio_id;
     IF NOT FOUND THEN
         RETURN jsonb_build_object(
             'found', false,
+            'estadoElegibilidad', 'NO_HABILITADO',
             'elegibleParaDispensa', false,
-            'motivosRechazo', ARRAY['SOCIO_NO_ENCONTRADO']
+            'bloqueosObligatorios', ARRAY['SOCIO_NO_ENCONTRADO'],
+            'observacionesDocumentales', ARRAY[]::text[],
+            'excepcionesAdmisibles', ARRAY[]::text[],
+            'alertasLegajo', ARRAY[]::text[]
         );
     END IF;
 
-    -- A. Acceso digital (independiente de la habilitación para dispensar)
+    -- A. Acceso digital (completamente separado de la habilitación para dispensar)
     v_acceso_digital := CASE
         WHEN v_socio.bloqueado IS TRUE OR v_socio.status = 'suspended' THEN 'deshabilitado'
         WHEN v_socio.status = 'active' AND v_socio.auth_user_id IS NOT NULL THEN 'activado'
@@ -72,20 +229,15 @@ BEGIN
         ELSE 'sin_invitacion'
     END;
 
-    -- B. Bloqueos / suspensiones
+    -- B. Bloqueos obligatorios (no admisibles por excepción)
     v_bloqueado := COALESCE(v_socio.bloqueado, false)
         OR v_socio.status = 'suspended'
         OR v_socio.admision_institucional_estado IN ('rechazado', 'suspendido');
     IF v_bloqueado THEN
-        v_motivos := array_append(v_motivos, 'SOCIO_BLOQUEADO');
+        v_bloqueos := array_append(v_bloqueos, 'SOCIO_BLOQUEADO');
     END IF;
 
-    -- C. Admisión institucional acreditada
-    IF v_socio.admision_institucional_estado IS DISTINCT FROM 'admitido' THEN
-        v_motivos := array_append(v_motivos, 'SIN_ADMISION_INSTITUCIONAL');
-    END IF;
-
-    -- D. REPROCANN vigente y verificado (nunca asume certificado cargado = vigente)
+    -- REPROCANN obligatorio (nunca reemplazable por reconocimiento histórico ni excepción)
     SELECT d.verificacion_estado, d.fecha_vencimiento
     INTO v_repro_doc
     FROM public.documentos_socio d
@@ -102,7 +254,7 @@ BEGIN
     ORDER BY r.updated_at DESC
     LIMIT 1;
 
-    v_repro_verified := (v_repro_doc.verificacion_estado = 'aprobado')
+    v_repro_verified := COALESCE(v_repro_doc.verificacion_estado = 'aprobado', false)
         OR (upper(COALESCE(v_repro_prof.verification_status, '')) = 'VERIFIED');
 
     v_repro_vencimiento := COALESCE(
@@ -112,67 +264,118 @@ BEGIN
     );
 
     IF NOT v_repro_verified THEN
-        v_motivos := array_append(v_motivos, 'REPROCANN_SIN_VERIFICAR');
+        v_bloqueos := array_append(v_bloqueos, 'REPROCANN_SIN_VERIFICAR');
     ELSIF v_repro_vencimiento IS NULL OR v_repro_vencimiento < v_today THEN
-        v_motivos := array_append(v_motivos, 'REPROCANN_VENCIDO');
+        v_bloqueos := array_append(v_bloqueos, 'REPROCANN_VENCIDO');
     ELSE
         v_repro_vigente := true;
     END IF;
 
-    -- E. Documentación obligatoria aprobada (documentos_socio actuales)
-    SELECT EXISTS (
-        SELECT 1 FROM public.documentos_socio d
-        WHERE d.socio_id = p_socio_id::text
-          AND d.is_current IS NOT FALSE
-          AND lower(btrim(d.tipo)) IN ('declaracion_jurada', 'declaracionjurada')
-          AND d.verificacion_estado = 'aprobado'
-    ) INTO v_has_ddjj;
+    -- C. Reconocimientos físicos históricos vigentes
+    SELECT
+        EXISTS (SELECT 1 FROM public.socio_document_legacy_recognitions r WHERE r.socio_id = p_socio_id AND r.requisito = 'admision_institucional' AND r.revocado_at IS NULL),
+        EXISTS (SELECT 1 FROM public.socio_document_legacy_recognitions r WHERE r.socio_id = p_socio_id AND r.requisito = 'consentimiento' AND r.revocado_at IS NULL),
+        EXISTS (SELECT 1 FROM public.socio_document_legacy_recognitions r WHERE r.socio_id = p_socio_id AND r.requisito = 'declaracion_jurada' AND r.revocado_at IS NULL),
+        EXISTS (SELECT 1 FROM public.socio_document_legacy_recognitions r WHERE r.socio_id = p_socio_id AND r.requisito = 'contrato' AND r.revocado_at IS NULL)
+    INTO v_admision_rec, v_consent_rec, v_ddjj_rec, v_contrato_rec;
 
-    SELECT EXISTS (
-        SELECT 1 FROM public.documentos_socio d
-        WHERE d.socio_id = p_socio_id::text
-          AND d.is_current IS NOT FALSE
-          AND lower(btrim(d.tipo)) = 'consentimiento'
-          AND d.verificacion_estado = 'aprobado'
-    ) INTO v_has_consent;
+    -- D. Documentación en documentos_socio
+    SELECT d.verificacion_estado, d.archivo_path
+    INTO v_consent_doc
+    FROM public.documentos_socio d
+    WHERE d.socio_id = p_socio_id::text AND d.is_current IS NOT FALSE AND lower(btrim(d.tipo)) = 'consentimiento'
+    ORDER BY d.version DESC NULLS LAST, d.created_at DESC LIMIT 1;
+
+    SELECT d.verificacion_estado, d.archivo_path
+    INTO v_ddjj_doc
+    FROM public.documentos_socio d
+    WHERE d.socio_id = p_socio_id::text AND d.is_current IS NOT FALSE AND lower(btrim(d.tipo)) IN ('declaracion_jurada', 'declaracionjurada')
+    ORDER BY d.version DESC NULLS LAST, d.created_at DESC LIMIT 1;
+
+    v_admision_ok := (v_socio.admision_institucional_estado = 'admitido') OR v_admision_rec;
+    v_consent_ok := COALESCE(v_consent_doc.verificacion_estado = 'aprobado', false) OR v_consent_rec;
+    v_ddjj_ok := COALESCE(v_ddjj_doc.verificacion_estado = 'aprobado', false) OR v_ddjj_rec;
 
     v_tipo_repro := lower(btrim(COALESCE(v_socio.reprocann_tipo, '')));
-    IF v_tipo_repro = 'autocultivo' THEN
-        SELECT EXISTS (
-            SELECT 1 FROM public.documentos_socio d
-            WHERE d.socio_id = p_socio_id::text
-              AND d.is_current IS NOT FALSE
-              AND lower(btrim(d.tipo)) IN ('contrato_autocultivo', 'contrato')
-              AND d.verificacion_estado = 'aprobado'
-        ) INTO v_has_contrato;
-    ELSIF v_tipo_repro = 'vinculado_ong' THEN
-        SELECT EXISTS (
-            SELECT 1 FROM public.documentos_socio d
-            WHERE d.socio_id = p_socio_id::text
-              AND d.is_current IS NOT FALSE
-              AND lower(btrim(d.tipo)) IN ('contrato_madre', 'contrato')
-              AND d.verificacion_estado = 'aprobado'
-        ) INTO v_has_contrato;
+    IF v_tipo_repro IN ('autocultivo', 'vinculado_ong') THEN
+        SELECT d.verificacion_estado
+        INTO v_contrato_estado
+        FROM public.documentos_socio d
+        WHERE d.socio_id = p_socio_id::text AND d.is_current IS NOT FALSE
+          AND lower(btrim(d.tipo)) IN ('contrato_autocultivo', 'contrato_madre', 'contrato')
+        ORDER BY d.version DESC NULLS LAST, d.created_at DESC LIMIT 1;
+        v_contrato_ok := COALESCE(v_contrato_estado = 'aprobado', false) OR v_contrato_rec;
     END IF;
 
-    IF NOT (v_has_ddjj AND v_has_consent AND v_has_contrato) THEN
-        v_motivos := array_append(v_motivos, 'DOCUMENTACION_INCOMPLETA');
+    IF NOT v_admision_ok THEN
+        v_observaciones := array_append(v_observaciones, 'SIN_ADMISION_INSTITUCIONAL');
+        v_excepciones_admisibles := array_append(v_excepciones_admisibles, 'admision_institucional');
     END IF;
 
-    v_elegible := (cardinality(v_motivos) = 0);
+    IF NOT v_consent_ok THEN
+        v_observaciones := array_append(v_observaciones, CASE WHEN v_consent_doc.archivo_path IS NOT NULL THEN 'CONSENTIMIENTO_PENDIENTE_REVISION' ELSE 'CONSENTIMIENTO_FALTANTE' END);
+        v_excepciones_admisibles := array_append(v_excepciones_admisibles, 'consentimiento');
+    END IF;
+
+    IF NOT v_ddjj_ok THEN
+        v_observaciones := array_append(v_observaciones, CASE WHEN v_ddjj_doc.archivo_path IS NOT NULL THEN 'DDJJ_PENDIENTE_REVISION' ELSE 'DDJJ_FALTANTE' END);
+        v_excepciones_admisibles := array_append(v_excepciones_admisibles, 'declaracion_jurada');
+        v_alertas_legajo := array_append(v_alertas_legajo, 'DDJJ_NO_REGULARIZADA');
+    END IF;
+
+    IF NOT v_contrato_ok THEN
+        v_observaciones := array_append(v_observaciones, 'CONTRATO_PENDIENTE');
+        v_excepciones_admisibles := array_append(v_excepciones_admisibles, 'contrato');
+        v_alertas_legajo := array_append(v_alertas_legajo, 'CONTRATO_NO_REGULARIZADO');
+    END IF;
+
+    -- Excepción administrativa vigente (no usada aún en un pedido)
+    SELECT * INTO v_excepcion_activa
+    FROM public.dispensation_exceptions e
+    WHERE e.socio_id = p_socio_id
+      AND e.estado_regularizacion = 'pendiente'
+      AND e.vence_el >= v_today
+      AND e.pedido_id IS NULL
+    ORDER BY e.fecha_decision DESC
+    LIMIT 1;
+    v_has_pending_exc := FOUND;
+
+    -- Estado final de elegibilidad
+    IF cardinality(v_bloqueos) > 0 THEN
+        v_estado_elegibilidad := 'NO_HABILITADO';
+        v_elegible_para_dispensa := false;
+    ELSIF cardinality(v_observaciones) = 0 THEN
+        v_estado_elegibilidad := 'HABILITADO';
+        v_elegible_para_dispensa := true;
+    ELSE
+        v_estado_elegibilidad := 'REQUIERE_REVISION';
+        v_elegible_para_dispensa := v_has_pending_exc;
+    END IF;
 
     RETURN jsonb_build_object(
         'found', true,
         'socioId', p_socio_id,
-        'elegibleParaDispensa', v_elegible,
+        'estadoElegibilidad', v_estado_elegibilidad,
+        'elegibleParaDispensa', v_elegible_para_dispensa,
         'accesoDigitalEstado', v_acceso_digital,
         'admisionInstitucional', v_socio.admision_institucional_estado,
         'reprocannVerificado', v_repro_verified,
         'reprocannVigente', v_repro_vigente,
         'reprocannVencimiento', v_repro_vencimiento,
-        'documentacionCompleta', (v_has_ddjj AND v_has_consent AND v_has_contrato AND v_repro_vigente),
         'bloqueado', v_bloqueado,
-        'motivosRechazo', v_motivos
+        'bloqueosObligatorios', v_bloqueos,
+        'observacionesDocumentales', v_observaciones,
+        'excepcionesAdmisibles', CASE WHEN cardinality(v_bloqueos) = 0 THEN v_excepciones_admisibles ELSE ARRAY[]::text[] END,
+        'excepcionActivaId', CASE WHEN v_has_pending_exc THEN v_excepcion_activa.id ELSE NULL END,
+        'excepcionActivaRequisito', CASE WHEN v_has_pending_exc THEN v_excepcion_activa.requisito_pendiente ELSE NULL END,
+        'alertasLegajo', v_alertas_legajo,
+        'detalleRequisitos', jsonb_build_object(
+            'admision_institucional', CASE WHEN v_socio.admision_institucional_estado = 'admitido' THEN 'cumplido' WHEN v_admision_rec THEN 'reconocido_fisico' ELSE 'faltante' END,
+            'reprocann', CASE WHEN v_repro_vigente THEN 'cumplido' WHEN NOT v_repro_verified THEN 'pendiente_revision' ELSE 'vencido' END,
+            'consentimiento', CASE WHEN v_consent_doc.verificacion_estado = 'aprobado' THEN 'cumplido' WHEN v_consent_rec THEN 'reconocido_fisico' WHEN v_consent_doc.archivo_path IS NOT NULL THEN 'pendiente_revision' ELSE 'faltante' END,
+            'declaracion_jurada', CASE WHEN v_ddjj_doc.verificacion_estado = 'aprobado' THEN 'cumplido' WHEN v_ddjj_rec THEN 'reconocido_fisico' WHEN v_ddjj_doc.archivo_path IS NOT NULL THEN 'pendiente_revision' ELSE 'faltante' END,
+            'contrato', CASE WHEN NOT (v_tipo_repro IN ('autocultivo', 'vinculado_ong')) THEN 'no_aplica' WHEN v_contrato_estado = 'aprobado' THEN 'cumplido' WHEN v_contrato_rec THEN 'reconocido_fisico' ELSE 'faltante' END
+        )
     );
 END;
 $$;
@@ -180,7 +383,6 @@ $$;
 REVOKE ALL ON FUNCTION public.evaluate_socio_dispensation_eligibility(uuid) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.evaluate_socio_dispensation_eligibility(uuid) TO authenticated;
 
--- 3. RPC de consulta para frontend/API (admin/staff o socio titular)
 CREATE OR REPLACE FUNCTION public.get_socio_dispensation_eligibility(p_socio_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -207,7 +409,176 @@ $$;
 REVOKE ALL ON FUNCTION public.get_socio_dispensation_eligibility(uuid) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.get_socio_dispensation_eligibility(uuid) TO authenticated;
 
--- 4. Actualizar assert_order_business para usar habilitación institucional/documental independiente del acceso digital
+-- 6. RPCs auditadas e idempotentes: reconocimiento físico, excepción administrativa y registro histórico
+CREATE OR REPLACE FUNCTION public.register_legacy_document_recognition_command(
+    p_command_id uuid,
+    p_socio_id uuid,
+    p_requisito text,
+    p_referencia_fisica text,
+    p_observaciones text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_actor uuid := auth.uid();
+    v_role text := lower(btrim(COALESCE(public.get_my_role(), '')));
+    v_existing public.socio_document_legacy_recognitions%ROWTYPE;
+    v_created public.socio_document_legacy_recognitions%ROWTYPE;
+BEGIN
+    IF v_actor IS NULL OR v_role NOT IN ('admin', 'staff') THEN
+        RAISE EXCEPTION 'UNAUTHORIZED: Requiere rol administrativo.' USING ERRCODE = '42501';
+    END IF;
+    IF p_command_id IS NULL OR p_socio_id IS NULL OR p_requisito NOT IN ('admision_institucional', 'consentimiento', 'declaracion_jurada', 'contrato')
+       OR length(btrim(COALESCE(p_referencia_fisica, ''))) < 3 THEN
+        RAISE EXCEPTION 'LEGACY_RECOGNITION_INVALID' USING ERRCODE = '22023';
+    END IF;
+
+    PERFORM pg_advisory_xact_lock(hashtextextended(p_command_id::text, 808));
+    SELECT * INTO v_existing FROM public.socio_document_legacy_recognitions WHERE command_id = p_command_id;
+    IF FOUND THEN
+        RETURN jsonb_build_object('recognitionId', v_existing.id, 'reused', true);
+    END IF;
+
+    INSERT INTO public.socio_document_legacy_recognitions (command_id, socio_id, requisito, referencia_fisica, observaciones, reconocido_por)
+    VALUES (p_command_id, p_socio_id, p_requisito, btrim(p_referencia_fisica), p_observaciones, v_actor)
+    RETURNING * INTO v_created;
+
+    INSERT INTO public.audit_logs (user_id, action, entity_type, entity_id, details, created_at)
+    VALUES (v_actor, 'CREATE', 'LEGACY_DOC_RECOGNITION', v_created.id::text,
+        jsonb_build_object('commandId', p_command_id, 'socioId', p_socio_id, 'requisito', p_requisito, 'referenciaFisica', p_referencia_fisica), now());
+
+    RETURN jsonb_build_object('recognitionId', v_created.id, 'reused', false);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.register_legacy_document_recognition_command(uuid, uuid, text, text, text) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.register_legacy_document_recognition_command(uuid, uuid, text, text, text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.grant_dispensation_exception_command(
+    p_command_id uuid,
+    p_socio_id uuid,
+    p_requisito_pendiente text,
+    p_justificacion text,
+    p_evidencia_referencia text,
+    p_vence_el date DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_actor uuid := auth.uid();
+    v_role text := lower(btrim(COALESCE(public.get_my_role(), '')));
+    v_eval jsonb;
+    v_bloqueos text[];
+    v_existing public.dispensation_exceptions%ROWTYPE;
+    v_created public.dispensation_exceptions%ROWTYPE;
+BEGIN
+    IF v_actor IS NULL OR v_role <> 'admin' THEN
+        RAISE EXCEPTION 'EXCEPTION_ADMIN_REQUIRED: Solo un administrador puede autorizar excepciones.' USING ERRCODE = '42501';
+    END IF;
+    IF p_command_id IS NULL OR p_socio_id IS NULL
+       OR p_requisito_pendiente NOT IN ('admision_institucional', 'consentimiento', 'declaracion_jurada', 'contrato')
+       OR length(btrim(COALESCE(p_justificacion, ''))) < 10
+       OR length(btrim(COALESCE(p_evidencia_referencia, ''))) < 3 THEN
+        RAISE EXCEPTION 'EXCEPTION_PARAMS_INVALID: Justificación (>=10 caracteres), evidencia y requisito admisible requeridos.' USING ERRCODE = '22023';
+    END IF;
+
+    v_eval := public.evaluate_socio_dispensation_eligibility(p_socio_id);
+    SELECT ARRAY(SELECT jsonb_array_elements_text(v_eval->'bloqueosObligatorios')) INTO v_bloqueos;
+    IF cardinality(v_bloqueos) > 0 THEN
+        RAISE EXCEPTION 'EXCEPTION_FORBIDDEN_BY_MANDATORY_BLOCK: No se admite excepción ante bloqueos obligatorios (%).', array_to_string(v_bloqueos, ', ') USING ERRCODE = '22023';
+    END IF;
+
+    PERFORM pg_advisory_xact_lock(hashtextextended(p_command_id::text, 809));
+    SELECT * INTO v_existing FROM public.dispensation_exceptions WHERE command_id = p_command_id;
+    IF FOUND THEN
+        RETURN jsonb_build_object('exceptionId', v_existing.id, 'reused', true);
+    END IF;
+
+    INSERT INTO public.dispensation_exceptions (
+        command_id, socio_id, requisito_pendiente, justificacion, evidencia_referencia,
+        autorizado_por, autorizado_rol, vence_el
+    ) VALUES (
+        p_command_id, p_socio_id, p_requisito_pendiente, btrim(p_justificacion), btrim(p_evidencia_referencia),
+        v_actor, 'admin', COALESCE(p_vence_el, ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date + 30))
+    )
+    RETURNING * INTO v_created;
+
+    INSERT INTO public.audit_logs (user_id, action, entity_type, entity_id, details, created_at)
+    VALUES (v_actor, 'CREATE', 'DISPENSATION_EXCEPTION', v_created.id::text,
+        jsonb_build_object('commandId', p_command_id, 'socioId', p_socio_id, 'requisito', p_requisito_pendiente, 'justificacion', p_justificacion, 'evidencia', p_evidencia_referencia), now());
+
+    RETURN jsonb_build_object('exceptionId', v_created.id, 'reused', false);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.grant_dispensation_exception_command(uuid, uuid, text, text, text, date) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.grant_dispensation_exception_command(uuid, uuid, text, text, text, date) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.register_historical_dispensation_command(
+    p_command_id uuid,
+    p_socio_id uuid,
+    p_fecha_entrega_real timestamptz,
+    p_items jsonb,
+    p_evidencia_entrega text,
+    p_irregularidades text[] DEFAULT '{}'::text[]
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_actor uuid := auth.uid();
+    v_role text := lower(btrim(COALESCE(public.get_my_role(), '')));
+    v_existing public.historical_dispensation_records%ROWTYPE;
+    v_created public.historical_dispensation_records%ROWTYPE;
+    v_snapshot jsonb;
+BEGIN
+    IF v_actor IS NULL OR v_role NOT IN ('admin', 'staff') THEN
+        RAISE EXCEPTION 'UNAUTHORIZED: Requiere rol administrativo.' USING ERRCODE = '42501';
+    END IF;
+    IF p_command_id IS NULL OR p_socio_id IS NULL OR p_fecha_entrega_real IS NULL
+       OR p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0
+       OR length(btrim(COALESCE(p_evidencia_entrega, ''))) < 3 THEN
+        RAISE EXCEPTION 'HISTORICAL_DISPENSATION_INVALID' USING ERRCODE = '22023';
+    END IF;
+
+    PERFORM pg_advisory_xact_lock(hashtextextended(p_command_id::text, 810));
+    SELECT * INTO v_existing FROM public.historical_dispensation_records WHERE command_id = p_command_id;
+    IF FOUND THEN
+        RETURN jsonb_build_object('historicalRecordId', v_existing.id, 'estadoRevision', v_existing.estado_revision, 'reused', true);
+    END IF;
+
+    v_snapshot := public.evaluate_socio_dispensation_eligibility(p_socio_id);
+
+    INSERT INTO public.historical_dispensation_records (
+        command_id, socio_id, fecha_entrega_real, operador_id, items,
+        evidencia_entrega, estado_documental_snapshot, irregularidades, estado_revision
+    ) VALUES (
+        p_command_id, p_socio_id, p_fecha_entrega_real, v_actor, p_items,
+        btrim(p_evidencia_entrega), v_snapshot, COALESCE(p_irregularidades, '{}'::text[]),
+        CASE WHEN COALESCE(cardinality(p_irregularidades), 0) > 0 OR (v_snapshot->>'elegibleParaDispensa')::boolean IS NOT TRUE THEN 'observado' ELSE 'pendiente_revision' END
+    )
+    RETURNING * INTO v_created;
+
+    INSERT INTO public.audit_logs (user_id, action, entity_type, entity_id, details, created_at)
+    VALUES (v_actor, 'CREATE', 'HISTORICAL_DISPENSATION', v_created.id::text,
+        jsonb_build_object('commandId', p_command_id, 'socioId', p_socio_id, 'fechaEntregaReal', p_fecha_entrega_real, 'irregularidades', v_created.irregularidades), now());
+
+    RETURN jsonb_build_object('historicalRecordId', v_created.id, 'estadoRevision', v_created.estado_revision, 'reused', false);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.register_historical_dispensation_command(uuid, uuid, timestamptz, jsonb, text, text[]) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.register_historical_dispensation_command(uuid, uuid, timestamptz, jsonb, text, text[]) TO authenticated;
+
+-- 7. Actualizar assert_order_business para usar evaluate_socio_dispensation_eligibility
 CREATE OR REPLACE FUNCTION public.assert_order_business(
     p_socio uuid,
     p_items jsonb,
@@ -225,7 +596,8 @@ DECLARE
     i record;
     p public.products;
     v_eval jsonb;
-    v_motivos text[];
+    v_bloqueos text[];
+    v_obs text[];
 BEGIN
     IF p_type IS NULL OR p_type NOT IN ('delivery', 'retiro_sede') THEN
         RAISE EXCEPTION 'INVALID_ORDER_TYPE';
@@ -238,19 +610,18 @@ BEGIN
 
     v_eval := public.evaluate_socio_dispensation_eligibility(p_socio);
     IF (v_eval->>'elegibleParaDispensa')::boolean IS NOT TRUE THEN
-        SELECT ARRAY(SELECT jsonb_array_elements_text(v_eval->'motivosRechazo')) INTO v_motivos;
-        IF 'SOCIO_BLOQUEADO' = ANY(v_motivos) THEN
+        SELECT ARRAY(SELECT jsonb_array_elements_text(v_eval->'bloqueosObligatorios')) INTO v_bloqueos;
+        SELECT ARRAY(SELECT jsonb_array_elements_text(v_eval->'observacionesDocumentales')) INTO v_obs;
+        IF 'SOCIO_BLOQUEADO' = ANY(v_bloqueos) THEN
             RAISE EXCEPTION 'SOCIO_BLOQUEADO: El socio posee bloqueo preventivo o suspensión vigente.';
-        ELSIF 'SIN_ADMISION_INSTITUCIONAL' = ANY(v_motivos) THEN
-            RAISE EXCEPTION 'SIN_ADMISION_INSTITUCIONAL: El socio no cuenta con admisión institucional acreditada.';
-        ELSIF 'REPROCANN_SIN_VERIFICAR' = ANY(v_motivos) THEN
+        ELSIF 'REPROCANN_SIN_VERIFICAR' = ANY(v_bloqueos) THEN
             RAISE EXCEPTION 'REPROCANN_SIN_VERIFICAR: El certificado REPROCANN aún no fue verificado.';
-        ELSIF 'REPROCANN_VENCIDO' = ANY(v_motivos) THEN
+        ELSIF 'REPROCANN_VENCIDO' = ANY(v_bloqueos) THEN
             RAISE EXCEPTION 'REPROCANN_VENCIDO: El certificado REPROCANN se encuentra vencido o sin fecha válida.';
-        ELSIF 'DOCUMENTACION_INCOMPLETA' = ANY(v_motivos) THEN
-            RAISE EXCEPTION 'DOCUMENTACION_INCOMPLETA: Faltan documentos obligatorios aprobados para dispensar.';
+        ELSIF cardinality(v_obs) > 0 THEN
+            RAISE EXCEPTION 'REQUIERE_REVISION_DOCUMENTAL: %', array_to_string(v_obs, ', ');
         ELSE
-            RAISE EXCEPTION 'SOCIO_UNAVAILABLE';
+            RAISE EXCEPTION 'SOCIO_NO_HABILITADO';
         END IF;
     END IF;
 
