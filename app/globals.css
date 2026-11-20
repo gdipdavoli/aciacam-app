@@ -117,3 +117,29 @@ button {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+@layer components {
+  .btn-forest {
+    background-color: #0F3822;
+    color: #FFFFFF;
+  }
+  .btn-forest svg {
+    color: currentColor;
+  }
+  .btn-forest:hover:not(:disabled) {
+    background-color: #144B2E;
+  }
+  .btn-forest:active:not(:disabled) {
+    background-color: #0A2818;
+  }
+  .btn-forest:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  .btn-forest:disabled {
+    background-color: #0F3822;
+    color: #FFFFFF;
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
