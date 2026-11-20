@@ -370,50 +370,32 @@ function NewDispenseForm() {
                             padding: '1rem',
                             borderRadius: 'var(--radius)',
                             marginBottom: '1rem',
-                            border: eligibility.estadoElegibilidad === 'HABILITADO'
-                                ? '1px solid #86efac'
-                                : eligibility.estadoElegibilidad === 'NO_HABILITADO'
-                                    ? '1px solid #fca5a5'
-                                    : '1px solid #fcd34d',
-                            backgroundColor: eligibility.estadoElegibilidad === 'HABILITADO'
-                                ? '#f0fdf4'
-                                : eligibility.estadoElegibilidad === 'NO_HABILITADO'
-                                    ? '#fef2f2'
-                                    : '#fffbeb',
+                            border: !eligibility.puedeFinalizarDispensa
+                                ? '1px solid #fca5a5'
+                                : eligibility.requiereRegularizacion
+                                    ? '1px solid #fcd34d'
+                                    : '1px solid #86efac',
+                            backgroundColor: !eligibility.puedeFinalizarDispensa
+                                ? '#fef2f2'
+                                : eligibility.requiereRegularizacion
+                                    ? '#fffbeb'
+                                    : '#f0fdf4',
                             fontSize: '0.85rem'
                         }}>
                             <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>
-                                Habilitación para dispensar: {eligibility.estadoElegibilidad}
+                                Solicitar: {eligibility.puedeSolicitar ? 'Sí' : 'No'}
+                                {' '}| Registrar pedido: {eligibility.puedeRegistrarPedido ? 'Sí' : 'No'}
+                                {' '}| Finalizar dispensa: {eligibility.puedeFinalizarDispensa ? 'Sí' : 'Bloqueada'}
                                 {' '}| Acceso digital: {eligibility.accesoDigitalEstado}
                             </div>
                             {Array.isArray(eligibility.bloqueosObligatorios) && eligibility.bloqueosObligatorios.length > 0 && (
                                 <div style={{ color: '#991b1b', marginBottom: '0.35rem' }}>
-                                    <strong>Bloqueos obligatorios (no admiten excepción):</strong> {eligibility.bloqueosObligatorios.join(', ')}
+                                    <strong>Impedimentos obligatorios:</strong> {eligibility.bloqueosObligatorios.join(', ')}
                                 </div>
                             )}
-                            {Array.isArray(eligibility.observacionesDocumentales) && eligibility.observacionesDocumentales.length > 0 && (
+                            {Array.isArray(eligibility.advertenciasDocumentales) && eligibility.advertenciasDocumentales.length > 0 && (
                                 <div style={{ color: '#92400e', marginBottom: '0.35rem' }}>
-                                    <strong>Observaciones documentales:</strong> {eligibility.observacionesDocumentales.join(', ')}
-                                </div>
-                            )}
-                            {eligibility.excepcionActivaId && (
-                                <div style={{ color: '#166534', marginBottom: '0.35rem' }}>
-                                    ✓ Excepción administrativa vigente registrada para regularización diferida ({eligibility.excepcionActivaRequisito}).
-                                </div>
-                            )}
-                            {eligibility.estadoElegibilidad === 'REQUIERE_REVISION' && !eligibility.elegibleParaDispensa && Array.isArray(eligibility.excepcionesAdmisibles) && eligibility.excepcionesAdmisibles.length > 0 && user?.rol === 'admin' && (
-                                <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #fde68a', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                    <strong>Autorizar excepción administrativa controlada (solo Admin):</strong>
-                                    <select value={exceptionReq} onChange={e => setExceptionReq(e.target.value as any)} style={{ padding: '0.4rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }}>
-                                        {eligibility.excepcionesAdmisibles.map((req: string) => (
-                                            <option key={req} value={req}>{req}</option>
-                                        ))}
-                                    </select>
-                                    <input type="text" placeholder="Evidencia o referencia de legajo físico" value={exceptionEvidencia} onChange={e => setExceptionEvidencia(e.target.value)} style={{ padding: '0.4rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }} />
-                                    <input type="text" placeholder="Justificación obligatoria (mín. 10 caracteres)" value={exceptionJustif} onChange={e => setExceptionJustif(e.target.value)} style={{ padding: '0.4rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))' }} />
-                                    <button type="button" onClick={handleGrantException} disabled={savingException} style={{ alignSelf: 'flex-start', padding: '0.45rem 0.85rem', borderRadius: 'var(--radius)', border: 'none', backgroundColor: '#d97706', color: 'white', fontWeight: 600, cursor: 'pointer' }}>
-                                        {savingException ? 'Autorizando...' : 'Autorizar excepción controlada'}
-                                    </button>
+                                    <strong>Advertencias documentales (regularización pendiente, no bloquean registro):</strong> {eligibility.advertenciasDocumentales.join(', ')}
                                 </div>
                             )}
                         </div>
@@ -513,10 +495,10 @@ function NewDispenseForm() {
 
                     <button
                         onClick={handleNextStep}
-                        disabled={Boolean(eligibility && !eligibility.elegibleParaDispensa)}
-                        style={{ width: '100%', padding: '1rem', backgroundColor: 'hsl(var(--primary))', color: 'white', border: 'none', borderRadius: 'var(--radius)', fontSize: '1rem', fontWeight: 600, cursor: eligibility && !eligibility.elegibleParaDispensa ? 'not-allowed' : 'pointer', opacity: eligibility && !eligibility.elegibleParaDispensa ? 0.5 : 1 }}
+                        disabled={Boolean(eligibility && !eligibility.puedeRegistrarPedido)}
+                        style={{ width: '100%', padding: '1rem', backgroundColor: 'hsl(var(--primary))', color: 'white', border: 'none', borderRadius: 'var(--radius)', fontSize: '1rem', fontWeight: 600, cursor: eligibility && !eligibility.puedeRegistrarPedido ? 'not-allowed' : 'pointer', opacity: eligibility && !eligibility.puedeRegistrarPedido ? 0.5 : 1 }}
                     >
-                        {eligibility && !eligibility.elegibleParaDispensa ? 'Socio no habilitado para dispensar' : 'Continuar'}
+                        {eligibility && !eligibility.puedeRegistrarPedido ? 'Socio bloqueado o suspendido' : 'Continuar'}
                     </button>
                 </div>
             )}

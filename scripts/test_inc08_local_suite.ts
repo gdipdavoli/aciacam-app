@@ -40,28 +40,30 @@ ROLLBACK;
     });
 }
 
-console.log('=== INC-08 ELIGIBILITY, EXCEPTIONS, HISTORICAL & SECURITY SUITE ===');
+console.log('=== INC-08 NON-RESTRICTIVE 3-OPERATION ELIGIBILITY, HISTORICAL & SECURITY SUITE ===');
 
-test('INC08-PG-10: Matriz de 10 escenarios (acceso digital pendiente, físico, revisión, excepción, bloqueos, histórico, stock, auditoría y permisos)', () => {
+test('INC08-PG-10: Modelo no restrictivo (3 operaciones, advertencias sin bloqueo, impedimentos confirmados, reconocimiento físico, histórico y permisos)', () => {
     const out = runInProdRestoreRollback(`
 DO $$
 DECLARE
     v_admin_auth uuid := gen_random_uuid();
     v_staff_auth uuid := gen_random_uuid();
     v_socio_auth uuid := gen_random_uuid();
-    v_s_invited uuid := gen_random_uuid();
-    v_s_fisico uuid := gen_random_uuid();
-    v_s_pend_rev uuid := gen_random_uuid();
-    v_s_exc uuid := gen_random_uuid();
-    v_s_exp uuid := gen_random_uuid();
-    v_s_blk uuid := gen_random_uuid();
-    v_prod_flor uuid := gen_random_uuid();
+    v_s_invited_nodoc uuid := gen_random_uuid();
+    v_s_active_nodoc  uuid := gen_random_uuid();
+    v_s_pend_rev      uuid := gen_random_uuid();
+    v_s_exp           uuid := gen_random_uuid();
+    v_s_rej           uuid := gen_random_uuid();
+    v_s_blk           uuid := gen_random_uuid();
+    v_prod_flor       uuid := gen_random_uuid();
     v_o1 uuid;
     v_o2 uuid;
+    v_o_exp uuid;
+    v_o_rej uuid;
     v_eval jsonb;
     v_res jsonb;
     v_stock_pre integer;
-    v_cmd_exc uuid := gen_random_uuid();
+    v_exc_id uuid;
     v_cmd_hist uuid := gen_random_uuid();
 BEGIN
     INSERT INTO auth.users (id, email, last_sign_in_at) VALUES
@@ -69,124 +71,135 @@ BEGIN
         (v_staff_auth, 'inc08_staff@test.invalid', now()),
         (v_socio_auth, 'inc08_socio@test.invalid', now());
 
-    INSERT INTO public.socios (id, auth_user_id, user_id, nombre, apellido, dni, email, rol, status, bloqueado, admision_institucional_estado, reprocann_fecha_vencimiento)
+    INSERT INTO public.socios (id, auth_user_id, user_id, nombre, apellido, dni, email, rol, status, bloqueado, admision_institucional_estado, reprocann_estado, reprocann_fecha_vencimiento)
     VALUES
-        (gen_random_uuid(), v_admin_auth, v_admin_auth, 'Admin', 'INC08', '55100100', 'inc08_admin@test.invalid', 'admin', 'active', false, 'admitido', (current_date + 180)),
-        (gen_random_uuid(), v_staff_auth, v_staff_auth, 'Staff', 'INC08', '55100109', 'inc08_staff@test.invalid', 'staff', 'active', false, 'admitido', (current_date + 180)),
-        (v_s_invited, NULL, NULL, 'Socio', 'InvitedOK', '55100101', 's_inv@test.invalid', 'socio', 'invited', false, 'admitido', (current_date + 180)),
-        (v_s_fisico, NULL, NULL, 'Socio', 'Fisico', '55100102', 's_fis@test.invalid', 'socio', 'invited', false, 'admitido', (current_date + 180)),
-        (v_s_pend_rev, NULL, NULL, 'Socio', 'PendRev', '55100103', 's_prev@test.invalid', 'socio', 'invited', false, 'admitido', (current_date + 180)),
-        (v_s_exc, v_socio_auth, v_socio_auth, 'Socio', 'Excepcion', '55100104', 'inc08_socio@test.invalid', 'socio', 'active', false, 'admitido', (current_date + 180)),
-        (v_s_exp, NULL, NULL, 'Socio', 'ReproExp', '55100105', 's_exp@test.invalid', 'socio', 'invited', false, 'admitido', (current_date - 1)),
-        (v_s_blk, NULL, NULL, 'Socio', 'Bloqueado', '55100106', 's_blk@test.invalid', 'socio', 'active', true, 'admitido', (current_date + 180));
+        (gen_random_uuid(), v_admin_auth, v_admin_auth, 'Admin', 'INC08', '55100100', 'inc08_admin@test.invalid', 'admin', 'active', false, 'admitido', 'aprobado', (current_date + 180)),
+        (gen_random_uuid(), v_staff_auth, v_staff_auth, 'Staff', 'INC08', '55100109', 'inc08_staff@test.invalid', 'staff', 'active', false, 'admitido', 'aprobado', (current_date + 180)),
+        (v_s_invited_nodoc, NULL, NULL, 'Socio', 'InvitedNoDoc', '55100101', 's_inv@test.invalid', 'socio', 'invited', false, 'admitido', NULL, NULL),
+        (v_s_active_nodoc, v_socio_auth, v_socio_auth, 'Socio', 'ActiveNoDoc', '55100102', 'inc08_socio@test.invalid', 'socio', 'active', false, 'admitido', NULL, NULL),
+        (v_s_pend_rev, NULL, NULL, 'Socio', 'PendRev', '55100103', 's_prev@test.invalid', 'socio', 'invited', false, 'admitido', NULL, NULL),
+        (v_s_exp, NULL, NULL, 'Socio', 'ReproExp', '55100105', 's_exp@test.invalid', 'socio', 'invited', false, 'admitido', 'aprobado', (current_date - 1)),
+        (v_s_rej, NULL, NULL, 'Socio', 'ReproRej', '55100107', 's_rej@test.invalid', 'socio', 'active', false, 'admitido', 'rechazado', NULL),
+        (v_s_blk, NULL, NULL, 'Socio', 'Bloqueado', '55100106', 's_blk@test.invalid', 'socio', 'active', true, 'admitido', 'aprobado', (current_date + 180));
 
     PERFORM set_config('request.jwt.claim.sub', v_admin_auth::text, true);
 
-    -- Docs completos para v_s_invited; solo reprocann aprobado para v_s_fisico y v_s_exc; consentimiento pendiente para v_s_pend_rev; reprocann vencido para v_s_exp
+    -- Docs pendientes de revisión (sin vencimiento) para v_s_pend_rev; reprocann vencido confirmado para v_s_exp
     INSERT INTO public.documentos_socio (socio_id, tipo, archivo_path, verificacion_estado, fecha_emision, fecha_vencimiento, is_current)
-    SELECT id::text, t.tipo, 'synthetic/doc.pdf',
-           CASE WHEN id = v_s_pend_rev AND t.tipo = 'consentimiento' THEN 'pendiente' ELSE 'aprobado' END,
-           (current_date - 30),
-           CASE WHEN id = v_s_exp AND t.tipo = 'reprocann' THEN (now() - interval '1 day') ELSE (now() + interval '180 days') END,
-           true
-    FROM public.socios s
-    CROSS JOIN (VALUES ('reprocann'), ('declaracion_jurada'), ('consentimiento')) AS t(tipo)
-    WHERE s.id IN (v_s_invited, v_s_pend_rev, v_s_exp, v_s_blk)
-       OR (s.id IN (v_s_fisico, v_s_exc) AND t.tipo = 'reprocann');
+    VALUES
+        (v_s_pend_rev::text, 'reprocann', 'synthetic/r.pdf', 'pendiente', NULL, NULL, true),
+        (v_s_pend_rev::text, 'consentimiento', 'synthetic/c.pdf', 'pendiente', NULL, NULL, true),
+        (v_s_exp::text, 'reprocann', 'synthetic/exp.pdf', 'aprobado', (current_date - 400), (now() - interval '1 day'), true);
 
     INSERT INTO public.products (id, nombre, categoria, tipo, peso_gramos, precio, stock_disponible, activo)
     VALUES (v_prod_flor, 'Flor INC08', 'flores', 'flor', 10, 50000, 30, true);
 
-    -- 1. Socio habilitado con acceso digital pendiente ('invited') -> HABILITADO
-    v_eval := public.get_socio_dispensation_eligibility(v_s_invited);
-    IF v_eval->>'estadoElegibilidad' <> 'HABILITADO' OR v_eval->>'accesoDigitalEstado' <> 'invitado' THEN
+    -- 1. Socio 'invited' sin documentos digitalizados -> NO bloquea pedido ni entrega; genera advertencias
+    v_eval := public.get_socio_dispensation_eligibility(v_s_invited_nodoc);
+    IF (v_eval->>'puedeSolicitar')::boolean IS NOT FALSE
+       OR (v_eval->>'puedeRegistrarPedido')::boolean IS NOT TRUE
+       OR (v_eval->>'puedeFinalizarDispensa')::boolean IS NOT TRUE
+       OR (v_eval->>'requiereRegularizacion')::boolean IS NOT TRUE
+       OR v_eval->>'accesoDigitalEstado' <> 'invitado'
+       OR NOT ((v_eval->'advertenciasDocumentales') ? 'REPROCANN_NO_CARGADO')
+       OR NOT ((v_eval->'advertenciasDocumentales') ? 'CONSENTIMIENTO_NO_CARGADO')
+       OR NOT ((v_eval->'advertenciasDocumentales') ? 'DDJJ_NO_CARGADA')
+       OR jsonb_array_length(v_eval->'bloqueosObligatorios') <> 0 THEN
         RAISE EXCEPTION 'Caso 1 inesperado: %', v_eval;
     END IF;
+
+    SELECT stock_disponible INTO v_stock_pre FROM public.products WHERE id = v_prod_flor;
     INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
-    VALUES (v_s_invited, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid())
+    VALUES (v_s_invited_nodoc, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid())
     RETURNING id INTO v_o1;
     PERFORM public.confirm_order_payment_command(gen_random_uuid(), v_o1, 'retirado', '[]'::jsonb, v_admin_auth);
-
-    -- 2. Documentación física acreditada pero no digitalizada (no marca docs como aprobados, habilita por reconocimiento auditable)
-    PERFORM public.register_legacy_document_recognition_command(gen_random_uuid(), v_s_fisico, 'consentimiento', 'Bibliorato 3 Folio 14', 'Consentimiento firmado en sede');
-    PERFORM public.register_legacy_document_recognition_command(gen_random_uuid(), v_s_fisico, 'declaracion_jurada', 'Bibliorato 3 Folio 15', 'DDJJ firmada en sede');
-    v_eval := public.get_socio_dispensation_eligibility(v_s_fisico);
-    IF v_eval->>'estadoElegibilidad' <> 'HABILITADO' THEN
-        RAISE EXCEPTION 'Caso 2 inesperado: %', v_eval;
+    IF (SELECT stock_disponible FROM public.products WHERE id = v_prod_flor) <> (v_stock_pre - 1) THEN
+        RAISE EXCEPTION 'Caso 1: stock debió descontar exactamente 1';
     END IF;
 
-    -- 3. Documento pendiente de verificación -> REQUIERE_REVISION y bloquea hasta regularizar/excepción
+    -- 2. Socio 'active' sin documentos digitalizados -> puedeSolicitar=true y puede crear su pedido
+    PERFORM set_config('request.jwt.claim.sub', v_socio_auth::text, true);
+    v_eval := public.get_socio_dispensation_eligibility(v_s_active_nodoc);
+    IF (v_eval->>'puedeSolicitar')::boolean IS NOT TRUE
+       OR (v_eval->>'puedeRegistrarPedido')::boolean IS NOT TRUE
+       OR (v_eval->>'puedeFinalizarDispensa')::boolean IS NOT TRUE THEN
+        RAISE EXCEPTION 'Caso 2 inesperado: %', v_eval;
+    END IF;
+    INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
+    VALUES (v_s_active_nodoc, 'retiro_sede', 'socio', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_socio_auth, gen_random_uuid())
+    RETURNING id INTO v_o2;
+
+    -- 3. Documento pendiente de verificación -> NO es tratado como vencido y permite finalizar
+    PERFORM set_config('request.jwt.claim.sub', v_admin_auth::text, true);
     v_eval := public.get_socio_dispensation_eligibility(v_s_pend_rev);
-    IF v_eval->>'estadoElegibilidad' <> 'REQUIERE_REVISION' OR (v_eval->>'elegibleParaDispensa')::boolean IS NOT FALSE THEN
+    IF (v_eval->>'puedeFinalizarDispensa')::boolean IS NOT TRUE
+       OR (v_eval->'bloqueosObligatorios') ? 'REPROCANN_VENCIDO_CONFIRMADO'
+       OR NOT ((v_eval->'advertenciasDocumentales') ? 'REPROCANN_PENDIENTE_REVISION')
+       OR NOT ((v_eval->'advertenciasDocumentales') ? 'CONSENTIMIENTO_PENDIENTE_REVISION') THEN
         RAISE EXCEPTION 'Caso 3 inesperado: %', v_eval;
     END IF;
 
-    -- 4. Excepción administrativa admisible (admin + justificación + evidencia + idempotente) -> habilita dispensa
-    v_res := public.grant_dispensation_exception_command(v_cmd_exc, v_s_exc, 'consentimiento', 'Socio exhibió consentimiento firmado en sede pendiente de escaneo', 'Acta recepción 2026-11-20');
-    IF (v_res->>'reused')::boolean IS NOT FALSE THEN RAISE EXCEPTION 'Primera excepción debe ser reused=false'; END IF;
-    v_res := public.grant_dispensation_exception_command(v_cmd_exc, v_s_exc, 'consentimiento', 'Socio exhibió consentimiento firmado en sede pendiente de escaneo', 'Acta recepción 2026-11-20');
-    IF (v_res->>'reused')::boolean IS NOT TRUE THEN RAISE EXCEPTION 'Reintento excepción debe ser reused=true'; END IF;
-
-    v_eval := public.get_socio_dispensation_eligibility(v_s_exc);
-    IF v_eval->>'estadoElegibilidad' <> 'REQUIERE_REVISION' OR (v_eval->>'elegibleParaDispensa')::boolean IS NOT TRUE THEN
+    -- 4. REPROCANN vencido confirmado -> permite registrar pedido pero BLOQUEA finalización de entrega
+    v_eval := public.get_socio_dispensation_eligibility(v_s_exp);
+    IF (v_eval->>'puedeRegistrarPedido')::boolean IS NOT TRUE
+       OR (v_eval->>'puedeFinalizarDispensa')::boolean IS NOT FALSE
+       OR NOT ((v_eval->'bloqueosObligatorios') ? 'REPROCANN_VENCIDO_CONFIRMADO') THEN
         RAISE EXCEPTION 'Caso 4 inesperado: %', v_eval;
     END IF;
     INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
-    VALUES (v_s_exc, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid())
-    RETURNING id INTO v_o2;
-
-    -- 4b. Adversarial: Reutilización de excepción ya consumida por v_o2 DEBE FALLAR
+    VALUES (v_s_exp, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid())
+    RETURNING id INTO v_o_exp;
     BEGIN
-        INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
-        VALUES (v_s_exc, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid());
-        RAISE EXCEPTION 'Adversarial 4b: excepción consumida no debe ser reutilizable';
-    EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%REQUIERE_REVISION_DOCUMENTAL%' THEN RAISE; END IF; END;
-
-    -- 4c. Adversarial: Excepción revocada DEBE FALLAR; Excepción vencida DEBE FALLAR; Excepción de otro socio NO aplica
-    DECLARE
-        v_exc_rev uuid;
-        v_exc_venc uuid;
-    BEGIN
-        v_exc_rev := (public.grant_dispensation_exception_command(gen_random_uuid(), v_s_pend_rev, 'consentimiento', 'Excepción temporal luego revocada', 'Acta-Rev')->>'exceptionId')::uuid;
-        PERFORM public.revoke_dispensation_exception_command(v_exc_rev, 'Documentación rechazada en revisión');
-        BEGIN
-            INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
-            VALUES (v_s_pend_rev, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid());
-            RAISE EXCEPTION 'Adversarial 4c-rev: excepción revocada no debe habilitar';
-        EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%REQUIERE_REVISION_DOCUMENTAL%' THEN RAISE; END IF; END;
-
-        v_exc_venc := (public.grant_dispensation_exception_command(gen_random_uuid(), v_s_pend_rev, 'consentimiento', 'Excepción vencida prueba', 'Acta-Venc', ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - 1))->>'exceptionId')::uuid;
-        BEGIN
-            INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
-            VALUES (v_s_pend_rev, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid());
-            RAISE EXCEPTION 'Adversarial 4c-venc: excepción vencida no debe habilitar';
-        EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%REQUIERE_REVISION_DOCUMENTAL%' THEN RAISE; END IF; END;
-
-        -- Excepción concedida a v_s_exc no habilita a v_s_pend_rev
-        PERFORM public.grant_dispensation_exception_command(gen_random_uuid(), v_s_exc, 'consentimiento', 'Excepción solo para v_s_exc', 'Acta-Otro');
-        BEGIN
-            INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
-            VALUES (v_s_pend_rev, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid());
-            RAISE EXCEPTION 'Adversarial 4c-cross: excepción ajena no debe habilitar';
-        EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%REQUIERE_REVISION_DOCUMENTAL%' THEN RAISE; END IF; END;
+        PERFORM public.confirm_order_payment_command(gen_random_uuid(), v_o_exp, 'retirado', '[]'::jsonb, v_admin_auth);
+        RAISE EXCEPTION 'Caso 4: finalización con REPROCANN_VENCIDO_CONFIRMADO debió fallar';
+    EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM NOT LIKE '%REPROCANN_VENCIDO_CONFIRMADO%' THEN RAISE; END IF;
     END;
 
-    -- 5. Excepción rechazada por requisito obligatorio (REPROCANN vencido y socio bloqueado)
+    -- 5. REPROCANN rechazado -> permite registrar pedido pero BLOQUEA finalización de entrega
+    v_eval := public.get_socio_dispensation_eligibility(v_s_rej);
+    IF (v_eval->>'puedeRegistrarPedido')::boolean IS NOT TRUE
+       OR (v_eval->>'puedeFinalizarDispensa')::boolean IS NOT FALSE
+       OR NOT ((v_eval->'bloqueosObligatorios') ? 'REPROCANN_RECHAZADO') THEN
+        RAISE EXCEPTION 'Caso 5 inesperado: %', v_eval;
+    END IF;
+    INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
+    VALUES (v_s_rej, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid())
+    RETURNING id INTO v_o_rej;
     BEGIN
-        PERFORM public.grant_dispensation_exception_command(gen_random_uuid(), v_s_exp, 'consentimiento', 'Intento inválido sobre REPROCANN vencido', 'Ref-1');
-        RAISE EXCEPTION 'Caso 5a debió fallar';
-    EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%EXCEPTION_FORBIDDEN_BY_MANDATORY_BLOCK%' THEN RAISE; END IF; END;
+        PERFORM public.confirm_order_payment_command(gen_random_uuid(), v_o_rej, 'retirado', '[]'::jsonb, v_admin_auth);
+        RAISE EXCEPTION 'Caso 5: finalización con REPROCANN_RECHAZADO debió fallar';
+    EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM NOT LIKE '%REPROCANN_RECHAZADO%' THEN RAISE; END IF;
+    END;
 
+    -- 6. Socio bloqueado -> bloquea solicitar, registrar pedido y finalizar
+    v_eval := public.get_socio_dispensation_eligibility(v_s_blk);
+    IF (v_eval->>'puedeSolicitar')::boolean IS NOT FALSE
+       OR (v_eval->>'puedeRegistrarPedido')::boolean IS NOT FALSE
+       OR (v_eval->>'puedeFinalizarDispensa')::boolean IS NOT FALSE
+       OR NOT ((v_eval->'bloqueosObligatorios') ? 'SOCIO_BLOQUEADO') THEN
+        RAISE EXCEPTION 'Caso 6 inesperado: %', v_eval;
+    END IF;
     BEGIN
-        PERFORM public.grant_dispensation_exception_command(gen_random_uuid(), v_s_blk, 'consentimiento', 'Intento inválido sobre socio bloqueado', 'Ref-2');
-        RAISE EXCEPTION 'Caso 5b debió fallar';
-    EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%EXCEPTION_FORBIDDEN_BY_MANDATORY_BLOCK%' THEN RAISE; END IF; END;
+        INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
+        VALUES (v_s_blk, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid());
+        RAISE EXCEPTION 'Caso 6: inserción para socio bloqueado debió fallar';
+    EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM NOT LIKE '%SOCIO_BLOQUEADO%' THEN RAISE; END IF;
+    END;
 
-    -- 6 y 7. REPROCANN vencido y socio bloqueado -> NO_HABILITADO y rechazo en pedidos
-    IF (public.get_socio_dispensation_eligibility(v_s_exp)->>'estadoElegibilidad') <> 'NO_HABILITADO' THEN RAISE EXCEPTION 'Caso 6 inesperado'; END IF;
-    IF (public.get_socio_dispensation_eligibility(v_s_blk)->>'estadoElegibilidad') <> 'NO_HABILITADO' THEN RAISE EXCEPTION 'Caso 7 inesperado'; END IF;
+    -- 7. Reconocimiento físico limpia advertencias sin marcar documentos_socio como aprobado
+    PERFORM public.register_legacy_document_recognition_command(gen_random_uuid(), v_s_invited_nodoc, 'consentimiento', 'Bibliorato 3 Folio 14', 'Consentimiento firmado en sede');
+    PERFORM public.register_legacy_document_recognition_command(gen_random_uuid(), v_s_invited_nodoc, 'declaracion_jurada', 'Bibliorato 3 Folio 15', 'DDJJ firmada en sede');
+    v_eval := public.get_socio_dispensation_eligibility(v_s_invited_nodoc);
+    IF (v_eval->'advertenciasDocumentales') ? 'CONSENTIMIENTO_NO_CARGADO'
+       OR (v_eval->'advertenciasDocumentales') ? 'DDJJ_NO_CARGADA'
+       OR EXISTS (SELECT 1 FROM public.documentos_socio WHERE socio_id = v_s_invited_nodoc::text AND verificacion_estado = 'aprobado') THEN
+        RAISE EXCEPTION 'Caso 7 inesperado: %', v_eval;
+    END IF;
 
-    -- 8 y 9. Entrega histórica con irregularidad: no descuenta stock ni duplica pagos + idempotente
+    -- 8. Entrega histórica con irregularidad: no descuenta stock ni duplica pagos + idempotente
     SELECT stock_disponible INTO v_stock_pre FROM public.products WHERE id = v_prod_flor;
     v_res := public.register_historical_dispensation_command(
         v_cmd_hist, v_s_exp, now() - interval '15 days',
@@ -205,12 +218,13 @@ BEGIN
     );
     IF (v_res->>'reused')::boolean IS NOT TRUE THEN RAISE EXCEPTION 'Reintento histórico debe ser reused=true'; END IF;
     IF (SELECT stock_disponible FROM public.products WHERE id = v_prod_flor) <> v_stock_pre THEN
-        RAISE EXCEPTION 'Caso 9: registro histórico no debe descontar stock';
+        RAISE EXCEPTION 'Caso 8: registro histórico no debe descontar stock';
     END IF;
 
-    -- 10. Auditoría (append-only) y permisos (staff no puede dar excepción; socio no puede usar RPCs admin)
+    -- 9. Auditoría (append-only) y permisos
+    v_exc_id := (public.grant_dispensation_exception_command(gen_random_uuid(), v_s_pend_rev, 'consentimiento', 'Respaldo documental en revisión sede', 'Acta-2026')->>'exceptionId')::uuid;
     BEGIN
-        DELETE FROM public.dispensation_exceptions WHERE id = (v_eval->>'excepcionActivaId')::uuid;
+        DELETE FROM public.dispensation_exceptions WHERE id = v_exc_id;
         RAISE EXCEPTION 'Debió impedir DELETE en dispensation_exceptions';
     EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%INC08_APPEND_ONLY%' THEN RAISE; END IF; END;
 
@@ -222,29 +236,29 @@ BEGIN
 
     PERFORM set_config('request.jwt.claim.sub', v_socio_auth::text, true);
     BEGIN
-        PERFORM public.register_historical_dispensation_command(gen_random_uuid(), v_s_exc, now() - interval '1 day', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 'Ref-4');
+        PERFORM public.register_historical_dispensation_command(gen_random_uuid(), v_s_active_nodoc, now() - interval '1 day', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 'Ref-4');
         RAISE EXCEPTION 'Debió rechazar a socio';
     EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%UNAUTHORIZED%' THEN RAISE; END IF; END;
-    -- 10b. Seguridad: authenticated no puede llamar evaluate_socio_dispensation_eligibility directamente ni get_socio_dispensation_eligibility de otro socio
+
     SET LOCAL ROLE authenticated;
     BEGIN
-        PERFORM public.evaluate_socio_dispensation_eligibility(v_s_invited);
+        PERFORM public.evaluate_socio_dispensation_eligibility(v_s_invited_nodoc);
         RAISE EXCEPTION 'Authenticated no debe tener EXECUTE directo sobre evaluate_socio_dispensation_eligibility';
     EXCEPTION WHEN insufficient_privilege THEN NULL;
     END;
     BEGIN
-        PERFORM public.get_socio_dispensation_eligibility(v_s_invited);
+        PERFORM public.get_socio_dispensation_eligibility(v_s_invited_nodoc);
         RAISE EXCEPTION 'Socio no debe consultar elegibilidad de otro socio';
     EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%No autorizado%' THEN RAISE; END IF; END;
     RESET ROLE;
 END $$;
-SELECT 'PG17_INC08_10_SCENARIOS_OK';
+SELECT 'PG17_INC08_NONRESTRICTIVE_OK';
 `);
-    assert.ok(out.includes('PG17_INC08_10_SCENARIOS_OK'));
+    assert.ok(out.includes('PG17_INC08_NONRESTRICTIVE_OK'));
 });
 
 async function runConcurrencyTest() {
-    await testAsync('INC08-ADV-CONC: Consumo concurrente de una única excepción en 2 conexiones paralelas (1 éxito, 1 rechazo)', async () => {
+    await testAsync('INC08-CONC: Finalización concurrente con REPROCANN_VENCIDO_CONFIRMADO rechaza ambas conexiones sin entregar ni descontar stock', async () => {
         const tempDb = 'inc08_conc_test';
         const ux041 = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/20261119150000_ux04_1_direct_delivery_from_active_states.sql'), 'utf8').replace(/^BEGIN;/gm, '').replace(/^COMMIT;/gm, '');
         const inc08 = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/20261120140000_inc08_dispensation_eligibility_separation.sql'), 'utf8').replace(/^BEGIN;/gm, '').replace(/^COMMIT;/gm, '');
@@ -262,18 +276,18 @@ DECLARE
     v_admin uuid := '11111111-1111-4111-8111-111111111111';
     v_socio uuid := '22222222-2222-4222-8222-222222222222';
     v_prod  uuid := '33333333-3333-4333-8333-333333333333';
+    v_ped   uuid := '44444444-4444-4444-8444-444444444444';
 BEGIN
     INSERT INTO auth.users (id, email, last_sign_in_at) VALUES (v_admin, 'inc08_conc@test.invalid', now());
     INSERT INTO public.socios (id, auth_user_id, user_id, nombre, apellido, dni, email, rol, status, bloqueado, admision_institucional_estado)
     VALUES (gen_random_uuid(), v_admin, v_admin, 'Conc', 'Admin', '11000111', 'inc08_conc@test.invalid', 'admin', 'active', false, 'admitido');
-    INSERT INTO public.socios (id, nombre, apellido, dni, email, rol, status, bloqueado, admision_institucional_estado, reprocann_fecha_vencimiento)
-    VALUES (v_socio, 'Conc', 'Socio', '11000222', 'conc_s@test.invalid', 'socio', 'invited', false, 'admitido', current_date + 180);
+    INSERT INTO public.socios (id, nombre, apellido, dni, email, rol, status, bloqueado, admision_institucional_estado, reprocann_estado, reprocann_fecha_vencimiento)
+    VALUES (v_socio, 'Conc', 'Socio', '11000222', 'conc_s@test.invalid', 'socio', 'invited', false, 'admitido', 'aprobado', current_date - 1);
     PERFORM set_config('request.jwt.claim.sub', v_admin::text, true);
-    INSERT INTO public.documentos_socio (socio_id, tipo, archivo_path, verificacion_estado, fecha_emision, fecha_vencimiento, is_current)
-    VALUES (v_socio::text, 'reprocann', 'synthetic/r.pdf', 'aprobado', current_date - 10, now() + interval '180 days', true);
     INSERT INTO public.products (id, nombre, categoria, tipo, peso_gramos, precio, stock_disponible, activo)
     VALUES (v_prod, 'Flor Conc', 'flores', 'flor', 10, 50000, 20, true);
-    PERFORM public.grant_dispensation_exception_command(gen_random_uuid(), v_socio, 'consentimiento', 'Excepción única concurrente de prueba', 'Acta-Conc-1');
+    INSERT INTO public.pedidos (id, socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
+    VALUES (v_ped, v_socio, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod, 'cantidad', 1)), 50000, v_admin, gen_random_uuid());
 END $$;
 SELECT 'INC08_CONC_SEED_OK';
 `,
@@ -281,14 +295,16 @@ SELECT 'INC08_CONC_SEED_OK';
             });
             assert.ok(seed.includes('INC08_CONC_SEED_OK'));
 
-            const tryOrder = () =>
-                execAsync(`docker exec -i aciacam-pg17-restore-test psql -U postgres -d ${tempDb} -v ON_ERROR_STOP=1 -t -A -c "SELECT set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true); INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key) VALUES ('22222222-2222-4222-8222-222222222222'::uuid, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', '33333333-3333-4333-8333-333333333333', 'cantidad', 1)), 50000, '11111111-1111-4111-8111-111111111111'::uuid, gen_random_uuid());"`)
+            const tryFinalize = () =>
+                execAsync(`docker exec -i aciacam-pg17-restore-test psql -U postgres -d ${tempDb} -v ON_ERROR_STOP=1 -t -A -c "SELECT set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true); SELECT public.confirm_order_payment_command(gen_random_uuid(), '44444444-4444-4444-8444-444444444444'::uuid, 'retirado', '[]'::jsonb, '11111111-1111-4111-8111-111111111111'::uuid);"`)
                     .then(() => ({ ok: true, err: '' }))
                     .catch((e) => ({ ok: false, err: String(e.stderr || e.message) }));
 
-            const res = await Promise.all([tryOrder(), tryOrder()]);
-            assert.equal(res.filter((r) => r.ok).length, 1);
-            assert.equal(res.filter((r) => !r.ok && r.err.includes('REQUIERE_REVISION_DOCUMENTAL')).length, 1);
+            const res = await Promise.all([tryFinalize(), tryFinalize()]);
+            assert.equal(res.filter((r) => !r.ok && r.err.includes('REPROCANN_VENCIDO_CONFIRMADO')).length, 2);
+
+            const after = execSync(`docker exec -i aciacam-pg17-restore-test psql -U postgres -d ${tempDb} -t -A -c "SELECT (SELECT stock_disponible FROM public.products WHERE id = '33333333-3333-4333-8333-333333333333') || '|' || (SELECT estado FROM public.pedidos WHERE id = '44444444-4444-4444-8444-444444444444');"`, { encoding: 'utf8' }).trim();
+            assert.equal(after, '19|pendiente');
         } finally {
             execSync(`docker exec -i aciacam-pg17-restore-test psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS ${tempDb} WITH (FORCE);"`, { stdio: 'pipe' });
         }
