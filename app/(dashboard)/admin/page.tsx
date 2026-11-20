@@ -643,55 +643,59 @@ export default function AdminOrdersPage() {
                 </div>
             )}
 
-            {/* Vista de Tabla Desktop */}
+            {/* Vista de Tabla Desktop (6 columnas independientes) */}
             {!loading && orders.length > 0 && (
-                <div className="hidden md:block bg-card border border-border rounded-2xl overflow-visible shadow-sm">
+                <div className="hidden lg:block bg-card border border-border rounded-2xl overflow-visible shadow-sm">
                     <div className="w-full">
                         <table className="w-full table-fixed text-left border-collapse">
                             <colgroup>
-                                <col className="w-[30%]" />
-                                <col className="w-[23%]" />
-                                <col className="w-[23%]" />
+                                <col className="w-[26%]" />
+                                <col className="w-[22%]" />
+                                <col className="w-[22%]" />
                                 <col className="w-[10%]" />
-                                <col className="w-[14%]" />
+                                <col className="w-[12%]" />
+                                <col className="w-[8%]" />
                             </colgroup>
                             <thead>
                                 <tr className="border-b border-border bg-muted/30 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                                    <th className="py-2.5 px-2.5">Socio</th>
-                                    <th className="py-2.5 px-2.5">Productos</th>
-                                    <th className="py-2.5 px-2.5">Entrega / Turno</th>
-                                    <th className="py-2.5 px-2">Estado</th>
-                                    <th className="py-2.5 px-2.5 text-right">Acciones</th>
+                                    <th className="py-2.5 px-2.5 text-left">Socio</th>
+                                    <th className="py-2.5 px-2 text-left">Productos</th>
+                                    <th className="py-2.5 px-2 text-left">Entrega / Turno</th>
+                                    <th className="py-2.5 px-2 text-left">Estado</th>
+                                    <th className="py-2.5 px-1.5 text-center">Entrega rápida</th>
+                                    <th className="py-2.5 px-2 text-right">Más</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-border/60 text-sm">
-                                {orders.map((order) => {
+                                {orders.map((order, orderIdx) => {
                                     const socioName = order.socio
                                         ? `${order.socio.nombre} ${order.socio.apellido}`
                                         : 'Socio no registrado';
 
                                     const isFinal = isFinalStatus(order.estado);
+                                    const quickTarget = getQuickDeliveryTarget(order.tipoPedido, order.estado);
+                                    const openUpwards = orders.length > 2 && orderIdx >= orders.length - 2;
 
                                     return (
                                         <tr
                                             key={order.id}
-                                            className="hover:bg-muted/40 transition-colors cursor-pointer group align-top"
+                                            className="hover:bg-muted/40 transition-colors cursor-pointer group align-middle"
                                             onClick={() => router.push(`/admin/orders/${order.id}`)}
                                         >
-                                            {/* Socio (28% - sin truncamiento, multilínea) */}
-                                            <td className="py-2.5 px-2.5">
+                                            {/* Socio (26% - nombre y apellido completos multilínea) */}
+                                            <td className="py-2 px-2.5 text-left">
                                                 <div className="font-bold text-foreground group-hover:text-primary transition-colors whitespace-normal break-words leading-snug">
                                                     {socioName}
                                                 </div>
                                                 {order.socio?.dni && (
-                                                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                                                    <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
                                                         DNI {order.socio.dni}
                                                     </div>
                                                 )}
                                             </td>
 
-                                            {/* Productos (23% - multilínea, sin truncamiento) */}
-                                            <td className="py-2.5 px-2.5">
+                                            {/* Productos (22% - multilínea, sin truncamiento) */}
+                                            <td className="py-2 px-2 text-left">
                                                 {order.items && order.items.length > 0 ? (
                                                     <ul className="space-y-0.5 text-xs text-foreground/85 leading-snug">
                                                         {order.items.map((i, idx) => {
@@ -708,8 +712,8 @@ export default function AdminOrdersPage() {
                                                 )}
                                             </td>
 
-                                            {/* Entrega / Turno (22% - modalidad, fecha/franja y dirección multilínea) */}
-                                            <td className="py-2.5 px-2.5">
+                                            {/* Entrega / Turno (22% - modalidad, fecha/franja horaria y dirección multilínea) */}
+                                            <td className="py-2 px-2 text-left">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                     {order.tipoPedido === 'retiro_sede' ? (
                                                         <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
@@ -735,7 +739,7 @@ export default function AdminOrdersPage() {
                                                     )}
                                                 </div>
                                                 {order.tipoPedido === 'retiro_sede' && (order.fechaRetiroPreferida || order.franjaHoraria) && (
-                                                    <div className="text-[11px] font-medium text-foreground/90 flex items-start gap-1 mt-1 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 rounded px-1.5 py-0.5 w-fit max-w-full">
+                                                    <div className="text-[11px] font-medium text-foreground/90 flex items-start gap-1 mt-0.5 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 rounded px-1.5 py-0.5 w-fit max-w-full">
                                                         <Clock size={11} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                                                         <span className="whitespace-normal break-words leading-tight">
                                                             {order.fechaRetiroPreferida || 'Fecha a coordinar'}
@@ -757,7 +761,7 @@ export default function AdminOrdersPage() {
                                             </td>
 
                                             {/* Estado Canónico (10%) */}
-                                            <td className="py-2.5 px-2">
+                                            <td className="py-2 px-2 text-left">
                                                 <div className="flex flex-col items-start gap-1">
                                                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border leading-tight ${
                                                         order.estado === 'pendiente'
@@ -780,109 +784,113 @@ export default function AdminOrdersPage() {
                                                 </div>
                                             </td>
 
-                                            {/* Acciones (14% - Entregar principal + menú Más acciones) */}
-                                            <td className="py-2.5 px-2.5 text-right" onClick={(e) => e.stopPropagation()}>
-                                                <div className="flex flex-wrap items-center justify-end gap-1.5 relative">
-                                                    {(() => {
-                                                        const quickTarget = getQuickDeliveryTarget(order.tipoPedido, order.estado);
-                                                        if (!quickTarget) return null;
-                                                        return (
-                                                            <button
-                                                                type="button"
-                                                                disabled={showPaymentModal}
-                                                                onClick={() => handleStatusChangeRequest(order.id, quickTarget)}
-                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-xs shrink-0"
-                                                                title={order.tipoPedido === 'retiro_sede' ? 'Registrar retiro y aporte' : 'Registrar entrega y aporte'}
-                                                            >
-                                                                <CheckCircle2 size={13} />
-                                                                <span>Entregar</span>
-                                                            </button>
-                                                        );
-                                                    })()}
+                                            {/* Entrega rápida (12% - columna exclusiva para botón Entregar) */}
+                                            <td className="py-2 px-1.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                                {quickTarget ? (
+                                                    <button
+                                                        type="button"
+                                                        disabled={showPaymentModal}
+                                                        onClick={() => handleStatusChangeRequest(order.id, quickTarget)}
+                                                        className="inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-xs whitespace-nowrap"
+                                                        title={order.tipoPedido === 'retiro_sede' ? 'Registrar retiro y aporte' : 'Registrar entrega y aporte'}
+                                                    >
+                                                        <CheckCircle2 size={13} />
+                                                        <span>Entregar</span>
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-[11px] text-muted-foreground/50">—</span>
+                                                )}
+                                            </td>
 
-                                                    <div className="relative">
-                                                        <button
-                                                            type="button"
-                                                            aria-label="Más acciones"
-                                                            aria-expanded={openActionsMenuId === order.id}
-                                                            title="Más acciones"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setOpenActionsMenuId(prev => prev === order.id ? null : order.id);
-                                                            }}
-                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border bg-background hover:bg-muted text-xs font-semibold text-foreground shrink-0"
+                                            {/* Más acciones (8% - botón compacto de tres puntos y menú contextual) */}
+                                            <td className="py-2 px-2 text-right" onClick={(e) => e.stopPropagation()}>
+                                                <div className="inline-flex justify-end relative">
+                                                    <button
+                                                        type="button"
+                                                        aria-label="Más acciones"
+                                                        aria-haspopup="menu"
+                                                        aria-expanded={openActionsMenuId === order.id}
+                                                        title="Más acciones"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setOpenActionsMenuId(prev => prev === order.id ? null : order.id);
+                                                        }}
+                                                        className="inline-flex items-center justify-center p-1.5 rounded-lg border border-border bg-background hover:bg-muted text-foreground transition-colors"
+                                                    >
+                                                        <MoreVertical size={15} />
+                                                    </button>
+
+                                                    {openActionsMenuId === order.id && (
+                                                        <div
+                                                            role="menu"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className={`absolute right-0 ${openUpwards ? 'bottom-full mb-1' : 'top-full mt-1'} w-52 rounded-xl border border-border bg-card shadow-lg z-30 py-1.5 text-left`}
                                                         >
-                                                            <MoreVertical size={14} />
-                                                            <span className="sr-only sm:not-sr-only">Más</span>
-                                                        </button>
-
-                                                        {openActionsMenuId === order.id && (
-                                                            <div
-                                                                onClick={(e) => e.stopPropagation()}
-                                                                className="absolute right-0 mt-1 w-52 rounded-xl border border-border bg-card shadow-lg z-30 py-1.5 text-left"
-                                                            >
-                                                                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                                                    Cambiar estado
+                                                            <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                                                Cambiar estado
+                                                            </div>
+                                                            {isFinal ? (
+                                                                <div className="px-3 py-1.5 text-xs text-muted-foreground italic">
+                                                                    Estado final (inmutable)
                                                                 </div>
-                                                                {isFinal ? (
-                                                                    <div className="px-3 py-1.5 text-xs text-muted-foreground italic">
-                                                                        Estado final (inmutable)
-                                                                    </div>
-                                                                ) : (
-                                                                    getNextStatusOptions(order.tipoPedido, order.estado).map(opt => (
-                                                                        <button
-                                                                            key={opt.value}
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                setOpenActionsMenuId(null);
-                                                                                handleStatusChangeRequest(order.id, opt.value);
-                                                                            }}
-                                                                            className="w-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted text-left transition-colors"
-                                                                        >
-                                                                            {opt.label}
-                                                                        </button>
-                                                                    ))
-                                                                )}
-
-                                                                <div className="my-1 border-t border-border/60" />
-
-                                                                {order.archivado ? (
+                                                            ) : (
+                                                                getNextStatusOptions(order.tipoPedido, order.estado).map(opt => (
                                                                     <button
+                                                                        key={opt.value}
+                                                                        role="menuitem"
                                                                         type="button"
                                                                         onClick={() => {
                                                                             setOpenActionsMenuId(null);
-                                                                            setArchiveModalTarget({ id: order.id, socioNombre: socioName, archivado: false });
+                                                                            handleStatusChangeRequest(order.id, opt.value);
                                                                         }}
-                                                                        className="w-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted flex items-center gap-2 text-left transition-colors"
+                                                                        className="w-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted text-left transition-colors"
                                                                     >
-                                                                        <ArchiveRestore size={14} />
-                                                                        <span>Restaurar pedido</span>
+                                                                        {opt.label}
                                                                     </button>
-                                                                ) : (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => {
-                                                                            setOpenActionsMenuId(null);
-                                                                            setArchiveModalTarget({ id: order.id, socioNombre: socioName, archivado: true });
-                                                                        }}
-                                                                        className="w-full px-3 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-400 hover:bg-muted flex items-center gap-2 text-left transition-colors"
-                                                                    >
-                                                                        <Archive size={14} />
-                                                                        <span>Archivar pedido</span>
-                                                                    </button>
-                                                                )}
+                                                                ))
+                                                            )}
 
-                                                                <Link
-                                                                    href={`/admin/orders/${order.id}`}
-                                                                    onClick={() => setOpenActionsMenuId(null)}
+                                                            <div className="my-1 border-t border-border/60" />
+
+                                                            {order.archivado ? (
+                                                                <button
+                                                                    role="menuitem"
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setOpenActionsMenuId(null);
+                                                                        setArchiveModalTarget({ id: order.id, socioNombre: socioName, archivado: false });
+                                                                    }}
                                                                     className="w-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted flex items-center gap-2 text-left transition-colors"
                                                                 >
-                                                                    <Eye size={14} />
-                                                                    <span>Ver detalle completo</span>
-                                                                </Link>
-                                                            </div>
-                                                        )}
-                                                    </div>
+                                                                    <ArchiveRestore size={14} />
+                                                                    <span>Restaurar pedido</span>
+                                                                </button>
+                                                            ) : (
+                                                                <button
+                                                                    role="menuitem"
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setOpenActionsMenuId(null);
+                                                                        setArchiveModalTarget({ id: order.id, socioNombre: socioName, archivado: true });
+                                                                    }}
+                                                                    className="w-full px-3 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-400 hover:bg-muted flex items-center gap-2 text-left transition-colors"
+                                                                >
+                                                                    <Archive size={14} />
+                                                                    <span>Archivar pedido</span>
+                                                                </button>
+                                                            )}
+
+                                                            <Link
+                                                                role="menuitem"
+                                                                href={`/admin/orders/${order.id}`}
+                                                                onClick={() => setOpenActionsMenuId(null)}
+                                                                className="w-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted flex items-center gap-2 text-left transition-colors"
+                                                            >
+                                                                <Eye size={14} />
+                                                                <span>Ver detalle completo</span>
+                                                            </Link>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -894,9 +902,9 @@ export default function AdminOrdersPage() {
                 </div>
             )}
 
-            {/* Vista Mobile Cards */}
+            {/* Vista Mobile / Tablet Cards (<1024px evita scroll horizontal) */}
             {!loading && orders.length > 0 && (
-                <div className="md:hidden flex flex-col gap-3">
+                <div className="lg:hidden flex flex-col gap-3">
                     {orders.map((order) => {
                         const socioName = order.socio
                             ? `${order.socio.nombre} ${order.socio.apellido}`
