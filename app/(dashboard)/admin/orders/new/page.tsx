@@ -284,6 +284,19 @@ function NewDispenseForm() {
                 setPendingOrder(createdOrderRef.current);
             }
 
+            if (needsReprocannVerificationAck && createdOrderRef.current?.id) {
+                const estadoObs = eligibility?.advertenciasDocumentales?.includes('REPROCANN_PENDIENTE_REVISION')
+                    ? 'pendiente_revision'
+                    : 'no_cargado';
+                await StoreService.registerReprocannExternalVerificationAck({
+                    commandId: createIdempotencyKeyRef.current,
+                    socioId: selectedSocio.id,
+                    evidencia: reprocannAckEvidence.trim(),
+                    estadoObservado: estadoObs,
+                    pedidoId: createdOrderRef.current.id
+                });
+            }
+
             const targetStatus = orderType === 'delivery' ? 'entregado' : 'retirado';
             const actorId = session?.user?.id || user.auth_user_id || user.id;
 

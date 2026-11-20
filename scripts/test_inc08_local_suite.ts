@@ -242,15 +242,27 @@ BEGIN
         v_ack_cmd uuid := gen_random_uuid();
         v_ack_res jsonb;
     BEGIN
-        v_ack_res := public.register_reprocann_external_verification_ack_command(v_ack_cmd, v_s_pend_rev, 'MiArgentina vigente exhibido en sede', 'pendiente_revision');
-        IF (v_ack_res->>'reused')::boolean IS NOT FALSE OR (v_ack_res->>'sustituyeReprocann')::boolean IS NOT FALSE THEN
+        v_ack_res := public.register_reprocann_external_verification_ack_command(v_ack_cmd, v_s_pend_rev, 'MiArgentina vigente exhibido en sede', 'pendiente_revision', v_o1);
+        -- v_o1 pertenece a v_s_invited_nodoc -> debe rechazar por mismatch
+        RAISE EXCEPTION 'Caso 9-ack debió rechazar pedido de otro socio';
+    EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM NOT LIKE '%REPROCANN_ACK_PEDIDO_MISMATCH%' THEN RAISE; END IF;
+    END;
+    DECLARE
+        v_ack_cmd uuid := gen_random_uuid();
+        v_ack_res jsonb;
+    BEGIN
+        v_ack_res := public.register_reprocann_external_verification_ack_command(v_ack_cmd, v_s_invited_nodoc, 'MiArgentina vigente exhibido en sede', 'no_cargado', v_o1);
+        IF (v_ack_res->>'reused')::boolean IS NOT FALSE
+           OR (v_ack_res->>'sustituyeReprocann')::boolean IS NOT FALSE
+           OR (v_ack_res->>'pedidoId')::uuid <> v_o1 THEN
             RAISE EXCEPTION 'Caso 9-ack inesperado: %', v_ack_res;
         END IF;
-        v_ack_res := public.register_reprocann_external_verification_ack_command(v_ack_cmd, v_s_pend_rev, 'MiArgentina vigente exhibido en sede', 'pendiente_revision');
+        v_ack_res := public.register_reprocann_external_verification_ack_command(v_ack_cmd, v_s_invited_nodoc, 'MiArgentina vigente exhibido en sede', 'no_cargado', v_o1);
         IF (v_ack_res->>'reused')::boolean IS NOT TRUE THEN
             RAISE EXCEPTION 'Caso 9-ack idempotencia inesperada: %', v_ack_res;
         END IF;
-        IF EXISTS (SELECT 1 FROM public.documentos_socio WHERE socio_id = v_s_pend_rev::text AND verificacion_estado = 'aprobado') THEN
+        IF EXISTS (SELECT 1 FROM public.documentos_socio WHERE socio_id = v_s_invited_nodoc::text AND verificacion_estado = 'aprobado') THEN
             RAISE EXCEPTION 'Caso 9-ack no debe aprobar documentos_socio ni sustituir REPROCANN';
         END IF;
     END;

@@ -594,7 +594,8 @@ CREATE OR REPLACE FUNCTION public.register_reprocann_external_verification_ack_c
     p_command_id uuid,
     p_socio_id uuid,
     p_evidencia text,
-    p_estado_observado text DEFAULT 'no_cargado'
+    p_estado_observado text DEFAULT 'no_cargado',
+    p_pedido_id uuid DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -613,6 +614,11 @@ BEGIN
     IF p_command_id IS NULL OR p_socio_id IS NULL OR length(btrim(COALESCE(p_evidencia, ''))) < 3 THEN
         RAISE EXCEPTION 'REPROCANN_ACK_INVALID: Requiere evidencia verificable (mín. 3 caracteres).' USING ERRCODE = '22023';
     END IF;
+    IF p_pedido_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM public.pedidos p WHERE p.id = p_pedido_id AND p.socio_id = p_socio_id
+    ) THEN
+        RAISE EXCEPTION 'REPROCANN_ACK_PEDIDO_MISMATCH: El pedido indicado no pertenece al socio.' USING ERRCODE = '22023';
+    END IF;
 
     PERFORM pg_advisory_xact_lock(hashtextextended(p_command_id::text, 809));
     SELECT id INTO v_existing_id
@@ -621,7 +627,7 @@ BEGIN
       AND details->>'commandId' = p_command_id::text
     LIMIT 1;
     IF v_existing_id IS NOT NULL THEN
-        RETURN jsonb_build_object('auditLogId', v_existing_id, 'reused', true);
+        RETURN jsonb_build_object('auditLogId', v_existing_id, 'pedidoId', p_pedido_id, 'reused', true);
     END IF;
 
     INSERT INTO public.audit_logs (user_id, action, entity_type, entity_id, details, created_at)
@@ -629,10 +635,11 @@ BEGIN
         v_actor,
         'VERIFY',
         'REPROCANN_EXTERNAL_VERIFICATION_ACK',
-        p_socio_id::text,
+        COALESCE(p_pedido_id::text, p_socio_id::text),
         jsonb_build_object(
             'commandId', p_command_id,
             'socioId', p_socio_id,
+            'pedidoId', p_pedido_id,
             'responsableId', v_actor,
             'fechaConfirmacion', v_now,
             'evidencia', btrim(p_evidencia),
@@ -648,14 +655,15 @@ BEGIN
         'responsableId', v_actor,
         'fechaConfirmacion', v_now,
         'evidencia', btrim(p_evidencia),
+        'pedidoId', p_pedido_id,
         'sustituyeReprocann', false,
         'reused', false
     );
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.register_reprocann_external_verification_ack_command(uuid, uuid, text, text) FROM PUBLIC, anon, service_role;
-GRANT EXECUTE ON FUNCTION public.register_reprocann_external_verification_ack_command(uuid, uuid, text, text) TO authenticated;
+REVOKE ALL ON FUNCTION public.register_reprocann_external_verification_ack_command(uuid, uuid, text, text, uuid) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.register_reprocann_external_verification_ack_command(uuid, uuid, text, text, uuid) TO authenticated;
 
 -- 7. Actualizar assert_order_business: permite solicitud y registro administrativo salvo bloqueo operativo/suspensión;
 -- los impedimentos confirmados de finalización (p.ej. REPROCANN vencido confirmado) se controlan al finalizar la entrega.
