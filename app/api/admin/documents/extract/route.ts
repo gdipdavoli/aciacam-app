@@ -376,8 +376,8 @@ export async function POST(req: NextRequest) {
             if (isPdf) {
                 try {
                     const fallbackUint8 = new Uint8Array(rawFileBuffer.buffer.slice(rawFileBuffer.byteOffset, rawFileBuffer.byteOffset + rawFileBuffer.byteLength));
-                    const { text, totalPages, isLikelyImageOnly } = await extractTextFromPdfBufferAsync(fallbackUint8);
-                    const docExtraction = extractDataFromDocumentText(text, file.name, totalPages);
+                    const { pages, totalPages, isLikelyImageOnly } = await extractTextFromPdfBufferAsync(fallbackUint8);
+                    const docExtraction = extractDataFromDocumentText(pages, file.name, totalPages);
 
                     if (isLikelyImageOnly && !docExtraction.requiresVisualOcr) {
                         docExtraction.requiresVisualOcr = true;
@@ -394,7 +394,11 @@ export async function POST(req: NextRequest) {
                         }
                     }
 
-                    docExtraction.canRetryGemini = canRetry && hasAgentCoreConfig && errorCategory !== 'AUTH_ERROR' && errorCategory !== 'OCR_DISABLED';
+                    const hasDirectGeminiKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY);
+                    docExtraction.canRetryGemini = canRetry && (
+                        (hasAgentCoreConfig && errorCategory !== 'AUTH_ERROR' && errorCategory !== 'OCR_DISABLED') ||
+                        hasDirectGeminiKey
+                    );
                     docExtraction.failureReason = failureReason;
 
                     processedItems.push({

@@ -10,7 +10,7 @@ import { StorageService } from '@/services/storageService';
 import type { TipoDocumento, EstadoVerificacion } from '@/services/documentacionService';
 import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento, Pago, Notificacion } from '@/types';
 import { formatCalendarDate, calculateDaysRemaining, formatTimestamp } from '@/app/lib/date-format';
-import { UnifiedDocumentExtraction } from '@/app/lib/ocr-contract';
+import { UnifiedDocumentExtraction, compareIdentityWithTarget } from '@/app/lib/ocr-contract';
 import { ArrowLeft, Save, FileText, Activity, AlertTriangle, CheckCircle, Edit, ExternalLink, X, Upload, Plus, CreditCard, Send, Bell, MessageSquare, Clock, AlertCircle, XCircle, Sparkles, FileUp, CheckSquare } from 'lucide-react';
 
 const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
@@ -622,7 +622,7 @@ const UpdateFromDocumentModal = ({ socio, onClose, onUpdated }: { socio: Socio; 
     const [docType, setDocType] = useState<string>('reprocann');
     const [isExtracting, setIsExtracting] = useState<boolean>(false);
     const [extraction, setExtraction] = useState<UnifiedDocumentExtraction | null>(null);
-    const [identityCheck, setIdentityCheck] = useState<{ matches: boolean; docDni?: string; socioDni?: string; warning?: string } | null>(null);
+    const [identityCheck, setIdentityCheck] = useState<{ matches: boolean; blocked?: boolean; reason?: string; docDni?: string; socioDni?: string; warning?: string } | null>(null);
     const [selectedFields, setSelectedFields] = useState<Record<string, boolean>>({});
     const [verificacionEstado, setVerificacionEstado] = useState<'aprobado' | 'pendiente'>('aprobado');
     const [verificacionObs, setVerificacionObs] = useState<string>('');
@@ -652,21 +652,27 @@ const UpdateFromDocumentModal = ({ socio, onClose, onUpdated }: { socio: Socio; 
             const data = await res.json();
             const ext: UnifiedDocumentExtraction = data.extraction;
             setExtraction(ext);
-            setIdentityCheck(data.identityCheck);
+            const idCmp = compareIdentityWithTarget(
+                { dni: ext.dni, nombre: ext.titular?.nombre, apellido: ext.titular?.apellido },
+                { dni: socio.dni, nombre: socio.nombre, apellido: socio.apellido }
+            );
+            setIdentityCheck(data.identityCheck ? { ...data.identityCheck, blocked: idCmp.blocked, reason: idCmp.reason } : { matches: !idCmp.blocked, blocked: idCmp.blocked, reason: idCmp.reason, docDni: idCmp.docDni, socioDni: idCmp.targetDni });
 
             if (ext.documentType && ext.documentType !== 'desconocido') {
                 setDocType(ext.documentType);
             }
 
-            // Detect field diffs
+            // Detect field diffs (solo si no hay bloqueo por identidad de otra persona)
             const diffs: Record<string, boolean> = {};
-            if (ext.numeroTramite && ext.numeroTramite !== socio.reprocann?.numeroTramite) diffs.numeroTramite = true;
-            if (ext.documentType === 'reprocann' && ext.fechaEmision && ext.fechaEmision !== socio.reprocann?.fechaAlta) diffs.fechaAlta = true;
-            if (ext.fechaVencimiento && ext.fechaVencimiento !== socio.reprocann?.fechaVencimiento) diffs.fechaVencimiento = true;
-            if (ext.medico?.nombre && ext.medico?.nombre !== socio.medicoNombre) diffs.medicoNombre = true;
-            if (ext.medico?.matricula && ext.medico?.matricula !== socio.medicoMatricula) diffs.medicoMatricula = true;
-            if (ext.diagnostico && ext.diagnostico !== socio.diagnosticoPrincipal) diffs.diagnosticoPrincipal = true;
-            if (ext.fechaNacimiento && ext.fechaNacimiento !== socio.fechaNacimiento) diffs.fechaNacimiento = true;
+            if (!idCmp.blocked) {
+                if (ext.numeroTramite && ext.numeroTramite !== socio.reprocann?.numeroTramite) diffs.numeroTramite = true;
+                if (ext.documentType === 'reprocann' && ext.fechaEmision && ext.fechaEmision !== socio.reprocann?.fechaAlta) diffs.fechaAlta = true;
+                if (ext.fechaVencimiento && ext.fechaVencimiento !== socio.reprocann?.fechaVencimiento) diffs.fechaVencimiento = true;
+                if (ext.medico?.nombre && ext.medico?.nombre !== socio.medicoNombre) diffs.medicoNombre = true;
+                if (ext.medico?.matricula && ext.medico?.matricula !== socio.medicoMatricula) diffs.medicoMatricula = true;
+                if (ext.diagnostico && ext.diagnostico !== socio.diagnosticoPrincipal) diffs.diagnosticoPrincipal = true;
+                if (ext.fechaNacimiento && ext.fechaNacimiento !== socio.fechaNacimiento) diffs.fechaNacimiento = true;
+            }
 
             setSelectedFields(diffs);
         } catch (err: any) {
@@ -740,7 +746,7 @@ const UpdateFromDocumentModal = ({ socio, onClose, onUpdated }: { socio: Socio; 
         }
     };
 
-    const hasIdentityMismatch = Boolean(identityCheck && !identityCheck.matches);
+    const hasIdentityMismatch = Boolean(identityCheck && (identityCheck.blocked || identityCheck.matches === false));
 
     return (
         <div style={{
