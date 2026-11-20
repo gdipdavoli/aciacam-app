@@ -40,6 +40,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const currentUserIdRef = React.useRef<string | null>(null);
     const currentAuthRoleRef = React.useRef<string | null>(null);
     const hasLoadedSocioRef = React.useRef(false);
+    const lastProfileSyncedAtRef = React.useRef<number>(0);
+    const sessionEpochRef = React.useRef<number>(0);
 
     useEffect(() => {
         if (!supabase) {
@@ -79,9 +81,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setAuthError(null);
             setIsUnlinked(false);
 
+            const mySessionEpoch = sessionEpochRef.current;
             try {
                 // Documents are loaded by the account screen, after profile identification.
                 const socio = await StoreService.getSocioByUserId(userId, session?.access_token);
+                if (sessionEpochRef.current !== mySessionEpoch) {
+                    return;
+                }
 
                 if (socio) {
                     console.log("AuthContext: Socio found linked:", socio.id);
@@ -96,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     currentUserIdRef.current = userId;
                     currentAuthRoleRef.current = authRole;
                     hasLoadedSocioRef.current = true;
+                    lastProfileSyncedAtRef.current = Date.now();
                     setUser(prev => resolveStableSocioState(prev, socio, prevAuthRole, authRole));
 
                     // UPDATE CACHE
@@ -109,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     currentUserIdRef.current = null;
                     currentAuthRoleRef.current = null;
                     hasLoadedSocioRef.current = false;
+                    lastProfileSyncedAtRef.current = 0;
                     setUser(null);
                     localStorage.removeItem(CACHE_KEY);
 
@@ -136,6 +144,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log(`[AuthDebug] ${new Date().toISOString()} Auth Event: ${event}`);
 
             if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && currentSession?.user) {
+                if (currentUserIdRef.current && currentUserIdRef.current !== currentSession.user.id) {
+                    sessionEpochRef.current += 1;
+                    lastProfileSyncedAtRef.current = 0;
+                }
                 setSession(currentSession);
                 if (shouldSkipProfileRefreshOnTokenEvent({
                     event,
@@ -143,6 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     currentAuthRole: currentAuthRoleRef.current,
                     hasLoadedSocio: hasLoadedSocioRef.current,
                     session: currentSession,
+                    lastSyncedAt: lastProfileSyncedAtRef.current,
                 })) {
                     return;
                 }
@@ -163,9 +176,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 
                 if (!verifiedSession) {
                     console.log("[AuthDebug] SIGNED_OUT confirmed. Cleaning up.");
+                    sessionEpochRef.current += 1;
                     currentUserIdRef.current = null;
                     currentAuthRoleRef.current = null;
                     hasLoadedSocioRef.current = false;
+                    lastProfileSyncedAtRef.current = 0;
                     setUser(null);
                     setSession(null);
                     setIsUnlinked(false);
@@ -288,9 +303,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch (e) {
             console.error("AuthContext: signOut error", e);
         } finally {
+            sessionEpochRef.current += 1;
             currentUserIdRef.current = null;
             currentAuthRoleRef.current = null;
             hasLoadedSocioRef.current = false;
+            lastProfileSyncedAtRef.current = 0;
             setUser(null);
             setSession(null);
             setIsUnlinked(false);

@@ -25,15 +25,29 @@ const baseSocio: SocioLike = {
     apellido: 'Prueba',
 };
 
-test('PERF-01.1: TOKEN_REFRESHED con misma identidad y rol omite recarga de ficha', () => {
-    const skip = shouldSkipProfileRefreshOnTokenEvent({
+test('PERF-01.1: TOKEN_REFRESHED omite recarga dentro del TTL y revalida silenciosamente tras vencer el TTL', () => {
+    const now = 1_700_000_000_000;
+    const skipRecent = shouldSkipProfileRefreshOnTokenEvent({
         event: 'TOKEN_REFRESHED',
         currentUserId: 'auth-1',
         currentAuthRole: 'admin',
         hasLoadedSocio: true,
         session: { user: { id: 'auth-1', app_metadata: { role: 'admin' } } } as any,
+        lastSyncedAt: now - 15_000,
+        now,
     });
-    assert.equal(skip, true);
+    assert.equal(skipRecent, true);
+
+    const skipExpired = shouldSkipProfileRefreshOnTokenEvent({
+        event: 'TOKEN_REFRESHED',
+        currentUserId: 'auth-1',
+        currentAuthRole: 'admin',
+        hasLoadedSocio: true,
+        session: { user: { id: 'auth-1', app_metadata: { role: 'admin' } } } as any,
+        lastSyncedAt: now - 65_000,
+        now,
+    });
+    assert.equal(skipExpired, false);
 });
 
 test('PERF-01.2: TOKEN_REFRESHED con cambio de rol en app_metadata NO omite recarga', () => {
