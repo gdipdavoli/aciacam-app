@@ -1,15 +1,16 @@
 "use client";
 
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useEffect, useRef, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
-import { Socio, Producto, OrderType, OrderItem } from '@/types';
-import { ArrowLeft, User, ShoppingBag, Truck, Check } from 'lucide-react';
+import { Socio, Producto, OrderType, OrderItem, Pedido } from '@/types';
+import { ArrowLeft } from 'lucide-react';
 import { SlotSelector } from '@/app/components/SlotSelector';
+import PaymentRegistrationModal from '@/app/components/admin/PaymentRegistrationModal';
 
 function NewDispenseForm() {
-    const { user, loading: authLoading } = useAuth();
+    const { user, session, loading: authLoading } = useAuth();
     const router = useRouter();
     const searchParams = useSearchParams();
     const paramSocioId = searchParams.get('socioId');
@@ -25,6 +26,7 @@ function NewDispenseForm() {
     const today = new Date().toISOString().split('T')[0];
     const [orderType, setOrderType] = useState<OrderType>('retiro_sede');
     const [address, setAddress] = useState('');
+    const [localidad, setLocalidad] = useState('');
     const [date, setDate] = useState(today); // Legacy, kept for fallback
     const [notes, setNotes] = useState('');
 
@@ -33,9 +35,18 @@ function NewDispenseForm() {
     const [slotLabel, setSlotLabel] = useState('');
     const [slotDate, setSlotDate] = useState('');
 
-    // Step 3: Products
+    // Step 3: Products & Idempotent Direct Dispensation State
     const [products, setProducts] = useState<Producto[]>([]);
     const [cart, setCart] = useState<Record<string, number>>({});
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const createIdempotencyKeyRef = useRef<string | null>(null);
+    const createdOrderRef = useRef<Pedido | null>(null);
+
+    const resetTransactionRefs = () => {
+        createIdempotencyKeyRef.current = null;
+        createdOrderRef.current = null;
+    };
 
     useEffect(() => {
         if (!authLoading) {
@@ -50,6 +61,7 @@ function NewDispenseForm() {
                     if (match) {
                         setSelectedSocio(match);
                         setAddress(match.direccion || '');
+                        setLocalidad(match.localidad || '');
                         setStep(2);
                     }
                 }
@@ -73,8 +85,11 @@ function NewDispenseForm() {
                 return;
             }
         }
+        resetTransactionRefs();
         setSelectedSocio(s);
         setAddress(s.direccion || '');
+        setLocalidad(s.localidad || '');
+        setErrorMessage(null);
         setStep(2);
     };
 
@@ -83,23 +98,24 @@ function NewDispenseForm() {
             alert('Por favor selecciona una fecha de retiro.');
             return;
         }
-        if (orderType === 'delivery' && !address) {
-            alert('Por favor completa la dirección.');
+        if (orderType === 'delivery' && (!address.trim() || !localidad.trim())) {
+            alert('Para modalidad delivery es obligatorio completar dirección y localidad.');
             return;
         }
+        setErrorMessage(null);
         setStep(3);
     }
 
     const handleAddToCart = (id: string, qty: number) => {
+        resetTransactionRefs();
+        setErrorMessage(null);
         setCart(prev => ({ ...prev, [id]: Math.max(0, (prev[id] || 0) + qty) }));
     };
 
     const totalItems = Object.values(cart).reduce((a, b) => a + b, 0);
 
-    const handleConfirm = async () => {
-        if (!selectedSocio) return;
-
-        const items: OrderItem[] = Object.entries(cart)
+    const buildOrderItems = (): OrderItem[] =>
+        Object.entries(cart)
             .filter(([_, qty]) => qty > 0)
             .map(([id, qty]) => {
                 const prod = products.find(p => p.id === id);
@@ -110,25 +126,80 @@ function NewDispenseForm() {
                 };
             });
 
-        if (items.length === 0) {
+    const handleOpenFinalizeModal = () => {
+        if (!selectedSocio) return;
+        if (orderType === 'delivery' && (!address.trim() || !localidad.trim())) {
+            alert('Para modalidad delivery es obligatorio completar dirección y localidad.');
+            return;
+        }
+        if (buildOrderItems().length === 0) {
             alert('El pedido debe tener al menos un producto.');
             return;
         }
+        setErrorMessage(null);
+        setShowPaymentModal(true);
+    };
+
+    const handleFinalizePayment = async (
+        payments: Array<{ amount: number; method: string; reference?: string; concepto: string }>,
+        isDonation: boolean,
+        donationReason?: string,
+        paymentCommandId?: string
+    ) => {
+        if (!selectedSocio || !user) {
+            throw new Error('Falta seleccionar un socio o sesión administrativa válida.');
+        }
+        const items = buildOrderItems();
+        if (items.length === 0) {
+            throw new Error('El pedido debe tener al menos un producto.');
+        }
+
+        if (!createIdempotencyKeyRef.current) {
+            createIdempotencyKeyRef.current = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-0000-4000-8000-000000000000`;
+        }
 
         try {
-            await StoreService.createPedido(selectedSocio.id, items, orderType, {
-                origen: 'admin',
-                direccionEntrega: orderType === 'delivery' ? address : undefined,
-                observaciones: notes,
-                fechaRetiroPreferida: orderType === 'retiro_sede' ? (slotDate || date) : undefined,
-                slotId: orderType === 'retiro_sede' ? (selectedSlotId || undefined) : undefined,
-                estado: 'confirmado' // Auto-confirm admin orders
-            });
-            alert('Dispensa creada correctamente');
+            if (!createdOrderRef.current) {
+                createdOrderRef.current = await StoreService.createPedido(
+                    selectedSocio.id,
+                    items,
+                    orderType,
+                    {
+                        origen: 'admin',
+                        estado: 'pendiente',
+                        idempotency_key: createIdempotencyKeyRef.current,
+                        direccionEntrega: orderType === 'delivery' ? address.trim() : undefined,
+                        localidad: orderType === 'delivery' ? localidad.trim() : undefined,
+                        observaciones: notes.trim() || undefined,
+                        fechaRetiroPreferida: orderType === 'retiro_sede' ? (slotDate || date) : undefined,
+                        slotId: orderType === 'retiro_sede' ? (selectedSlotId || undefined) : undefined,
+                        motivo_admin: notes.trim() || 'Dispensa directa administrativa en sede/delivery'
+                    } as any
+                );
+            }
+
+            const targetStatus = orderType === 'delivery' ? 'entregado' : 'retirado';
+            const actorId = session?.user?.id || user.auth_user_id || user.id;
+
+            await StoreService.confirmOrderAndPayments(
+                createdOrderRef.current.id,
+                targetStatus,
+                payments,
+                isDonation,
+                donationReason,
+                actorId,
+                paymentCommandId
+            );
+
+            setShowPaymentModal(false);
+            alert('Dispensa registrada y finalizada correctamente');
             router.push('/admin');
-        } catch (e) {
-            console.error(e);
-            alert('Error al crear dispensa');
+        } catch (err: any) {
+            const msg = err?.message || 'No se pudo completar la dispensa directa.';
+            setErrorMessage(msg);
+            throw new Error(msg);
         }
     };
 
@@ -251,7 +322,7 @@ function NewDispenseForm() {
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Tipo de Entrega</label>
                         <div style={{ display: 'flex', gap: '1rem' }}>
                             <button
-                                onClick={() => setOrderType('retiro_sede')}
+                                onClick={() => { resetTransactionRefs(); setOrderType('retiro_sede'); }}
                                 style={{
                                     flex: 1, padding: '1rem', borderRadius: 'var(--radius)', border: orderType === 'retiro_sede' ? '2px solid hsl(var(--primary))' : '1px solid hsl(var(--border))',
                                     backgroundColor: orderType === 'retiro_sede' ? 'hsl(var(--primary) / 0.1)' : 'transparent',
@@ -261,7 +332,7 @@ function NewDispenseForm() {
                                 🏢 Retiro en Sede
                             </button>
                             <button
-                                onClick={() => setOrderType('delivery')}
+                                onClick={() => { resetTransactionRefs(); setOrderType('delivery'); }}
                                 style={{
                                     flex: 1, padding: '1rem', borderRadius: 'var(--radius)', border: orderType === 'delivery' ? '2px solid hsl(var(--primary))' : '1px solid hsl(var(--border))',
                                     backgroundColor: orderType === 'delivery' ? 'hsl(var(--primary) / 0.1)' : 'transparent',
@@ -304,9 +375,27 @@ function NewDispenseForm() {
                             />
                         </div>
                     ) : (
-                        <div style={{ marginBottom: '1rem' }}>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Dirección de Entrega</label>
-                            <input type="text" value={address} onChange={e => setAddress(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }} />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1rem' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Dirección de Entrega *</label>
+                                <input
+                                    type="text"
+                                    value={address}
+                                    onChange={e => { resetTransactionRefs(); setAddress(e.target.value); }}
+                                    placeholder="Ej: Av. Rivadavia 1234"
+                                    style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Localidad *</label>
+                                <input
+                                    type="text"
+                                    value={localidad}
+                                    onChange={e => { resetTransactionRefs(); setLocalidad(e.target.value); }}
+                                    placeholder="Ej: CABA / La Plata / Quilmes"
+                                    style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                                />
+                            </div>
                         </div>
                     )}
 
@@ -362,6 +451,12 @@ function NewDispenseForm() {
                             </ul>
                         )}
 
+                        {errorMessage && (
+                            <div style={{ marginBottom: '1rem', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', backgroundColor: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: '0.9rem' }}>
+                                {errorMessage}
+                            </div>
+                        )}
+
                         <div style={{ display: 'flex', gap: '1rem' }}>
                             <button
                                 onClick={() => setStep(2)}
@@ -370,14 +465,30 @@ function NewDispenseForm() {
                                 Volver
                             </button>
                             <button
-                                onClick={handleConfirm}
+                                onClick={handleOpenFinalizeModal}
                                 disabled={totalItems === 0}
                                 style={{ flex: 2, padding: '1rem', backgroundColor: 'hsl(var(--primary))', color: 'white', border: 'none', borderRadius: 'var(--radius)', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', opacity: totalItems === 0 ? 0.5 : 1 }}
                             >
-                                Confirmar Dispensa
+                                Registrar y Finalizar Dispensa
                             </button>
                         </div>
                     </div>
+
+                    <PaymentRegistrationModal
+                        isOpen={showPaymentModal}
+                        onClose={() => setShowPaymentModal(false)}
+                        onConfirm={handleFinalizePayment}
+                        orderItems={buildOrderItems()}
+                        socioName={`${selectedSocio?.apellido || ''}, ${selectedSocio?.nombre || ''}`.trim()}
+                        orderSummary={{
+                            estado: 'confirmado',
+                            tipoPedido: orderType,
+                            fechaRetiroPreferida: orderType === 'retiro_sede' ? (slotDate || date) : undefined,
+                            franjaHoraria: slotLabel || undefined,
+                            direccionEntrega: orderType === 'delivery' ? address : undefined,
+                            localidad: orderType === 'delivery' ? localidad : undefined
+                        }}
+                    />
                 </div>
             )}
         </div>

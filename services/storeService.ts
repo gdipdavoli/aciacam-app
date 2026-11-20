@@ -426,7 +426,8 @@ export const StoreService = {
             slot_id: details.slotId,
             total: authoritativeTotal,
             created_by_user_id: currentAuthUserId,
-            idempotency_key: idempotencyKey
+            idempotency_key: idempotencyKey,
+            motivo_admin: (details as any).motivo_admin
         };
 
         console.log("Sending to Supabase 'pedidos':", dbRow);
@@ -458,7 +459,7 @@ export const StoreService = {
             throw error;
         }
 
-        // If an administrative order requested an immediate confirmed status, update after insert
+        // If an administrative order requested an immediate confirmed status, update after insert and NEVER swallow errors
         if (details.estado && details.estado !== 'pendiente') {
             const { data: updated, error: updateErr } = await supabase
                 .from('pedidos')
@@ -467,12 +468,61 @@ export const StoreService = {
                 .select()
                 .single();
 
-            if (!updateErr && updated) {
-                return mapPedidoFromDB(updated);
+            if (updateErr || !updated) {
+                console.error("StoreService: Failed post-insert status update", updateErr);
+                throw new Error(updateErr?.message || `No se pudo actualizar el estado del pedido a '${details.estado}'.`);
             }
+            return mapPedidoFromDB(updated);
         }
 
         return mapPedidoFromDB(data);
+    },
+
+    createAdminPedidoTransactional: async (
+        socioId: string,
+        items: OrderItem[],
+        tipo: OrderType,
+        details: {
+            motivo: string;
+            idempotencyKey: string;
+            direccionEntrega?: string;
+            localidad?: string;
+            observaciones?: string;
+            fechaRetiroPreferida?: string;
+            franjaHoraria?: string;
+            slotId?: string;
+        }
+    ): Promise<{ pedido: Pedido; deduplicated: boolean }> => {
+        if (!supabase) throw new Error("Supabase client not initialized");
+
+        const { data, error } = await supabase.rpc('crear_pedido_administrativo_transaccional', {
+            p_socio_id: socioId,
+            p_items: items,
+            p_tipo_pedido: tipo,
+            p_motivo: details.motivo,
+            p_idempotency_key: details.idempotencyKey,
+            p_direccion_entrega: tipo === 'delivery' ? (details.direccionEntrega || null) : null,
+            p_localidad: tipo === 'delivery' ? (details.localidad || null) : null,
+            p_observaciones: details.observaciones || null,
+            p_fecha_retiro: tipo === 'retiro_sede' ? (details.fechaRetiroPreferida || null) : null,
+            p_franja_horaria: tipo === 'retiro_sede' ? (details.franjaHoraria || null) : null,
+            p_slot_id: tipo === 'retiro_sede' ? (details.slotId || null) : null,
+            p_es_sobreturno: false
+        });
+
+        if (error) {
+            console.error("StoreService: createAdminPedidoTransactional failed", error);
+            throw new Error(error.message || "No se pudo registrar la dispensa administrativa.");
+        }
+
+        if (!data || data.success !== true || !data.pedido) {
+            throw new Error(data?.error || "La operación transaccional de dispensa no finalizó correctamente.");
+        }
+
+        return {
+            pedido: mapPedidoFromDB(data.pedido),
+            deduplicated: Boolean(data.deduplicated)
+        };
     },
 
     getPedidosBySocio: async (socioId: string): Promise<Pedido[]> => {
