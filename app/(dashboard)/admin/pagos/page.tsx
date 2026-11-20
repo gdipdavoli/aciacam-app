@@ -389,17 +389,86 @@ export default function AdminPagosPage() {
                         />
                     </div>
 
-                    {/* Payments List Table */}
-                    <div className="bg-card border rounded-2xl overflow-hidden shadow-sm">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse text-sm">
+                    {/* Payments List: Mobile Cards (< 768px) */}
+                    <div className="md:hidden space-y-3">
+                        {filteredPagos.length === 0 ? (
+                            <div className="bg-card border rounded-2xl p-8 text-center text-sm text-muted-foreground italic shadow-sm">
+                                No se encontraron aportes registrados con ese criterio.
+                            </div>
+                        ) : (
+                            filteredPagos.map(pago => {
+                                const socio = socios.find(s => s.id === pago.socioId);
+                                const dateStr = new Date(pago.fecha).toLocaleDateString('es-AR', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric'
+                                });
+                                const medioLabel =
+                                    pago.medioDePago === 'transferencia_galicia' ? 'Galicia Transferencia' :
+                                    pago.medioDePago === 'mercadopago' ? 'MercadoPago' :
+                                    pago.medioDePago === 'efectivo' ? 'Efectivo' : pago.medioDePago;
+
+                                return (
+                                    <div key={pago.id} className="bg-card border rounded-2xl p-4 shadow-sm space-y-3">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0 flex-1">
+                                                <div className="font-bold text-sm text-foreground whitespace-normal break-words leading-snug">
+                                                    {socio ? `${socio.apellido}, ${socio.nombre}` : 'Socio Desconocido'}
+                                                </div>
+                                                <div className="text-xs text-muted-foreground mt-0.5">
+                                                    DNI: {socio?.dni || 'N/A'}
+                                                </div>
+                                            </div>
+                                            <div className="shrink-0 text-right">
+                                                <div className="text-base font-black text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                                    ${pago.monto.toLocaleString('es-AR')}
+                                                </div>
+                                                <div className="text-[11px] text-muted-foreground flex items-center justify-end gap-1 mt-0.5">
+                                                    <Calendar size={11} className="opacity-70 shrink-0" />
+                                                    <span>{dateStr}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="text-xs text-foreground/90 bg-muted/35 rounded-xl px-3 py-2 whitespace-normal break-words leading-snug">
+                                            {pago.concepto}
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                                            <span className="capitalize font-semibold text-xs text-foreground flex items-center gap-1.5">
+                                                <CreditCard size={13} className="opacity-70 shrink-0" />
+                                                <span>{medioLabel}</span>
+                                            </span>
+                                            {pago.referencia && (
+                                                <span className="text-[11px] bg-muted px-2 py-0.5 rounded font-mono border break-all">
+                                                    Ref: {pago.referencia}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+
+                    {/* Payments List Table: Tablet & Desktop (>= 768px) */}
+                    <div className="hidden md:block bg-card border rounded-2xl overflow-hidden shadow-sm">
+                        <div className="w-full">
+                            <table className="w-full table-fixed text-left border-collapse text-sm">
+                                <colgroup>
+                                    <col className="w-[27%]" />
+                                    <col className="w-[14%]" />
+                                    <col className="w-[30%]" />
+                                    <col className="w-[16%]" />
+                                    <col className="w-[13%]" />
+                                </colgroup>
                                 <thead>
                                     <tr className="bg-muted/40 border-b text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                                        <th className="p-4">Socio</th>
-                                        <th className="p-4">Fecha</th>
-                                        <th className="p-4">Concepto</th>
-                                        <th className="p-4">Medio de Pago / Ref</th>
-                                        <th className="p-4 text-right">Monto</th>
+                                        <th className="py-3 px-3">Socio</th>
+                                        <th className="py-3 px-2.5">Fecha</th>
+                                        <th className="py-3 px-3">Concepto</th>
+                                        <th className="py-3 px-2.5">Medio de Pago / Ref</th>
+                                        <th className="py-3 px-3 text-right">Monto</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-border">
@@ -419,40 +488,42 @@ export default function AdminPagosPage() {
                                             });
 
                                             return (
-                                                <tr key={pago.id} className="hover:bg-muted/20 transition-colors">
-                                                    <td className="p-4">
-                                                        <div className="font-bold text-foreground">
+                                                <tr key={pago.id} className="hover:bg-muted/20 transition-colors align-top">
+                                                    <td className="py-3 px-3">
+                                                        <div className="font-bold text-foreground whitespace-normal break-words leading-snug">
                                                             {socio ? `${socio.apellido}, ${socio.nombre}` : 'Socio Desconocido'}
                                                         </div>
-                                                        <div className="text-xs text-muted-foreground">
+                                                        <div className="text-xs text-muted-foreground mt-0.5">
                                                             DNI: {socio?.dni || 'N/A'}
                                                         </div>
                                                     </td>
-                                                    <td className="p-4 text-muted-foreground whitespace-nowrap">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <Calendar size={14} className="opacity-60" />
-                                                            {dateStr}
+                                                    <td className="py-3 px-2.5 text-muted-foreground whitespace-nowrap">
+                                                        <div className="flex items-center gap-1.5 text-xs">
+                                                            <Calendar size={13} className="opacity-60 shrink-0" />
+                                                            <span>{dateStr}</span>
                                                         </div>
                                                     </td>
-                                                    <td className="p-4 font-medium text-foreground">
+                                                    <td className="py-3 px-3 font-medium text-foreground whitespace-normal break-words leading-snug">
                                                         {pago.concepto}
                                                     </td>
-                                                    <td className="p-4 text-muted-foreground whitespace-nowrap">
-                                                        <div className="flex flex-col gap-0.5 justify-center">
-                                                            <span className="capitalize font-bold text-foreground text-xs flex items-center gap-1">
-                                                                <CreditCard size={12} className="opacity-60" />
-                                                                {pago.medioDePago === 'transferencia_galicia' ? 'Galicia Transferencia' : 
-                                                                 pago.medioDePago === 'mercadopago' ? 'MercadoPago' : 
-                                                                 pago.medioDePago === 'efectivo' ? 'Efectivo' : pago.medioDePago}
+                                                    <td className="py-3 px-2.5 text-muted-foreground">
+                                                        <div className="flex flex-col gap-1 justify-center">
+                                                            <span className="capitalize font-bold text-foreground text-xs flex items-center gap-1 whitespace-normal break-words">
+                                                                <CreditCard size={12} className="opacity-60 shrink-0" />
+                                                                <span>
+                                                                    {pago.medioDePago === 'transferencia_galicia' ? 'Galicia Transferencia' : 
+                                                                     pago.medioDePago === 'mercadopago' ? 'MercadoPago' : 
+                                                                     pago.medioDePago === 'efectivo' ? 'Efectivo' : pago.medioDePago}
+                                                                </span>
                                                             </span>
                                                             {pago.referencia && (
-                                                                <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono border">
+                                                                <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono border w-fit max-w-full break-all">
                                                                     Ref: {pago.referencia}
                                                                 </span>
                                                             )}
                                                         </div>
                                                     </td>
-                                                    <td className="p-4 text-right font-black text-primary">
+                                                    <td className="py-3 px-3 text-right font-black text-emerald-700 dark:text-emerald-400 whitespace-nowrap tabular-nums">
                                                         ${pago.monto.toLocaleString('es-AR')}
                                                     </td>
                                                 </tr>
