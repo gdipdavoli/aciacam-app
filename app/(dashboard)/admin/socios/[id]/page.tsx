@@ -688,8 +688,14 @@ const UpdateFromDocumentModal = ({ socio, onClose, onUpdated }: { socio: Socio; 
 
     const handleApply = async () => {
         if (!file) return;
-        if (identityCheck && !identityCheck.matches) {
-            alert('No se pueden aplicar cambios automáticos debido a una discrepancia de DNI.');
+        const freshIdCheck = extraction
+            ? compareIdentityWithTarget(
+                { dni: extraction.dni, nombre: extraction.titular?.nombre, apellido: extraction.titular?.apellido },
+                { dni: socio.dni, nombre: socio.nombre, apellido: socio.apellido }
+            )
+            : null;
+        if (freshIdCheck?.blocked || (identityCheck && (identityCheck.blocked || !identityCheck.matches))) {
+            setError(freshIdCheck?.reason || identityCheck?.reason || 'No se pueden aplicar cambios debido a una discrepancia de identidad.');
             return;
         }
 

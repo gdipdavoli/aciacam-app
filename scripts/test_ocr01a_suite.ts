@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import {
+    LEGACY_SOCIO_DRAFT_KEY,
+    applyProposalToSocioForm,
     compareIdentityWithTarget,
     consolidateDocumentExtractions,
     extractDataFromDocumentText,
     extractTextFromPdfBufferAsync,
+    getScopedSocioDraftKey,
+    migrateAndLoadScopedDraft,
+    sanitizeSocioDraft,
 } from '../app/lib/ocr-contract';
 
 let passed = 0;
@@ -126,6 +131,76 @@ async function run() {
         const res = await extractTextFromPdfBufferAsync(fakePdf);
         assert.equal(res.isLikelyImageOnly, true);
         assert.ok(Array.isArray(res.pages));
+    });
+
+    // 10. Migración segura de borrador legacy v4 eliminando datos clínicos y de procedencia
+    await test('OCR-01A.10: Migración de aciacam_new_socio_draft_v4 elimina datos clínicos y preserva datos administrativos', () => {
+        const mem = new Map<string, string>();
+        const storage = {
+            getItem: (k: string) => mem.get(k) ?? null,
+            setItem: (k: string, v: string) => { mem.set(k, v); },
+            removeItem: (k: string) => { mem.delete(k); },
+        };
+        mem.set(LEGACY_SOCIO_DRAFT_KEY, JSON.stringify({
+            nombre: 'Lucía',
+            apellido: 'Sintética',
+            dni: '33444555',
+            email: 'lucia@example.com',
+            medicoNombre: 'Dr. Secreto',
+            medicoMatricula: 'MN 99999',
+            diagnosticoPrincipal: 'Dolor crónico confidencial',
+            fieldTraceability: { diagnosticoPrincipal: { evidenceSnippet: 'texto clínico sensible' } },
+        }));
+
+        const res = migrateAndLoadScopedDraft(storage, 'admin-1');
+        assert.equal(res.migratedFromLegacy, true);
+        assert.equal(res.strippedClinicalData, true);
+        assert.equal(mem.has(LEGACY_SOCIO_DRAFT_KEY), false);
+        assert.equal(res.pendingDraft?.nombre, 'Lucía');
+        assert.equal(res.pendingDraft?.dni, '33444555');
+        assert.equal(res.pendingDraft?.medicoNombre, undefined);
+        assert.equal(res.pendingDraft?.medicoMatricula, undefined);
+        assert.equal(res.pendingDraft?.diagnosticoPrincipal, undefined);
+        assert.equal(res.pendingDraft?.fieldTraceability, undefined);
+
+        const scopedRaw = mem.get(getScopedSocioDraftKey('admin-1')!)!;
+        assert.equal(scopedRaw.includes('Secreto'), false);
+        assert.equal(scopedRaw.includes('Dolor'), false);
+        assert.equal(scopedRaw.includes('evidenceSnippet'), false);
+    });
+
+    // 11. Aislamiento de borradores entre usuarios administrativos
+    await test('OCR-01A.11: Borradores aislados por usuario administrativo', () => {
+        const mem = new Map<string, string>();
+        const storage = {
+            getItem: (k: string) => mem.get(k) ?? null,
+            setItem: (k: string, v: string) => { mem.set(k, v); },
+            removeItem: (k: string) => { mem.delete(k); },
+        };
+        const { draft } = sanitizeSocioDraft({ nombre: 'Carlos', apellido: 'Uno', dni: '22333444' });
+        mem.set(getScopedSocioDraftKey('admin-A')!, JSON.stringify(draft));
+
+        const resA = migrateAndLoadScopedDraft(storage, 'admin-A');
+        const resB = migrateAndLoadScopedDraft(storage, 'admin-B');
+        assert.equal(resA.pendingDraft?.nombre, 'Carlos');
+        assert.equal(resB.pendingDraft, null);
+    });
+
+    // 12. Aplicación explícita bloquea documento de otra persona y aplica si coincide
+    await test('OCR-01A.12: applyProposalToSocioForm valida identidad antes de aplicar campos', () => {
+        const currentForm = { nombre: 'Ana', apellido: 'Pérez', dni: '30111222', numeroTramite: '', camposExtraidos: [] as string[] };
+        const otherPerson = { nombre: 'Jorge', apellido: 'Gómez', dni: '40999888', numeroTramite: '998877' };
+        const blockedRes = applyProposalToSocioForm(currentForm, otherPerson, { todayStr: '2026-11-20' });
+        assert.equal(blockedRes.blocked, true);
+        assert.deepEqual(blockedRes.appliedFields, []);
+        assert.equal(blockedRes.formData.numeroTramite, '');
+
+        const samePerson = { nombre: 'Ana', apellido: 'Pérez', dni: '30111222', numeroTramite: '556677', medicoNombre: 'Dr. Test' };
+        const okRes = applyProposalToSocioForm(currentForm, samePerson, { todayStr: '2026-11-20' });
+        assert.equal(okRes.blocked, false);
+        assert.equal(okRes.formData.numeroTramite, '556677');
+        assert.equal((okRes.formData as any).medicoNombre, 'Dr. Test');
+        assert.ok(okRes.appliedFields.includes('numeroTramite'));
     });
 
     console.log(`=== OCR-01A SUITE COMPLETE: ${passed}/${passed} PASS ===`);

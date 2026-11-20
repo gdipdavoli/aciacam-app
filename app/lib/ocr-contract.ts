@@ -1290,3 +1290,252 @@ export function mergeOcrWithPartnerData<T extends Record<string, any>>(
 ): T {
     return mergeUnifiedExtractionWithPartner(current, extracted, confirmOverwrite);
 }
+
+// --- OCR-01A: Gestión segura y aislada de borradores + aplicación explícita ---
+
+export const LEGACY_SOCIO_DRAFT_KEY = 'aciacam_new_socio_draft_v4';
+export const SCOPED_SOCIO_DRAFT_PREFIX = 'aciacam_new_socio_draft_v5';
+
+const SAFE_DRAFT_ALLOWED_FIELDS = [
+    'nombre',
+    'apellido',
+    'dni',
+    'fechaNacimiento',
+    'email',
+    'telefono',
+    'direccion',
+    'localidad',
+    'enviosHabilitados',
+    'idempotencyKey',
+    'situacionReprocann',
+    'numeroTramite',
+    'fechaAlta',
+    'fechaVencimiento',
+    'tipoVinculacion',
+] as const;
+
+const CLINICAL_AND_PROVENANCE_DRAFT_KEYS = [
+    'medicoNombre',
+    'medicoMatricula',
+    'diagnosticoPrincipal',
+    'fuenteExtraccion',
+    'camposExtraidos',
+    'consolidatedExtraction',
+    'fieldTraceability',
+    'evidenceSnippet',
+    'extractionSummary',
+    'attachedDocs',
+    'conflicts',
+] as const;
+
+export function getScopedSocioDraftKey(adminUserId?: string | null): string | null {
+    const clean = typeof adminUserId === 'string' ? adminUserId.trim() : '';
+    return clean ? `${SCOPED_SOCIO_DRAFT_PREFIX}:${clean}` : null;
+}
+
+export interface SanitizedDraftResult {
+    draft: Record<string, any> | null;
+    hadClinicalOrSensitiveData: boolean;
+    strippedKeys: string[];
+    hasMeaningfulContent: boolean;
+}
+
+export function sanitizeSocioDraft(raw: unknown): SanitizedDraftResult {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return { draft: null, hadClinicalOrSensitiveData: false, strippedKeys: [], hasMeaningfulContent: false };
+    }
+    const obj = raw as Record<string, any>;
+    const clean: Record<string, any> = {};
+    const strippedKeys: string[] = [];
+    let hadClinicalOrSensitiveData = false;
+
+    for (const key of Object.keys(obj)) {
+        if ((SAFE_DRAFT_ALLOWED_FIELDS as readonly string[]).includes(key)) {
+            if (obj[key] !== undefined) {
+                clean[key] = obj[key];
+            }
+        } else {
+            strippedKeys.push(key);
+            if ((CLINICAL_AND_PROVENANCE_DRAFT_KEYS as readonly string[]).includes(key) && obj[key]) {
+                const val = obj[key];
+                const isNonEmpty = typeof val === 'string' ? val.trim().length > 0 : Array.isArray(val) ? val.length > 0 : typeof val === 'object' ? Object.keys(val).length > 0 : Boolean(val);
+                if (isNonEmpty) hadClinicalOrSensitiveData = true;
+            }
+        }
+    }
+
+    const hasMeaningfulContent = Boolean(
+        clean.nombre ||
+        clean.apellido ||
+        clean.dni ||
+        clean.email ||
+        clean.numeroTramite ||
+        clean.telefono ||
+        clean.direccion
+    );
+
+    return {
+        draft: hasMeaningfulContent ? clean : null,
+        hadClinicalOrSensitiveData,
+        strippedKeys,
+        hasMeaningfulContent,
+    };
+}
+
+export interface StorageLike {
+    getItem(key: string): string | null;
+    setItem(key: string, value: string): void;
+    removeItem(key: string): void;
+}
+
+export interface DraftMigrationLoadResult {
+    pendingDraft: Record<string, any> | null;
+    migratedFromLegacy: boolean;
+    strippedClinicalData: boolean;
+}
+
+export function migrateAndLoadScopedDraft(
+    storage: StorageLike,
+    adminUserId?: string | null
+): DraftMigrationLoadResult {
+    const scopedKey = getScopedSocioDraftKey(adminUserId);
+    if (!scopedKey) {
+        return { pendingDraft: null, migratedFromLegacy: false, strippedClinicalData: false };
+    }
+
+    let migratedFromLegacy = false;
+    let strippedClinicalData = false;
+
+    const legacyRaw = storage.getItem(LEGACY_SOCIO_DRAFT_KEY);
+    if (legacyRaw) {
+        try {
+            const parsedLegacy = JSON.parse(legacyRaw);
+            const sanitized = sanitizeSocioDraft(parsedLegacy);
+            if (sanitized.hadClinicalOrSensitiveData) {
+                strippedClinicalData = true;
+            }
+            if (sanitized.draft && !storage.getItem(scopedKey)) {
+                storage.setItem(scopedKey, JSON.stringify(sanitized.draft));
+                migratedFromLegacy = true;
+            }
+        } catch {
+            // Borrador legacy corrupto: se descarta
+        } finally {
+            storage.removeItem(LEGACY_SOCIO_DRAFT_KEY);
+        }
+    }
+
+    const scopedRaw = storage.getItem(scopedKey);
+    if (!scopedRaw) {
+        return { pendingDraft: null, migratedFromLegacy, strippedClinicalData };
+    }
+
+    try {
+        const parsedScoped = JSON.parse(scopedRaw);
+        const sanitizedScoped = sanitizeSocioDraft(parsedScoped);
+        if (sanitizedScoped.hadClinicalOrSensitiveData) {
+            strippedClinicalData = true;
+        }
+        if (!sanitizedScoped.draft) {
+            storage.removeItem(scopedKey);
+            return { pendingDraft: null, migratedFromLegacy, strippedClinicalData };
+        }
+        if (sanitizedScoped.strippedKeys.length > 0) {
+            storage.setItem(scopedKey, JSON.stringify(sanitizedScoped.draft));
+        }
+        return {
+            pendingDraft: sanitizedScoped.draft,
+            migratedFromLegacy,
+            strippedClinicalData,
+        };
+    } catch {
+        storage.removeItem(scopedKey);
+        return { pendingDraft: null, migratedFromLegacy, strippedClinicalData };
+    }
+}
+
+export function clearScopedAndLegacySocioDraft(storage: StorageLike, adminUserId?: string | null): void {
+    const scopedKey = getScopedSocioDraftKey(adminUserId);
+    if (scopedKey) {
+        storage.removeItem(scopedKey);
+    }
+    storage.removeItem(LEGACY_SOCIO_DRAFT_KEY);
+}
+
+export interface ApplyProposalResult<T extends Record<string, any>> {
+    blocked: boolean;
+    identityCheck: IdentityComparisonResult;
+    formData: T;
+    appliedFields: string[];
+}
+
+export function applyProposalToSocioForm<T extends Record<string, any>>(
+    prevForm: T,
+    consolidated: ConsolidatedDocumentResult['consolidated'] | null | undefined,
+    options: {
+        overwriteExisting?: boolean;
+        manuallyEditedFields?: Set<string>;
+        todayStr: string;
+        fallbackSourceDescription?: string;
+    }
+): ApplyProposalResult<T> {
+    const c = consolidated || {};
+    const identityCheck: IdentityComparisonResult = compareIdentityWithTarget(c, {
+        dni: prevForm.dni,
+        nombre: prevForm.nombre,
+        apellido: prevForm.apellido,
+    });
+
+    if (identityCheck.blocked) {
+        return {
+            blocked: true,
+            identityCheck,
+            formData: prevForm,
+            appliedFields: [],
+        };
+    }
+
+    const updated: Record<string, any> = { ...prevForm };
+    const appliedFields: string[] = [];
+    const overwrite = Boolean(options.overwriteExisting);
+    const manual = options.manuallyEditedFields;
+
+    const candidateKeys: Array<keyof ConsolidatedDocumentResult['consolidated']> = [
+        'nombre',
+        'apellido',
+        'dni',
+        'fechaNacimiento',
+        'numeroTramite',
+        'fechaAlta',
+        'fechaVencimiento',
+        'medicoNombre',
+        'medicoMatricula',
+        'diagnosticoPrincipal',
+    ];
+
+    for (const key of candidateKeys) {
+        const val = c[key];
+        if (!val) continue;
+        const currentVal = updated[key as string];
+        if (!currentVal || (overwrite && !manual?.has(key as string))) {
+            updated[key as string] = val;
+            appliedFields.push(key as string);
+        }
+    }
+
+    if (c.fechaVencimiento && (!prevForm.fechaVencimiento || overwrite)) {
+        updated.situacionReprocann = c.fechaVencimiento >= options.todayStr ? 'vigente' : 'vencido';
+    }
+
+    if (appliedFields.length > 0) {
+        updated.fuenteExtraccion = c.fuenteExtraccion || options.fallbackSourceDescription || prevForm.fuenteExtraccion;
+        updated.camposExtraidos = Array.from(new Set([...(prevForm.camposExtraidos || []), ...appliedFields]));
+    }
+
+    return {
+        blocked: false,
+        identityCheck,
+        formData: updated as T,
+        appliedFields,
+    };
+}
