@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
-import { execSync } from 'node:child_process';
+import { exec, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
+
+const execAsync = promisify(exec);
 
 let passed = 0;
 function test(name: string, fn: () => void) {
     fn();
+    passed++;
+    console.log(`✓ ${name}`);
+}
+
+async function testAsync(name: string, fn: () => Promise<void>) {
+    await fn();
     passed++;
     console.log(`✓ ${name}`);
 }
@@ -126,6 +135,42 @@ BEGIN
     VALUES (v_s_exc, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid())
     RETURNING id INTO v_o2;
 
+    -- 4b. Adversarial: Reutilización de excepción ya consumida por v_o2 DEBE FALLAR
+    BEGIN
+        INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
+        VALUES (v_s_exc, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid());
+        RAISE EXCEPTION 'Adversarial 4b: excepción consumida no debe ser reutilizable';
+    EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%REQUIERE_REVISION_DOCUMENTAL%' THEN RAISE; END IF; END;
+
+    -- 4c. Adversarial: Excepción revocada DEBE FALLAR; Excepción vencida DEBE FALLAR; Excepción de otro socio NO aplica
+    DECLARE
+        v_exc_rev uuid;
+        v_exc_venc uuid;
+    BEGIN
+        v_exc_rev := (public.grant_dispensation_exception_command(gen_random_uuid(), v_s_pend_rev, 'consentimiento', 'Excepción temporal luego revocada', 'Acta-Rev')->>'exceptionId')::uuid;
+        PERFORM public.revoke_dispensation_exception_command(v_exc_rev, 'Documentación rechazada en revisión');
+        BEGIN
+            INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
+            VALUES (v_s_pend_rev, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid());
+            RAISE EXCEPTION 'Adversarial 4c-rev: excepción revocada no debe habilitar';
+        EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%REQUIERE_REVISION_DOCUMENTAL%' THEN RAISE; END IF; END;
+
+        v_exc_venc := (public.grant_dispensation_exception_command(gen_random_uuid(), v_s_pend_rev, 'consentimiento', 'Excepción vencida prueba', 'Acta-Venc', ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - 1))->>'exceptionId')::uuid;
+        BEGIN
+            INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
+            VALUES (v_s_pend_rev, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid());
+            RAISE EXCEPTION 'Adversarial 4c-venc: excepción vencida no debe habilitar';
+        EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%REQUIERE_REVISION_DOCUMENTAL%' THEN RAISE; END IF; END;
+
+        -- Excepción concedida a v_s_exc no habilita a v_s_pend_rev
+        PERFORM public.grant_dispensation_exception_command(gen_random_uuid(), v_s_exc, 'consentimiento', 'Excepción solo para v_s_exc', 'Acta-Otro');
+        BEGIN
+            INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
+            VALUES (v_s_pend_rev, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid());
+            RAISE EXCEPTION 'Adversarial 4c-cross: excepción ajena no debe habilitar';
+        EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%REQUIERE_REVISION_DOCUMENTAL%' THEN RAISE; END IF; END;
+    END;
+
     -- 5. Excepción rechazada por requisito obligatorio (REPROCANN vencido y socio bloqueado)
     BEGIN
         PERFORM public.grant_dispensation_exception_command(gen_random_uuid(), v_s_exp, 'consentimiento', 'Intento inválido sobre REPROCANN vencido', 'Ref-1');
@@ -180,10 +225,79 @@ BEGIN
         PERFORM public.register_historical_dispensation_command(gen_random_uuid(), v_s_exc, now() - interval '1 day', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 'Ref-4');
         RAISE EXCEPTION 'Debió rechazar a socio';
     EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%UNAUTHORIZED%' THEN RAISE; END IF; END;
+    -- 10b. Seguridad: authenticated no puede llamar evaluate_socio_dispensation_eligibility directamente ni get_socio_dispensation_eligibility de otro socio
+    SET LOCAL ROLE authenticated;
+    BEGIN
+        PERFORM public.evaluate_socio_dispensation_eligibility(v_s_invited);
+        RAISE EXCEPTION 'Authenticated no debe tener EXECUTE directo sobre evaluate_socio_dispensation_eligibility';
+    EXCEPTION WHEN insufficient_privilege THEN NULL;
+    END;
+    BEGIN
+        PERFORM public.get_socio_dispensation_eligibility(v_s_invited);
+        RAISE EXCEPTION 'Socio no debe consultar elegibilidad de otro socio';
+    EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%No autorizado%' THEN RAISE; END IF; END;
+    RESET ROLE;
 END $$;
 SELECT 'PG17_INC08_10_SCENARIOS_OK';
 `);
     assert.ok(out.includes('PG17_INC08_10_SCENARIOS_OK'));
 });
 
-console.log(`=== INC-08 SUITE COMPLETE: ${passed}/${passed} PASS ===`);
+async function runConcurrencyTest() {
+    await testAsync('INC08-ADV-CONC: Consumo concurrente de una única excepción en 2 conexiones paralelas (1 éxito, 1 rechazo)', async () => {
+        const tempDb = 'inc08_conc_test';
+        const ux041 = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/20261119150000_ux04_1_direct_delivery_from_active_states.sql'), 'utf8').replace(/^BEGIN;/gm, '').replace(/^COMMIT;/gm, '');
+        const inc08 = fs.readFileSync(path.resolve(__dirname, '../supabase/migrations/20261120140000_inc08_dispensation_eligibility_separation.sql'), 'utf8').replace(/^BEGIN;/gm, '').replace(/^COMMIT;/gm, '');
+        execSync(`docker exec -i aciacam-pg17-restore-test psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS ${tempDb} WITH (FORCE);" -c "CREATE DATABASE ${tempDb} TEMPLATE prod_ux04_restore_20261119;"`, { stdio: 'pipe' });
+        try {
+            const seed = execSync(`docker exec -i aciacam-pg17-restore-test psql -U postgres -d ${tempDb} -v ON_ERROR_STOP=1 -t -A`, {
+                input: `
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $auth$
+    SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
+$auth$;
+${ux041}
+${inc08}
+DO $$
+DECLARE
+    v_admin uuid := '11111111-1111-4111-8111-111111111111';
+    v_socio uuid := '22222222-2222-4222-8222-222222222222';
+    v_prod  uuid := '33333333-3333-4333-8333-333333333333';
+BEGIN
+    INSERT INTO auth.users (id, email, last_sign_in_at) VALUES (v_admin, 'inc08_conc@test.invalid', now());
+    INSERT INTO public.socios (id, auth_user_id, user_id, nombre, apellido, dni, email, rol, status, bloqueado, admision_institucional_estado)
+    VALUES (gen_random_uuid(), v_admin, v_admin, 'Conc', 'Admin', '11000111', 'inc08_conc@test.invalid', 'admin', 'active', false, 'admitido');
+    INSERT INTO public.socios (id, nombre, apellido, dni, email, rol, status, bloqueado, admision_institucional_estado, reprocann_fecha_vencimiento)
+    VALUES (v_socio, 'Conc', 'Socio', '11000222', 'conc_s@test.invalid', 'socio', 'invited', false, 'admitido', current_date + 180);
+    PERFORM set_config('request.jwt.claim.sub', v_admin::text, true);
+    INSERT INTO public.documentos_socio (socio_id, tipo, archivo_path, verificacion_estado, fecha_emision, fecha_vencimiento, is_current)
+    VALUES (v_socio::text, 'reprocann', 'synthetic/r.pdf', 'aprobado', current_date - 10, now() + interval '180 days', true);
+    INSERT INTO public.products (id, nombre, categoria, tipo, peso_gramos, precio, stock_disponible, activo)
+    VALUES (v_prod, 'Flor Conc', 'flores', 'flor', 10, 50000, 20, true);
+    PERFORM public.grant_dispensation_exception_command(gen_random_uuid(), v_socio, 'consentimiento', 'Excepción única concurrente de prueba', 'Acta-Conc-1');
+END $$;
+SELECT 'INC08_CONC_SEED_OK';
+`,
+                encoding: 'utf8',
+            });
+            assert.ok(seed.includes('INC08_CONC_SEED_OK'));
+
+            const tryOrder = () =>
+                execAsync(`docker exec -i aciacam-pg17-restore-test psql -U postgres -d ${tempDb} -v ON_ERROR_STOP=1 -t -A -c "SELECT set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true); INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key) VALUES ('22222222-2222-4222-8222-222222222222'::uuid, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', '33333333-3333-4333-8333-333333333333', 'cantidad', 1)), 50000, '11111111-1111-4111-8111-111111111111'::uuid, gen_random_uuid());"`)
+                    .then(() => ({ ok: true, err: '' }))
+                    .catch((e) => ({ ok: false, err: String(e.stderr || e.message) }));
+
+            const res = await Promise.all([tryOrder(), tryOrder()]);
+            assert.equal(res.filter((r) => r.ok).length, 1);
+            assert.equal(res.filter((r) => !r.ok && r.err.includes('REQUIERE_REVISION_DOCUMENTAL')).length, 1);
+        } finally {
+            execSync(`docker exec -i aciacam-pg17-restore-test psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS ${tempDb} WITH (FORCE);"`, { stdio: 'pipe' });
+        }
+    });
+
+    console.log(`=== INC-08 SUITE COMPLETE: ${passed}/${passed} PASS ===`);
+}
+
+runConcurrencyTest().catch((err) => {
+    console.error(err);
+    process.exit(1);
+});

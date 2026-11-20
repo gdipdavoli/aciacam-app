@@ -72,8 +72,11 @@ CREATE TABLE IF NOT EXISTS public.dispensation_exceptions (
     autorizado_por uuid NOT NULL REFERENCES auth.users(id),
     autorizado_rol text NOT NULL CHECK (autorizado_rol = 'admin'),
     fecha_decision timestamptz NOT NULL DEFAULT now(),
-    vence_el date NOT NULL DEFAULT ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date + 30),
-    pedido_id uuid REFERENCES public.pedidos(id) ON DELETE RESTRICT,
+    vence_el date NOT NULL DEFAULT ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date + 2),
+    usos_maximos integer NOT NULL DEFAULT 1 CHECK (usos_maximos = 1),
+    pedido_id uuid UNIQUE REFERENCES public.pedidos(id) ON DELETE RESTRICT,
+    consumida_at timestamptz,
+    consumida_por uuid REFERENCES auth.users(id),
     estado_regularizacion text NOT NULL DEFAULT 'pendiente' CHECK (estado_regularizacion IN ('pendiente', 'regularizada', 'vencida', 'revocada')),
     regularizada_at timestamptz
 );
@@ -119,8 +122,9 @@ BEGIN
            OR NEW.justificacion IS DISTINCT FROM OLD.justificacion
            OR NEW.evidencia_referencia IS DISTINCT FROM OLD.evidencia_referencia
            OR NEW.autorizado_por IS DISTINCT FROM OLD.autorizado_por
-           OR NEW.fecha_decision IS DISTINCT FROM OLD.fecha_decision THEN
-            RAISE EXCEPTION 'INC08_APPEND_ONLY: Solo se permite actualizar seguimiento de regularización.' USING ERRCODE = '55000';
+           OR NEW.fecha_decision IS DISTINCT FROM OLD.fecha_decision
+           OR (OLD.pedido_id IS NOT NULL AND NEW.pedido_id IS DISTINCT FROM OLD.pedido_id) THEN
+            RAISE EXCEPTION 'INC08_APPEND_ONLY: Solo se permite consumir una vez o actualizar seguimiento de regularización.' USING ERRCODE = '55000';
         END IF;
     END IF;
     RETURN NEW;
@@ -380,8 +384,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.evaluate_socio_dispensation_eligibility(uuid) FROM PUBLIC, anon, service_role;
-GRANT EXECUTE ON FUNCTION public.evaluate_socio_dispensation_eligibility(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.evaluate_socio_dispensation_eligibility(uuid) FROM PUBLIC, anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.get_socio_dispensation_eligibility(p_socio_id uuid)
 RETURNS jsonb
@@ -398,7 +401,7 @@ BEGIN
         RAISE EXCEPTION 'No autorizado' USING ERRCODE = '42501';
     END IF;
     IF v_role NOT IN ('admin', 'staff') AND NOT EXISTS (
-        SELECT 1 FROM public.socios s WHERE s.id = p_socio_id AND (s.auth_user_id = v_actor OR s.user_id = v_actor)
+        SELECT 1 FROM public.socios s WHERE s.id = p_socio_id AND (s.auth_user_id = v_actor OR NULLIF(to_jsonb(s)->>'user_id', '')::uuid = v_actor)
     ) THEN
         RAISE EXCEPTION 'No autorizado' USING ERRCODE = '42501';
     END IF;
@@ -484,8 +487,9 @@ BEGIN
     IF p_command_id IS NULL OR p_socio_id IS NULL
        OR p_requisito_pendiente NOT IN ('admision_institucional', 'consentimiento', 'declaracion_jurada', 'contrato')
        OR length(btrim(COALESCE(p_justificacion, ''))) < 10
-       OR length(btrim(COALESCE(p_evidencia_referencia, ''))) < 3 THEN
-        RAISE EXCEPTION 'EXCEPTION_PARAMS_INVALID: Justificación (>=10 caracteres), evidencia y requisito admisible requeridos.' USING ERRCODE = '22023';
+       OR length(btrim(COALESCE(p_evidencia_referencia, ''))) < 3
+       OR (p_vence_el IS NOT NULL AND p_vence_el > ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date + 7)) THEN
+        RAISE EXCEPTION 'EXCEPTION_PARAMS_INVALID: Justificación (>=10 caracteres), evidencia, requisito admisible y vigencia máx 7 días requeridos.' USING ERRCODE = '22023';
     END IF;
 
     v_eval := public.evaluate_socio_dispensation_eligibility(p_socio_id);
@@ -505,7 +509,7 @@ BEGIN
         autorizado_por, autorizado_rol, vence_el
     ) VALUES (
         p_command_id, p_socio_id, p_requisito_pendiente, btrim(p_justificacion), btrim(p_evidencia_referencia),
-        v_actor, 'admin', COALESCE(p_vence_el, ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date + 30))
+        v_actor, 'admin', COALESCE(p_vence_el, ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date + 2))
     )
     RETURNING * INTO v_created;
 
@@ -519,6 +523,40 @@ $$;
 
 REVOKE ALL ON FUNCTION public.grant_dispensation_exception_command(uuid, uuid, text, text, text, date) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.grant_dispensation_exception_command(uuid, uuid, text, text, text, date) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.revoke_dispensation_exception_command(
+    p_exception_id uuid,
+    p_motivo text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_actor uuid := auth.uid();
+    v_role text := lower(btrim(COALESCE(public.get_my_role(), '')));
+BEGIN
+    IF v_actor IS NULL OR v_role <> 'admin' THEN
+        RAISE EXCEPTION 'EXCEPTION_ADMIN_REQUIRED' USING ERRCODE = '42501';
+    END IF;
+    IF p_exception_id IS NULL OR length(btrim(COALESCE(p_motivo, ''))) < 5 THEN
+        RAISE EXCEPTION 'EXCEPTION_REVOKE_INVALID' USING ERRCODE = '22023';
+    END IF;
+    UPDATE public.dispensation_exceptions
+    SET estado_regularizacion = 'revocada'
+    WHERE id = p_exception_id AND estado_regularizacion = 'pendiente' AND pedido_id IS NULL;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'EXCEPTION_NOT_REVOCABLE' USING ERRCODE = '22023';
+    END IF;
+    INSERT INTO public.audit_logs (user_id, action, entity_type, entity_id, details, created_at)
+    VALUES (v_actor, 'UPDATE', 'DISPENSATION_EXCEPTION', p_exception_id::text, jsonb_build_object('estado', 'revocada', 'motivo', p_motivo), now());
+    RETURN jsonb_build_object('exceptionId', p_exception_id, 'estado', 'revocada');
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.revoke_dispensation_exception_command(uuid, text) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.revoke_dispensation_exception_command(uuid, text) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.register_historical_dispensation_command(
     p_command_id uuid,
@@ -608,6 +646,9 @@ BEGIN
         RAISE EXCEPTION 'SOCIO_UNAVAILABLE: Socio no encontrado.';
     END IF;
 
+    -- Serializar consumo de excepción única para este socio ante inserciones concurrentes
+    PERFORM pg_advisory_xact_lock(hashtextextended('inc08_socio_exc:' || p_socio::text, 811));
+
     v_eval := public.evaluate_socio_dispensation_eligibility(p_socio);
     IF (v_eval->>'elegibleParaDispensa')::boolean IS NOT TRUE THEN
         SELECT ARRAY(SELECT jsonb_array_elements_text(v_eval->'bloqueosObligatorios')) INTO v_bloqueos;
@@ -645,5 +686,50 @@ BEGIN
     END LOOP;
 END;
 $$;
+
+-- 8. Consumo atómico de excepción única al insertar pedido
+CREATE OR REPLACE FUNCTION app_private.consume_dispensation_exception_on_order()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_today date := (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date;
+    v_exc_id uuid;
+BEGIN
+    IF NEW.estado = 'cancelado' OR NEW.socio_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT e.id INTO v_exc_id
+    FROM public.dispensation_exceptions e
+    WHERE e.socio_id = NEW.socio_id
+      AND e.estado_regularizacion = 'pendiente'
+      AND e.vence_el >= v_today
+      AND e.pedido_id IS NULL
+    ORDER BY e.fecha_decision DESC
+    LIMIT 1
+    FOR UPDATE;
+
+    IF v_exc_id IS NOT NULL THEN
+        UPDATE public.dispensation_exceptions
+        SET pedido_id = NEW.id,
+            consumida_at = now(),
+            consumida_por = COALESCE(auth.uid(), NEW.created_by_user_id)
+        WHERE id = v_exc_id AND pedido_id IS NULL;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION app_private.consume_dispensation_exception_on_order() FROM PUBLIC, anon, authenticated, service_role;
+
+DROP TRIGGER IF EXISTS tr_z_inc08_consume_exception ON public.pedidos;
+CREATE TRIGGER tr_z_inc08_consume_exception
+    AFTER INSERT ON public.pedidos
+    FOR EACH ROW
+    EXECUTE FUNCTION app_private.consume_dispensation_exception_on_order();
 
 COMMIT;
