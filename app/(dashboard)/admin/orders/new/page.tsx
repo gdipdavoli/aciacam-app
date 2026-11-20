@@ -48,6 +48,10 @@ function NewDispenseForm() {
     const [exceptionJustif, setExceptionJustif] = useState('');
     const [exceptionEvidencia, setExceptionEvidencia] = useState('');
     const [savingException, setSavingException] = useState(false);
+    const [reprocannAckChecked, setReprocannAckChecked] = useState(false);
+    const [reprocannAckEvidence, setReprocannAckEvidence] = useState('');
+    const [savingReprocannAck, setSavingReprocannAck] = useState(false);
+    const [reprocannAckDone, setReprocannAckDone] = useState(false);
     const createIdempotencyKeyRef = useRef<string | null>(null);
     const createdOrderRef = useRef<Pedido | null>(null);
 
@@ -86,6 +90,7 @@ function NewDispenseForm() {
                         setAddress(match.direccion || '');
                         setLocalidad(match.localidad || '');
                         setStep(2);
+                        void loadEligibility(match.id);
                     }
                 }
             });
@@ -119,6 +124,9 @@ function NewDispenseForm() {
         setSelectedSocio(s);
         setAddress(s.direccion || '');
         setLocalidad(s.localidad || '');
+        setReprocannAckChecked(false);
+        setReprocannAckEvidence('');
+        setReprocannAckDone(false);
         setErrorMessage(null);
         setStep(2);
         void loadEligibility(s.id);
@@ -150,7 +158,14 @@ function NewDispenseForm() {
         }
     };
 
-    const handleNextStep = () => {
+    const needsReprocannVerificationAck = Boolean(
+        eligibility?.puedeRegistrarPedido &&
+        Array.isArray(eligibility?.advertenciasDocumentales) &&
+        (eligibility.advertenciasDocumentales.includes('REPROCANN_NO_CARGADO') ||
+            eligibility.advertenciasDocumentales.includes('REPROCANN_PENDIENTE_REVISION'))
+    );
+
+    const handleNextStep = async () => {
         if (orderType === 'retiro_sede' && !slotDate && !date) {
             alert('Por favor selecciona una fecha de retiro.');
             return;
@@ -158,6 +173,33 @@ function NewDispenseForm() {
         if (orderType === 'delivery' && (!address.trim() || !localidad.trim())) {
             alert('Para modalidad delivery es obligatorio completar dirección y localidad.');
             return;
+        }
+        if (needsReprocannVerificationAck && !reprocannAckDone) {
+            if (!reprocannAckChecked || reprocannAckEvidence.trim().length < 3) {
+                setErrorMessage('Debés confirmar explícitamente que verificaste el REPROCANN vigente por otra fuente e indicar la evidencia (mín. 3 caracteres).');
+                return;
+            }
+            if (!selectedSocio) return;
+            setSavingReprocannAck(true);
+            setErrorMessage(null);
+            try {
+                const estadoObs = eligibility.advertenciasDocumentales.includes('REPROCANN_PENDIENTE_REVISION')
+                    ? 'pendiente_revision'
+                    : 'no_cargado';
+                await StoreService.registerReprocannExternalVerificationAck({
+                    commandId: crypto.randomUUID(),
+                    socioId: selectedSocio.id,
+                    evidencia: reprocannAckEvidence.trim(),
+                    estadoObservado: estadoObs
+                });
+                setReprocannAckDone(true);
+            } catch (err: any) {
+                setErrorMessage(err?.message || 'No se pudo registrar la confirmación de verificación REPROCANN.');
+                setSavingReprocannAck(false);
+                return;
+            } finally {
+                setSavingReprocannAck(false);
+            }
         }
         setErrorMessage(null);
         setStep(3);
@@ -398,6 +440,39 @@ function NewDispenseForm() {
                                     <strong>Advertencias documentales (regularización pendiente, no bloquean registro):</strong> {eligibility.advertenciasDocumentales.join(', ')}
                                 </div>
                             )}
+                            {needsReprocannVerificationAck && (
+                                <div style={{ marginTop: '0.65rem', padding: '0.75rem', borderRadius: 'var(--radius)', backgroundColor: '#fef3c7', border: '1px solid #f59e0b', color: '#78350f' }}>
+                                    <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>
+                                        ⚠️ REPROCANN sin respaldo digital aprobado (no digitalizado o pendiente de revisión)
+                                    </div>
+                                    <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.8rem' }}>
+                                        Esta confirmación registra responsable, fecha y evidencia de verificación por otra fuente. <strong>No sustituye</strong> el certificado REPROCANN digitalizado ni lo marca como aprobado.
+                                    </p>
+                                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.5rem', cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={reprocannAckChecked}
+                                            disabled={reprocannAckDone}
+                                            onChange={e => setReprocannAckChecked(e.target.checked)}
+                                            style={{ marginTop: '0.2rem' }}
+                                        />
+                                        <span>Confirmo que verifiqué la autorización REPROCANN vigente del socio por otra fuente.</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={reprocannAckEvidence}
+                                        disabled={reprocannAckDone}
+                                        onChange={e => setReprocannAckEvidence(e.target.value)}
+                                        placeholder="Fuente / evidencia verificada (ej. MiArgentina, certificado físico en sede, n° trámite) *"
+                                        style={{ width: '100%', padding: '0.5rem 0.65rem', borderRadius: 'var(--radius)', border: '1px solid #d97706', backgroundColor: 'white', color: '#111827', fontSize: '0.8rem' }}
+                                    />
+                                    {reprocannAckDone && (
+                                        <div style={{ marginTop: '0.35rem', fontSize: '0.78rem', fontWeight: 600, color: '#166534' }}>
+                                            ✓ Verificación operativa registrada en auditoría.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
                     <div style={{ padding: '1rem', backgroundColor: 'hsl(var(--muted))', borderRadius: 'var(--radius)', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -495,10 +570,29 @@ function NewDispenseForm() {
 
                     <button
                         onClick={handleNextStep}
-                        disabled={Boolean(eligibility && !eligibility.puedeRegistrarPedido)}
-                        style={{ width: '100%', padding: '1rem', backgroundColor: 'hsl(var(--primary))', color: 'white', border: 'none', borderRadius: 'var(--radius)', fontSize: '1rem', fontWeight: 600, cursor: eligibility && !eligibility.puedeRegistrarPedido ? 'not-allowed' : 'pointer', opacity: eligibility && !eligibility.puedeRegistrarPedido ? 0.5 : 1 }}
+                        disabled={
+                            savingReprocannAck ||
+                            Boolean(eligibility && !eligibility.puedeRegistrarPedido) ||
+                            (needsReprocannVerificationAck && !reprocannAckDone && (!reprocannAckChecked || reprocannAckEvidence.trim().length < 3))
+                        }
+                        style={{
+                            width: '100%',
+                            padding: '1rem',
+                            backgroundColor: 'hsl(var(--primary))',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 'var(--radius)',
+                            fontSize: '1rem',
+                            fontWeight: 600,
+                            cursor: (savingReprocannAck || (eligibility && !eligibility.puedeRegistrarPedido) || (needsReprocannVerificationAck && !reprocannAckDone && (!reprocannAckChecked || reprocannAckEvidence.trim().length < 3))) ? 'not-allowed' : 'pointer',
+                            opacity: (savingReprocannAck || (eligibility && !eligibility.puedeRegistrarPedido) || (needsReprocannVerificationAck && !reprocannAckDone && (!reprocannAckChecked || reprocannAckEvidence.trim().length < 3))) ? 0.5 : 1
+                        }}
                     >
-                        {eligibility && !eligibility.puedeRegistrarPedido ? 'Socio bloqueado o suspendido' : 'Continuar'}
+                        {savingReprocannAck
+                            ? 'Registrando verificación...'
+                            : eligibility && !eligibility.puedeRegistrarPedido
+                                ? 'Socio bloqueado o suspendido'
+                                : 'Continuar'}
                     </button>
                 </div>
             )}

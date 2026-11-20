@@ -1160,6 +1160,23 @@ export const StoreService = {
         return data;
     },
 
+    registerReprocannExternalVerificationAck: async (params: {
+        commandId: string;
+        socioId: string;
+        evidencia: string;
+        estadoObservado?: string;
+    }): Promise<any> => {
+        if (!supabase) throw new Error("Supabase client not initialized");
+        const { data, error } = await supabase.rpc('register_reprocann_external_verification_ack_command', {
+            p_command_id: params.commandId,
+            p_socio_id: params.socioId,
+            p_evidencia: params.evidencia,
+            p_estado_observado: params.estadoObservado || 'no_cargado'
+        });
+        if (error) throw new Error(error.message || 'No se pudo registrar la confirmación de verificación REPROCANN.');
+        return data;
+    },
+
     getAllSocios: async (role?: string): Promise<Socio[]> => {
         try {
             if (!supabase) throw new Error("Supabase client not initialized");

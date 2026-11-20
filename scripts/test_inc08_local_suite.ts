@@ -237,7 +237,24 @@ BEGIN
         RAISE EXCEPTION 'Caso 8: registro histórico no debe descontar stock';
     END IF;
 
-    -- 9. Auditoría (append-only) y permisos
+    -- 9. Auditoría (append-only), verificación externa REPROCANN y permisos
+    DECLARE
+        v_ack_cmd uuid := gen_random_uuid();
+        v_ack_res jsonb;
+    BEGIN
+        v_ack_res := public.register_reprocann_external_verification_ack_command(v_ack_cmd, v_s_pend_rev, 'MiArgentina vigente exhibido en sede', 'pendiente_revision');
+        IF (v_ack_res->>'reused')::boolean IS NOT FALSE OR (v_ack_res->>'sustituyeReprocann')::boolean IS NOT FALSE THEN
+            RAISE EXCEPTION 'Caso 9-ack inesperado: %', v_ack_res;
+        END IF;
+        v_ack_res := public.register_reprocann_external_verification_ack_command(v_ack_cmd, v_s_pend_rev, 'MiArgentina vigente exhibido en sede', 'pendiente_revision');
+        IF (v_ack_res->>'reused')::boolean IS NOT TRUE THEN
+            RAISE EXCEPTION 'Caso 9-ack idempotencia inesperada: %', v_ack_res;
+        END IF;
+        IF EXISTS (SELECT 1 FROM public.documentos_socio WHERE socio_id = v_s_pend_rev::text AND verificacion_estado = 'aprobado') THEN
+            RAISE EXCEPTION 'Caso 9-ack no debe aprobar documentos_socio ni sustituir REPROCANN';
+        END IF;
+    END;
+
     v_exc_id := (public.grant_dispensation_exception_command(gen_random_uuid(), v_s_pend_rev, 'consentimiento', 'Respaldo documental en revisión sede', 'Acta-2026')->>'exceptionId')::uuid;
     BEGIN
         DELETE FROM public.dispensation_exceptions WHERE id = v_exc_id;

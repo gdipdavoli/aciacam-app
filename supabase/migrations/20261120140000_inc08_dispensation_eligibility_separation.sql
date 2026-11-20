@@ -590,6 +590,73 @@ $$;
 REVOKE ALL ON FUNCTION public.register_historical_dispensation_command(uuid, uuid, timestamptz, jsonb, text, text[]) FROM PUBLIC, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.register_historical_dispensation_command(uuid, uuid, timestamptz, jsonb, text, text[]) TO authenticated;
 
+CREATE OR REPLACE FUNCTION public.register_reprocann_external_verification_ack_command(
+    p_command_id uuid,
+    p_socio_id uuid,
+    p_evidencia text,
+    p_estado_observado text DEFAULT 'no_cargado'
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_actor uuid := auth.uid();
+    v_role text := lower(btrim(COALESCE(public.get_my_role(), '')));
+    v_existing_id uuid;
+    v_now timestamptz := now();
+BEGIN
+    IF v_actor IS NULL OR v_role NOT IN ('admin', 'staff') THEN
+        RAISE EXCEPTION 'UNAUTHORIZED: Requiere rol administrativo.' USING ERRCODE = '42501';
+    END IF;
+    IF p_command_id IS NULL OR p_socio_id IS NULL OR length(btrim(COALESCE(p_evidencia, ''))) < 3 THEN
+        RAISE EXCEPTION 'REPROCANN_ACK_INVALID: Requiere evidencia verificable (mín. 3 caracteres).' USING ERRCODE = '22023';
+    END IF;
+
+    PERFORM pg_advisory_xact_lock(hashtextextended(p_command_id::text, 809));
+    SELECT id INTO v_existing_id
+    FROM public.audit_logs
+    WHERE entity_type = 'REPROCANN_EXTERNAL_VERIFICATION_ACK'
+      AND details->>'commandId' = p_command_id::text
+    LIMIT 1;
+    IF v_existing_id IS NOT NULL THEN
+        RETURN jsonb_build_object('auditLogId', v_existing_id, 'reused', true);
+    END IF;
+
+    INSERT INTO public.audit_logs (user_id, action, entity_type, entity_id, details, created_at)
+    VALUES (
+        v_actor,
+        'VERIFY',
+        'REPROCANN_EXTERNAL_VERIFICATION_ACK',
+        p_socio_id::text,
+        jsonb_build_object(
+            'commandId', p_command_id,
+            'socioId', p_socio_id,
+            'responsableId', v_actor,
+            'fechaConfirmacion', v_now,
+            'evidencia', btrim(p_evidencia),
+            'estadoObservado', COALESCE(NULLIF(btrim(p_estado_observado), ''), 'no_cargado'),
+            'sustituyeReprocann', false
+        ),
+        v_now
+    )
+    RETURNING id INTO v_existing_id;
+
+    RETURN jsonb_build_object(
+        'auditLogId', v_existing_id,
+        'responsableId', v_actor,
+        'fechaConfirmacion', v_now,
+        'evidencia', btrim(p_evidencia),
+        'sustituyeReprocann', false,
+        'reused', false
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.register_reprocann_external_verification_ack_command(uuid, uuid, text, text) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.register_reprocann_external_verification_ack_command(uuid, uuid, text, text) TO authenticated;
+
 -- 7. Actualizar assert_order_business: permite solicitud y registro administrativo salvo bloqueo operativo/suspensión;
 -- los impedimentos confirmados de finalización (p.ej. REPROCANN vencido confirmado) se controlan al finalizar la entrega.
 CREATE OR REPLACE FUNCTION public.assert_order_business(
