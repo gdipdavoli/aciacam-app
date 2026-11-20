@@ -630,17 +630,22 @@ export default function AdminOrdersPage() {
             {/* Vista de Tabla Desktop */}
             {!loading && orders.length > 0 && (
                 <div className="hidden md:block bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
+                    <div className="w-full">
+                        <table className="w-full table-fixed text-left border-collapse">
+                            <colgroup>
+                                <col className="w-[28%]" />
+                                <col className="w-[23%]" />
+                                <col className="w-[22%]" />
+                                <col className="w-[10%]" />
+                                <col className="w-[17%]" />
+                            </colgroup>
                             <thead>
-                                <tr className="border-b border-border bg-muted/30 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                    <th className="py-3.5 px-4">Socio</th>
-                                    <th className="py-3.5 px-4">Modalidad y Horario</th>
-                                    <th className="py-3.5 px-4">Solicitud</th>
-                                    <th className="py-3.5 px-4">Pedido / Origen</th>
-                                    <th className="py-3.5 px-4">Fechas</th>
-                                    <th className="py-3.5 px-4">Estado</th>
-                                    <th className="py-3.5 px-4 text-right">Acciones</th>
+                                <tr className="border-b border-border bg-muted/30 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                                    <th className="py-2.5 px-2.5">Socio</th>
+                                    <th className="py-2.5 px-2.5">Productos</th>
+                                    <th className="py-2.5 px-2.5">Entrega / Turno</th>
+                                    <th className="py-2.5 px-2">Estado</th>
+                                    <th className="py-2.5 px-2.5 text-right">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-border/60 text-sm">
@@ -654,32 +659,48 @@ export default function AdminOrdersPage() {
                                     return (
                                         <tr
                                             key={order.id}
-                                            className="hover:bg-muted/40 transition-colors cursor-pointer group"
+                                            className="hover:bg-muted/40 transition-colors cursor-pointer group align-top"
                                             onClick={() => router.push(`/admin/orders/${order.id}`)}
                                         >
-                                            {/* Socio (Priorizado) */}
-                                            <td className="py-3.5 px-4">
-                                                <div>
-                                                    <div className="font-bold text-foreground group-hover:text-primary transition-colors">
-                                                        {socioName}
-                                                    </div>
-                                                    {order.socio?.dni && (
-                                                        <div className="text-xs text-muted-foreground">
-                                                            DNI {order.socio.dni}
-                                                        </div>
-                                                    )}
+                                            {/* Socio (28% - sin truncamiento, multilínea) */}
+                                            <td className="py-2.5 px-2.5">
+                                                <div className="font-bold text-foreground group-hover:text-primary transition-colors whitespace-normal break-words leading-snug">
+                                                    {socioName}
                                                 </div>
+                                                {order.socio?.dni && (
+                                                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                                                        DNI {order.socio.dni}
+                                                    </div>
+                                                )}
                                             </td>
 
-                                            {/* Modalidad, Retiro y Horario (Priorizado) */}
-                                            <td className="py-3.5 px-4">
-                                                <div className="flex items-center gap-1.5">
+                                            {/* Productos (23% - multilínea, sin truncamiento) */}
+                                            <td className="py-2.5 px-2.5">
+                                                {order.items && order.items.length > 0 ? (
+                                                    <ul className="space-y-0.5 text-xs text-foreground/85 leading-snug">
+                                                        {order.items.map((i, idx) => {
+                                                            const name = i.productoNombre || (i as any).nombre || (i.productoId ? `Producto no identificado (${i.productoId.slice(0, 8)})` : 'Producto no identificado');
+                                                            return (
+                                                                <li key={`${order.id}-item-${idx}`} className="whitespace-normal break-words">
+                                                                    <span className="font-semibold text-foreground">{i.cantidad}x</span> {name}
+                                                                </li>
+                                                            );
+                                                        })}
+                                                    </ul>
+                                                ) : (
+                                                    <span className="text-xs italic text-muted-foreground/60">Sin productos informados</span>
+                                                )}
+                                            </td>
+
+                                            {/* Entrega / Turno (22% - modalidad, fecha/franja y dirección multilínea) */}
+                                            <td className="py-2.5 px-2.5">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
                                                     {order.tipoPedido === 'retiro_sede' ? (
-                                                        <span className="font-semibold text-amber-600 dark:text-amber-400">
+                                                        <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
                                                             Retiro en Sede
                                                         </span>
                                                     ) : (
-                                                        <span className="font-semibold text-blue-600 dark:text-blue-400">
+                                                        <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
                                                             Delivery
                                                         </span>
                                                     )}
@@ -690,68 +711,51 @@ export default function AdminOrdersPage() {
                                                             target="_blank"
                                                             rel="noopener noreferrer"
                                                             onClick={(e) => e.stopPropagation()}
-                                                            className="p-1 text-green-700 bg-green-100 dark:bg-green-900/40 dark:text-green-300 rounded hover:bg-green-200"
+                                                            className="p-0.5 text-green-700 bg-green-100 dark:bg-green-900/40 dark:text-green-300 rounded hover:bg-green-200"
                                                             title="Ver ubicación en GPS"
                                                         >
-                                                            <Navigation size={12} className="rotate-45" />
+                                                            <Navigation size={11} className="rotate-45" />
                                                         </a>
                                                     )}
                                                 </div>
                                                 {order.tipoPedido === 'retiro_sede' && (order.fechaRetiroPreferida || order.franjaHoraria) && (
-                                                    <div className="text-xs font-medium text-foreground/90 flex items-center gap-1.5 mt-1 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 rounded-md px-2 py-0.5 w-fit">
-                                                        <Clock size={12} className="text-amber-600 dark:text-amber-400 shrink-0" />
-                                                        <span>
+                                                    <div className="text-[11px] font-medium text-foreground/90 flex items-start gap-1 mt-1 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 rounded px-1.5 py-0.5 w-fit max-w-full">
+                                                        <Clock size={11} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                                                        <span className="whitespace-normal break-words leading-tight">
                                                             {order.fechaRetiroPreferida || 'Fecha a coordinar'}
                                                             {order.franjaHoraria ? ` · ${order.franjaHoraria}` : ''}
                                                         </span>
                                                     </div>
                                                 )}
                                                 {order.tipoPedido === 'delivery' && order.direccionEntrega && (
-                                                    <div className="text-xs text-muted-foreground truncate max-w-[220px] mt-0.5">
+                                                    <div className="text-[11px] text-muted-foreground whitespace-normal break-words leading-snug mt-0.5">
                                                         {order.direccionEntrega} {order.localidad ? `(${order.localidad})` : ''}
                                                     </div>
                                                 )}
                                                 {order.tipoPedido === 'delivery' && order.entrega_estimada && (
-                                                    <div className="text-xs font-medium text-blue-700 dark:text-blue-300 flex items-center gap-1 mt-0.5">
-                                                        <Clock size={11} />
-                                                        <span>{order.entrega_estimada}</span>
+                                                    <div className="text-[11px] font-medium text-blue-700 dark:text-blue-300 flex items-center gap-1 mt-0.5">
+                                                        <Clock size={11} className="shrink-0" />
+                                                        <span className="whitespace-normal break-words">{order.entrega_estimada}</span>
                                                     </div>
                                                 )}
                                             </td>
 
-                                            {/* Solicitud / Productos */}
-                                            <td className="py-3.5 px-4 max-w-[220px]">
-                                                <div 
-                                                    className="text-xs text-muted-foreground truncate" 
-                                                    title={order.items?.map(i => {
-                                                        const name = i.productoNombre || (i as any).nombre || (i.productoId ? `Producto no identificado (${i.productoId.slice(0, 8)})` : 'Producto no identificado');
-                                                        return `${i.cantidad}x ${name}`;
-                                                    }).join(', ')}
-                                                >
-                                                    {order.items && order.items.length > 0
-                                                        ? order.items.map(i => {
-                                                            const name = i.productoNombre || (i as any).nombre || (i.productoId ? `Producto no identificado (${i.productoId.slice(0, 8)})` : 'Producto no identificado');
-                                                            return `${i.cantidad}x ${name}`;
-                                                        }).join(', ')
-                                                        : <span className="italic text-muted-foreground/60">Sin productos informados</span>}
-                                                </div>
-                                            </td>
-
-                                            {/* ID y Origen */}
-                                            <td className="py-3.5 px-4 font-mono">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-semibold text-xs text-muted-foreground">
-                                                        #{order.id.slice(0, 8)}
+                                            {/* Estado Canónico (10%) */}
+                                            <td className="py-2.5 px-2">
+                                                <div className="flex flex-col items-start gap-1">
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border leading-tight ${
+                                                        order.estado === 'pendiente'
+                                                            ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/40 dark:text-amber-200'
+                                                            : order.estado === 'en_preparacion'
+                                                            ? 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/40 dark:text-blue-200'
+                                                            : order.estado === 'confirmado' || order.estado === 'en_camino'
+                                                            ? 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-900/40 dark:text-indigo-200'
+                                                            : order.estado === 'entregado' || order.estado === 'retirado'
+                                                            ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/40 dark:text-green-200'
+                                                            : 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/40 dark:text-red-200'
+                                                    }`}>
+                                                        {getStatusLabel(order.estado, order.tipoPedido)}
                                                     </span>
-                                                    {order.origen === 'admin' ? (
-                                                        <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-300">
-                                                            SEDE
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                                                            APP
-                                                        </span>
-                                                    )}
                                                     {order.archivado && (
                                                         <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300" title="Pedido archivado">
                                                             Archivado
@@ -760,43 +764,9 @@ export default function AdminOrdersPage() {
                                                 </div>
                                             </td>
 
-                                            {/* Fechas de Creación y Cierre */}
-                                            <td className="py-3.5 px-4 whitespace-nowrap">
-                                                <div className="text-xs">
-                                                    <span className="font-medium text-foreground">
-                                                        {new Date(order.fechaCreacion).toLocaleDateString()}
-                                                    </span>
-                                                    <span className="text-muted-foreground ml-1">
-                                                        {new Date(order.fechaCreacion).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                    </span>
-                                                </div>
-                                                {isFinal && order.updated_at && (
-                                                    <div className="text-[11px] text-muted-foreground mt-0.5">
-                                                        Cierre: {new Date(order.updated_at).toLocaleDateString()}
-                                                    </div>
-                                                )}
-                                            </td>
-
-                                            {/* Estado Canónico */}
-                                            <td className="py-3.5 px-4">
-                                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${
-                                                    order.estado === 'pendiente'
-                                                        ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/40 dark:text-amber-200'
-                                                        : order.estado === 'en_preparacion'
-                                                        ? 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/40 dark:text-blue-200'
-                                                        : order.estado === 'confirmado' || order.estado === 'en_camino'
-                                                        ? 'bg-indigo-100 text-indigo-800 border-indigo-300 dark:bg-indigo-900/40 dark:text-indigo-200'
-                                                        : order.estado === 'entregado' || order.estado === 'retirado'
-                                                        ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/40 dark:text-green-200'
-                                                        : 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/40 dark:text-red-200'
-                                                }`}>
-                                                    {getStatusLabel(order.estado, order.tipoPedido)}
-                                                </span>
-                                            </td>
-
-                                            {/* Selector de Estado y Botones de Acción */}
-                                            <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                                                <div className="flex items-center justify-end gap-2">
+                                            {/* Acciones (17% - Entregar, selector y acciones rápidas) */}
+                                            <td className="py-2.5 px-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                                                <div className="flex flex-wrap items-center justify-end gap-1.5">
                                                     {(() => {
                                                         const quickTarget = getQuickDeliveryTarget(order.tipoPedido, order.estado);
                                                         if (!quickTarget) return null;
@@ -805,7 +775,7 @@ export default function AdminOrdersPage() {
                                                                 type="button"
                                                                 disabled={showPaymentModal}
                                                                 onClick={() => handleStatusChangeRequest(order.id, quickTarget)}
-                                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-xs"
+                                                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-xs shrink-0"
                                                                 title={order.tipoPedido === 'retiro_sede' ? 'Registrar retiro y aporte' : 'Registrar entrega y aporte'}
                                                             >
                                                                 <CheckCircle2 size={13} />
@@ -820,7 +790,7 @@ export default function AdminOrdersPage() {
                                                         onChange={(e) => handleStatusChangeRequest(order.id, e.target.value)}
                                                         disabled={isFinalStatus(order.estado)}
                                                         title={isFinalStatus(order.estado) ? "Los pedidos finalizados o cancelados no admiten cambios de estado" : undefined}
-                                                        className={`py-1 px-2.5 rounded-lg border border-input bg-background text-xs font-semibold focus:ring-2 focus:ring-primary focus:outline-none max-w-[140px] ${
+                                                        className={`py-1 px-2 rounded-lg border border-input bg-background text-xs font-semibold focus:ring-2 focus:ring-primary focus:outline-none max-w-[120px] ${
                                                             isFinalStatus(order.estado)
                                                                 ? 'opacity-60 cursor-not-allowed bg-muted/50 text-muted-foreground'
                                                                 : 'hover:bg-muted cursor-pointer'
@@ -838,28 +808,28 @@ export default function AdminOrdersPage() {
                                                     {order.archivado ? (
                                                         <button
                                                             onClick={() => setArchiveModalTarget({ id: order.id, socioNombre: socioName, archivado: false })}
-                                                            className="p-1.5 text-muted-foreground hover:text-primary rounded-lg border border-border bg-background hover:bg-muted"
+                                                            className="p-1.5 text-muted-foreground hover:text-primary rounded-lg border border-border bg-background hover:bg-muted shrink-0"
                                                             title="Restaurar pedido a listas activas"
                                                         >
-                                                            <ArchiveRestore size={15} />
+                                                            <ArchiveRestore size={14} />
                                                         </button>
                                                     ) : (
                                                         <button
                                                             onClick={() => setArchiveModalTarget({ id: order.id, socioNombre: socioName, archivado: true })}
-                                                            className="p-1.5 text-muted-foreground hover:text-amber-600 rounded-lg border border-border bg-background hover:bg-muted"
+                                                            className="p-1.5 text-muted-foreground hover:text-amber-600 rounded-lg border border-border bg-background hover:bg-muted shrink-0"
                                                             title="Archivar pedido"
                                                         >
-                                                            <Archive size={15} />
+                                                            <Archive size={14} />
                                                         </button>
                                                     )}
 
                                                     {/* Botón Ver Detalle */}
                                                     <Link
                                                         href={`/admin/orders/${order.id}`}
-                                                        className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border bg-background hover:bg-muted"
+                                                        className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border bg-background hover:bg-muted shrink-0"
                                                         title="Ver ficha completa de la dispensa"
                                                     >
-                                                        <Eye size={15} />
+                                                        <Eye size={14} />
                                                     </Link>
                                                 </div>
                                             </td>
