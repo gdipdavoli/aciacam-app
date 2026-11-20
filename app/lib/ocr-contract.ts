@@ -17,13 +17,19 @@ import * as zlib from 'zlib';
 import { extractText } from 'unpdf';
 
 export type ExtractionSource = 'agent_core_gemini' | 'local_text_layer' | 'manual';
+export type FieldOrigin = 'ocr_visual' | 'pdf_text_layer' | 'previous_draft' | 'manual_input' | 'registered_record';
+export type FieldReviewStatus = 'pending_review' | 'confirmed' | 'rejected' | 'not_detected';
 
 export interface FieldTraceability {
     value: string | null;
     confidence: number;
     source?: ExtractionSource;
+    origin?: FieldOrigin;
     sourceReference?: string;
     sourceDocument?: string;
+    page?: number;
+    evidenceSnippet?: string;
+    reviewStatus?: FieldReviewStatus;
     requiresReview?: boolean;
     warnings?: string[];
 }
@@ -205,6 +211,75 @@ export function validateIdentityMatch(docDni?: string | null, partnerDni?: strin
     };
 }
 
+export interface IdentityComparisonResult {
+    status: 'match' | 'dni_mismatch' | 'name_mismatch' | 'insufficient_data';
+    blocked: boolean;
+    reason?: string;
+    docDni?: string;
+    targetDni?: string;
+}
+
+function normalizePersonName(nombre?: string | null, apellido?: string | null): string {
+    return `${nombre || ''} ${apellido || ''}`
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * Compara la identidad extraída de un documento contra un socio o borrador objetivo.
+ * Bloquea aplicación automática ante discrepancia de DNI o discrepancia de nombre cuando no existe DNI.
+ */
+export function compareIdentityWithTarget(
+    extracted: { dni?: string | null; nombre?: string | null; apellido?: string | null },
+    target: { dni?: string | null; nombre?: string | null; apellido?: string | null }
+): IdentityComparisonResult {
+    const docDni = normalizeDni(extracted.dni);
+    const targetDni = normalizeDni(target.dni);
+
+    if (docDni && targetDni) {
+        if (docDni !== targetDni) {
+            return {
+                status: 'dni_mismatch',
+                blocked: true,
+                reason: `Discrepancia crítica: el DNI detectado (${docDni}) no coincide con el registrado (${targetDni}).`,
+                docDni,
+                targetDni,
+            };
+        }
+        return { status: 'match', blocked: false, docDni, targetDni };
+    }
+
+    const docName = normalizePersonName(extracted.nombre, extracted.apellido);
+    const targetName = normalizePersonName(target.nombre, target.apellido);
+    if (docName && targetName) {
+        const docTokens = new Set(docName.split(' ').filter(t => t.length >= 2));
+        const targetTokens = targetName.split(' ').filter(t => t.length >= 2);
+        const shared = targetTokens.filter(t => docTokens.has(t));
+        if (shared.length === 0) {
+            return {
+                status: 'name_mismatch',
+                blocked: true,
+                reason: 'El titular detectado en el documento no coincide con el titular actual (sin DNI para confirmar).',
+                docDni: docDni || undefined,
+                targetDni: targetDni || undefined,
+            };
+        }
+        return { status: 'match', blocked: false, docDni: docDni || undefined, targetDni: targetDni || undefined };
+    }
+
+    return {
+        status: 'insufficient_data',
+        blocked: false,
+        reason: 'Sin DNI ni nombre completo suficiente en el documento para cotejo automático; requiere revisión humana.',
+        docDni: docDni || undefined,
+        targetDni: targetDni || undefined,
+    };
+}
+
 /**
  * Extrae la capa de texto de un Buffer PDF decodificando streams no comprimidos
  * y streams comprimidos con FlateDecode mediante zlib. (Método síncrono para fallback).
@@ -265,8 +340,19 @@ export function extractTextFromPdfBuffer(buffer: Buffer): string {
  * Extrae texto digital de un PDF de forma asíncrona mediante unpdf (PDF.js oficial).
  * Soporta documentos multipágina, fuentes con ToUnicode CMaps y compresión estándar.
  */
+function repairLatin1Encoding(raw: string): string {
+    if (!raw || (!raw.includes('Ã') && !raw.includes('Â'))) return raw;
+    try {
+        const repaired = Buffer.from(raw, 'latin1').toString('utf8');
+        return repaired.includes('\uFFFD') ? raw : repaired;
+    } catch {
+        return raw;
+    }
+}
+
 export async function extractTextFromPdfBufferAsync(buffer: Buffer | Uint8Array): Promise<{
     text: string;
+    pages: string[];
     totalPages: number;
     isLikelyImageOnly: boolean;
 }> {
@@ -280,30 +366,20 @@ export async function extractTextFromPdfBufferAsync(buffer: Buffer | Uint8Array)
             const buf = Buffer.from(buffer as any);
             uint8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
         }
-        const { text, totalPages } = await extractText(uint8, { mergePages: true });
-        const rawText: any = text;
-        let mergedText = (typeof rawText === 'string' ? rawText : Array.isArray(rawText) ? rawText.join('\n') : '').trim();
-
-        // Reparación de encoding si secuencias UTF-8 fueron leídas como Latin-1 / WinAnsi
-        if (mergedText.includes('Ã') || mergedText.includes('Â')) {
-            try {
-                const repaired = Buffer.from(mergedText, 'latin1').toString('utf8');
-                if (!repaired.includes('\uFFFD')) {
-                    mergedText = repaired;
-                }
-            } catch {
-                // mantener texto original si falla conversión
-            }
-        }
-
-        const numPages = totalPages || 1;
+        const { text, totalPages } = await extractText(uint8, { mergePages: false });
+        const rawPages: string[] = Array.isArray(text)
+            ? text.map(p => repairLatin1Encoding(String(p || '')).trim())
+            : [repairLatin1Encoding(String(text || '')).trim()];
+        const mergedText = rawPages.join('\n').trim();
+        const numPages = totalPages || rawPages.length || 1;
 
         // Si hay menos de 220 caracteres en total o menos de 75 caracteres promedio por página,
-        // es un documento que depende primordialmente de imágenes rasterizadas (ej. credencial con carnet incrustado)
+        // es un documento que depende primordialmente de imágenes rasterizadas (ej. escaneo sin OCR)
         const isLikelyImageOnly = mergedText.length < 220 || (numPages > 0 && mergedText.length / numPages < 75);
 
         return {
             text: mergedText,
+            pages: rawPages,
             totalPages: numPages,
             isLikelyImageOnly
         };
@@ -313,6 +389,7 @@ export async function extractTextFromPdfBufferAsync(buffer: Buffer | Uint8Array)
         const fallbackText = extractTextFromPdfBuffer(fallbackBuf);
         return {
             text: fallbackText,
+            pages: [fallbackText],
             totalPages: 1,
             isLikelyImageOnly: fallbackText.length < 150
         };
@@ -476,27 +553,59 @@ export function sanitizeLocalMatricula(rawMatricula?: string, fullContext?: stri
     return val.replace(/\s+/g, ' ').trim();
 }
 
+function findFieldPageAndEvidence(pages: string[], value: string | undefined): { page?: number; evidenceSnippet?: string } {
+    if (!value || !pages || pages.length === 0) return {};
+    const needle = value.trim();
+    const digitsOnly = needle.replace(/\D/g, '');
+    for (let i = 0; i < pages.length; i++) {
+        const pageText = pages[i] || '';
+        const lower = pageText.toLowerCase();
+        let idx = lower.indexOf(needle.toLowerCase());
+        if (idx < 0 && digitsOnly.length >= 6) {
+            idx = pageText.replace(/\./g, '').indexOf(digitsOnly);
+        }
+        if (idx >= 0) {
+            const start = Math.max(0, idx - 24);
+            const end = Math.min(pageText.length, idx + needle.length + 32);
+            const snippet = pageText.slice(start, end).replace(/\s+/g, ' ').trim();
+            return { page: i + 1, evidenceSnippet: snippet.slice(0, 80) };
+        }
+    }
+    return { page: 1 };
+}
+
 /**
- * Analiza el texto extraído de un documento para identificar campos canónicos.
+ * Analiza el texto extraído de un documento (string o array de páginas) para identificar campos canónicos.
  */
-export function extractDataFromDocumentText(text: string, filename?: string, totalPages = 1): UnifiedDocumentExtraction {
+export function extractDataFromDocumentText(textOrPages: string | string[], filename?: string, totalPages = 1): UnifiedDocumentExtraction {
     const warnings: string[] = [];
     const errors: string[] = [];
     const fieldsConf: Record<string, number> = {};
 
-    const cleanText = text || '';
+    const pages = Array.isArray(textOrPages) ? textOrPages : [textOrPages || ''];
+    const cleanText = pages.join('\n').trim();
+    const effectiveTotalPages = Math.max(totalPages, pages.length || 1);
     const fnLower = (filename || '').toLowerCase();
     const textLower = cleanText.toLowerCase();
 
-    // 1. Detección de tipo de documento
+    // 1. Detección de tipo de documento (sin inferir campos ausentes)
     let docType: DetectedDocType = 'desconocido';
 
-    if (textLower.includes('consentimiento') || textLower.includes('declaracion jurada') || textLower.includes('declaración jurada') || fnLower.includes('consentimiento')) {
+    if (
+        textLower.includes('consentimiento') ||
+        textLower.includes('bilateral') ||
+        textLower.includes('declaracion jurada') ||
+        textLower.includes('declaración jurada') ||
+        textLower.includes('riesgos y beneficios') ||
+        fnLower.includes('consentimiento')
+    ) {
         docType = 'consentimiento';
     } else if (textLower.includes('constancia') || textLower.includes('tramite en curso') || textLower.includes('trámite en curso') || fnLower.includes('constancia')) {
         docType = 'constancia_tramite';
-    } else if (textLower.includes('registro nacional de las personas') || textLower.includes('renaper') || fnLower.includes('dni')) {
+    } else if (textLower.includes('registro nacional de las personas') || textLower.includes('renaper') || textLower.includes('documento nacional de identidad') || fnLower.includes('dni')) {
         docType = 'dni';
+    } else if (textLower.includes('receta') || textLower.includes('prescripcion') || textLower.includes('prescripción') || textLower.includes('indicacion medica') || textLower.includes('indicación médica') || fnLower.includes('receta')) {
+        docType = 'receta';
     } else if (textLower.includes('reprocann') || textLower.includes('programa de cannabis') || textLower.includes('credencial') || textLower.includes('carnet') || fnLower.includes('reprocann') || fnLower.includes('credencial')) {
         docType = 'reprocann';
     }
@@ -699,18 +808,37 @@ export function extractDataFromDocumentText(text: string, filename?: string, tot
         warnings.push('La fecha de vencimiento detectada es anterior a la fecha de emisión');
     }
 
-    // Trazabilidad granular para campos extraídos localmente
+    // Trazabilidad granular para campos extraídos localmente con página y evidencia acotada
     const localTraceability: Record<string, FieldTraceability> = {};
-    if (titular?.nombre) localTraceability['nombre'] = { value: titular.nombre, confidence: fieldsConf['titular'] || 0.85, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
-    if (titular?.apellido) localTraceability['apellido'] = { value: titular.apellido, confidence: fieldsConf['titular'] || 0.85, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
-    if (dni) localTraceability['dni'] = { value: dni, confidence: fieldsConf['dni'] || 0.9, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
-    if (fechaNacimiento) localTraceability['fechaNacimiento'] = { value: fechaNacimiento, confidence: fieldsConf['fechaNacimiento'] || 0.9, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
-    if (numeroTramite) localTraceability['numeroTramite'] = { value: numeroTramite, confidence: fieldsConf['numeroTramite'] || 0.95, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
-    if (fechaEmision) localTraceability['fechaEmision'] = { value: fechaEmision, confidence: fieldsConf['fechaEmision'] || 0.9, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
-    if (fechaVencimiento) localTraceability['fechaVencimiento'] = { value: fechaVencimiento, confidence: fieldsConf['fechaVencimiento'] || 0.9, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
-    if (medico?.nombre) localTraceability['medicoNombre'] = { value: medico.nombre, confidence: fieldsConf['medicoNombre'] || 0.85, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
-    if (medico?.matricula) localTraceability['medicoMatricula'] = { value: medico.matricula, confidence: fieldsConf['medicoMatricula'] || 0.9, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: false, warnings: [] };
-    if (diagnostico) localTraceability['diagnosticoPrincipal'] = { value: diagnostico, confidence: fieldsConf['diagnostico'] || 0.5, source: 'local_text_layer', sourceReference: 'Texto digital', requiresReview: true, warnings: ['Pendiente de validación médica'] };
+    const addLocalTrace = (key: string, val: string | undefined, conf: number, requiresRev: boolean, warn: string[] = []) => {
+        if (!val) return;
+        const loc = findFieldPageAndEvidence(pages, val);
+        localTraceability[key] = {
+            value: val,
+            confidence: conf,
+            source: 'local_text_layer',
+            origin: 'pdf_text_layer',
+            sourceReference: loc.page ? `Capa texto PDF (Pág. ${loc.page})` : 'Texto digital',
+            sourceDocument: filename,
+            page: loc.page,
+            evidenceSnippet: loc.evidenceSnippet,
+            reviewStatus: 'pending_review',
+            requiresReview: requiresRev,
+            warnings: warn,
+        };
+    };
+    addLocalTrace('nombre', titular?.nombre, fieldsConf['titular'] || 0.85, false);
+    addLocalTrace('apellido', titular?.apellido, fieldsConf['titular'] || 0.85, false);
+    addLocalTrace('dni', dni, fieldsConf['dni'] || 0.9, false);
+    addLocalTrace('fechaNacimiento', fechaNacimiento, fieldsConf['fechaNacimiento'] || 0.9, false);
+    addLocalTrace('numeroTramite', numeroTramite, fieldsConf['numeroTramite'] || 0.95, false);
+    addLocalTrace('fechaEmision', fechaEmision, fieldsConf['fechaEmision'] || 0.9, false);
+    addLocalTrace('fechaVencimiento', fechaVencimiento, fieldsConf['fechaVencimiento'] || 0.9, false);
+    addLocalTrace('medicoNombre', medico?.nombre, fieldsConf['medicoNombre'] || 0.85, false);
+    addLocalTrace('medicoMatricula', medico?.matricula, fieldsConf['medicoMatricula'] || 0.9, false);
+    addLocalTrace('diagnosticoPrincipal', diagnostico, fieldsConf['diagnostico'] || 0.5, true, ['Pendiente de validación médica']);
+
+    const isSparseScannedPdf = cleanText.length < 220 || (effectiveTotalPages > 0 && cleanText.length / effectiveTotalPages < 75);
 
     return {
         documentType: docType,
@@ -733,9 +861,9 @@ export function extractDataFromDocumentText(text: string, filename?: string, tot
         warnings,
         errors,
         humanValidated: false,
-        totalPages,
-        requiresVisualOcr: isLikelyImageCredential,
-        hasImageOnlyLayer: isLikelyImageCredential,
+        totalPages: effectiveTotalPages,
+        requiresVisualOcr: isLikelyImageCredential || isSparseScannedPdf,
+        hasImageOnlyLayer: isLikelyImageCredential || isSparseScannedPdf,
         detectedFieldsCount,
         fieldTraceability: localTraceability
     };
@@ -787,8 +915,12 @@ export function consolidateDocumentExtractions(
                     value: typeof rawTrace.value !== 'undefined' ? String(rawTrace.value) : String(rawTrace),
                     confidence: typeof rawTrace.confidence === 'number' ? rawTrace.confidence : (extraction.confidence.overall || 0.9),
                     source: rawTrace.source || extraction.extractionSource,
+                    origin: rawTrace.origin || (extraction.extractionSource === 'agent_core_gemini' ? 'ocr_visual' : 'pdf_text_layer'),
                     sourceReference: rawTrace.sourceReference || rawTrace.source_reference || extraction.sourceDescription,
                     sourceDocument: filename,
+                    page: typeof rawTrace.page === 'number' ? rawTrace.page : undefined,
+                    evidenceSnippet: typeof rawTrace.evidenceSnippet === 'string' ? rawTrace.evidenceSnippet : undefined,
+                    reviewStatus: rawTrace.reviewStatus || 'pending_review',
                     requiresReview: Boolean(rawTrace.requiresReview || rawTrace.requires_review),
                     warnings: rawTrace.warnings || []
                 };

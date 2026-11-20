@@ -12,8 +12,11 @@ import {
 } from '@/app/lib/date-format';
 import { 
     UnifiedDocumentExtraction, 
+    ConsolidatedDocumentResult,
+    IdentityComparisonResult,
     validateUnifiedExtraction,
     consolidateDocumentExtractions,
+    compareIdentityWithTarget,
     DocumentConflict,
     FieldTraceability,
     normalizeDni 
@@ -140,6 +143,9 @@ export default function NewSocioWizardPage() {
     const [isExtracting, setIsExtracting] = useState<boolean>(false);
     const [isRetryingDocId, setIsRetryingDocId] = useState<string | null>(null);
     const [fieldTraceability, setFieldTraceability] = useState<Record<string, FieldTraceability>>({});
+    const [consolidatedExtraction, setConsolidatedExtraction] = useState<ConsolidatedDocumentResult['consolidated']>({});
+    const [identityAlert, setIdentityAlert] = useState<IdentityComparisonResult | null>(null);
+    const [pendingDraft, setPendingDraft] = useState<Partial<FormData> | null>(null);
     const [extractionSummary, setExtractionSummary] = useState<UnifiedDocumentExtraction | null>(null);
     const [conflicts, setConflicts] = useState<DocumentConflict[]>([]);
     const [manuallyEditedFields, setManuallyEditedFields] = useState<Set<string>>(new Set());
@@ -151,37 +157,71 @@ export default function NewSocioWizardPage() {
     const [bannerError, setBannerError] = useState<string | null>(null);
     const [bannerSuccess, setBannerSuccess] = useState<string | null>(null);
 
-    // 1. Cargar borrador de localStorage
+    // 1. Detectar borrador previo sin restaurarlo silenciosamente sobre otra persona
     useEffect(() => {
         const saved = localStorage.getItem(STORAGE_KEY);
         const freshKey = `alta_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        setFormData({ ...INITIAL_FORM, idempotencyKey: freshKey });
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
-                setFormData(prev => ({ 
-                    ...prev, 
-                    ...parsed,
-                    idempotencyKey: parsed.idempotencyKey || freshKey
-                }));
-            } catch (e) {
-                console.error("Error al cargar borrador de socio", e);
-                setFormData(prev => ({ ...prev, idempotencyKey: freshKey }));
+                const hasContent = Boolean(parsed?.nombre || parsed?.apellido || parsed?.dni || parsed?.email || parsed?.numeroTramite);
+                if (hasContent) {
+                    setPendingDraft(parsed);
+                }
+            } catch {
+                localStorage.removeItem(STORAGE_KEY);
             }
-        } else {
-            setFormData(prev => ({ ...prev, idempotencyKey: freshKey }));
         }
         setIsLoaded(true);
     }, []);
 
-    // 2. Guardar borrador en localStorage automáticamente (debounced)
+    // 2. Guardar borrador mínimo en localStorage (sin datos clínicos sensibles)
     useEffect(() => {
         if (!isLoaded) return;
+        const hasAnyValue = Boolean(formData.nombre || formData.apellido || formData.dni || formData.email || formData.numeroTramite);
+        if (!hasAnyValue) return;
         const timeout = setTimeout(() => {
-            // Guardar solo datos de formulario (sin archivos binarios)
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+            const { medicoNombre: _m, medicoMatricula: _mat, diagnosticoPrincipal: _diag, ...minimalDraft } = formData;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(minimalDraft));
         }, 600);
         return () => clearTimeout(timeout);
     }, [formData, isLoaded]);
+
+    const handleRecoverDraft = () => {
+        if (!pendingDraft) return;
+        setFormData(prev => ({
+            ...prev,
+            ...pendingDraft,
+            idempotencyKey: pendingDraft.idempotencyKey || prev.idempotencyKey
+        }));
+        setPendingDraft(null);
+        setBannerSuccess('Borrador anterior recuperado explícitamente.');
+    };
+
+    const handleDiscardDraft = () => {
+        localStorage.removeItem(STORAGE_KEY);
+        setPendingDraft(null);
+    };
+
+    const handleStartNewAlta = (skipConfirm = false) => {
+        if (skipConfirm || window.confirm("¿Seguro que deseás comenzar una nueva alta y descartar los datos actuales?")) {
+            localStorage.removeItem(STORAGE_KEY);
+            const freshKey = `alta_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+            setFormData({ ...INITIAL_FORM, idempotencyKey: freshKey });
+            setPendingDraft(null);
+            setAttachedDocs([]);
+            setExtractionSummary(null);
+            setConsolidatedExtraction({});
+            setIdentityAlert(null);
+            setFieldTraceability({});
+            setConflicts([]);
+            setManuallyEditedFields(new Set());
+            setCurrentStep(1);
+            setValidationError(null);
+            setBannerError(null);
+        }
+    };
 
     const handleChange = (field: keyof FormData, value: any) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -190,20 +230,7 @@ export default function NewSocioWizardPage() {
         if (bannerError) setBannerError(null);
     };
 
-    const handleClearDraft = () => {
-        if (window.confirm("¿Seguro que deseás descartar el borrador actual? Se restablecerán todos los campos.")) {
-            localStorage.removeItem(STORAGE_KEY);
-            const freshKey = `alta_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-            setFormData({ ...INITIAL_FORM, idempotencyKey: freshKey });
-            setAttachedDocs([]);
-            setExtractionSummary(null);
-            setFieldTraceability({});
-            setConflicts([]);
-            setCurrentStep(1);
-            setValidationError(null);
-            setBannerError(null);
-        }
-    };
+    const handleClearDraft = () => handleStartNewAlta(false);
 
     // Subida y procesamiento de documentos (Paso 1)
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, defaultTipo = 'reprocann') => {
@@ -306,44 +333,56 @@ export default function NewSocioWizardPage() {
                 const consolidation = consolidateDocumentExtractions(itemsToConsolidate);
                 setConflicts(consolidation.conflicts);
                 setFieldTraceability(consolidation.fieldTraceability || {});
+                setConsolidatedExtraction(consolidation.consolidated || {});
 
                 // Extracción representativa
                 const primaryExt = itemsToConsolidate.find(i => i.extraction.isLegible && !i.extraction.requiresVisualOcr)?.extraction
                     || itemsToConsolidate[0].extraction;
                 setExtractionSummary(primaryExt);
 
-                // 3. Precargar formulario con campos consolidados sin sobreescribir datos cargados manualmente
+                // 3. Cotejo de identidad antes de precargar formulario (bloquea sobrescritura si es otra persona)
                 const c = consolidation.consolidated;
-                const extractedFieldNames: string[] = [];
+                const hasExistingTarget = Boolean(formData.dni || formData.nombre || formData.apellido);
+                const idCheck = hasExistingTarget ? compareIdentityWithTarget(c, formData) : null;
+                setIdentityAlert(idCheck && idCheck.blocked ? idCheck : null);
 
-                setFormData(prev => {
-                    const updated = { ...prev };
-                    if (c.nombre && !prev.nombre && !manuallyEditedFields.has('nombre')) { updated.nombre = c.nombre; extractedFieldNames.push('nombre'); }
-                    if (c.apellido && !prev.apellido && !manuallyEditedFields.has('apellido')) { updated.apellido = c.apellido; extractedFieldNames.push('apellido'); }
-                    if (c.dni && !prev.dni && !manuallyEditedFields.has('dni')) { updated.dni = c.dni; extractedFieldNames.push('dni'); }
-                    if (c.fechaNacimiento && !prev.fechaNacimiento && !manuallyEditedFields.has('fechaNacimiento')) { updated.fechaNacimiento = c.fechaNacimiento; extractedFieldNames.push('fechaNacimiento'); }
-                    if (c.numeroTramite && !prev.numeroTramite && !manuallyEditedFields.has('numeroTramite')) { updated.numeroTramite = c.numeroTramite; extractedFieldNames.push('numeroTramite'); }
-                    if (c.fechaAlta && !prev.fechaAlta && !manuallyEditedFields.has('fechaAlta')) { updated.fechaAlta = c.fechaAlta; extractedFieldNames.push('fechaAlta'); }
-                    if (c.fechaVencimiento && !prev.fechaVencimiento && !manuallyEditedFields.has('fechaVencimiento')) { updated.fechaVencimiento = c.fechaVencimiento; extractedFieldNames.push('fechaVencimiento'); }
-                    if (c.medicoNombre && !prev.medicoNombre && !manuallyEditedFields.has('medicoNombre')) { updated.medicoNombre = c.medicoNombre; extractedFieldNames.push('medicoNombre'); }
-                    if (c.medicoMatricula && !prev.medicoMatricula && !manuallyEditedFields.has('medicoMatricula')) { updated.medicoMatricula = c.medicoMatricula; extractedFieldNames.push('medicoMatricula'); }
-                    if (c.diagnosticoPrincipal && !prev.diagnosticoPrincipal && !manuallyEditedFields.has('diagnosticoPrincipal')) { updated.diagnosticoPrincipal = c.diagnosticoPrincipal; extractedFieldNames.push('diagnosticoPrincipal'); }
+                if (!idCheck?.blocked) {
+                    const extractedFieldNames: string[] = [];
 
-                    if (c.fechaVencimiento) {
-                        const today = getSanLuisCivilToday();
-                        const todayStr = `${today.year}-${String(today.month).padStart(2, '0')}-${String(today.day).padStart(2, '0')}`;
-                        if (c.fechaVencimiento >= todayStr) {
-                            updated.situacionReprocann = 'vigente';
-                        } else {
-                            updated.situacionReprocann = 'vencido';
+                    setFormData(prev => {
+                        const updated = { ...prev };
+                        if (c.nombre && !prev.nombre && !manuallyEditedFields.has('nombre')) { updated.nombre = c.nombre; extractedFieldNames.push('nombre'); }
+                        if (c.apellido && !prev.apellido && !manuallyEditedFields.has('apellido')) { updated.apellido = c.apellido; extractedFieldNames.push('apellido'); }
+                        if (c.dni && !prev.dni && !manuallyEditedFields.has('dni')) { updated.dni = c.dni; extractedFieldNames.push('dni'); }
+                        if (c.fechaNacimiento && !prev.fechaNacimiento && !manuallyEditedFields.has('fechaNacimiento')) { updated.fechaNacimiento = c.fechaNacimiento; extractedFieldNames.push('fechaNacimiento'); }
+                        if (c.numeroTramite && !prev.numeroTramite && !manuallyEditedFields.has('numeroTramite')) { updated.numeroTramite = c.numeroTramite; extractedFieldNames.push('numeroTramite'); }
+                        if (c.fechaAlta && !prev.fechaAlta && !manuallyEditedFields.has('fechaAlta')) { updated.fechaAlta = c.fechaAlta; extractedFieldNames.push('fechaAlta'); }
+                        if (c.fechaVencimiento && !prev.fechaVencimiento && !manuallyEditedFields.has('fechaVencimiento')) { updated.fechaVencimiento = c.fechaVencimiento; extractedFieldNames.push('fechaVencimiento'); }
+                        if (c.medicoNombre && !prev.medicoNombre && !manuallyEditedFields.has('medicoNombre')) { updated.medicoNombre = c.medicoNombre; extractedFieldNames.push('medicoNombre'); }
+                        if (c.medicoMatricula && !prev.medicoMatricula && !manuallyEditedFields.has('medicoMatricula')) { updated.medicoMatricula = c.medicoMatricula; extractedFieldNames.push('medicoMatricula'); }
+                        if (c.diagnosticoPrincipal && !prev.diagnosticoPrincipal && !manuallyEditedFields.has('diagnosticoPrincipal')) { updated.diagnosticoPrincipal = c.diagnosticoPrincipal; extractedFieldNames.push('diagnosticoPrincipal'); }
+
+                        if (c.fechaVencimiento) {
+                            const today = getSanLuisCivilToday();
+                            const todayStr = `${today.year}-${String(today.month).padStart(2, '0')}-${String(today.day).padStart(2, '0')}`;
+                            if (c.fechaVencimiento >= todayStr) {
+                                updated.situacionReprocann = 'vigente';
+                            } else {
+                                updated.situacionReprocann = 'vencido';
+                            }
                         }
-                    }
 
-                    updated.fuenteExtraccion = c.fuenteExtraccion || primaryExt.sourceDescription;
-                    updated.camposExtraidos = Array.from(new Set([...(prev.camposExtraidos || []), ...extractedFieldNames]));
+                        updated.fuenteExtraccion = c.fuenteExtraccion || primaryExt.sourceDescription;
+                        updated.camposExtraidos = Array.from(new Set([...(prev.camposExtraidos || []), ...extractedFieldNames]));
 
-                    return updated;
-                });
+                        return updated;
+                    });
+                }
+            } else {
+                setConsolidatedExtraction({});
+                setFieldTraceability({});
+                setConflicts([]);
+                setIdentityAlert(null);
             }
 
             // Pasar automáticamente al paso 2
@@ -369,10 +408,13 @@ export default function NewSocioWizardPage() {
                 const consolidation = consolidateDocumentExtractions(items);
                 setConflicts(consolidation.conflicts);
                 setFieldTraceability(consolidation.fieldTraceability || {});
+                setConsolidatedExtraction(consolidation.consolidated || {});
                 setExtractionSummary(items[0].extraction);
             } else {
                 setConflicts([]);
                 setFieldTraceability({});
+                setConsolidatedExtraction({});
+                setIdentityAlert(null);
                 setExtractionSummary(null);
             }
             return filtered;
@@ -433,15 +475,19 @@ export default function NewSocioWizardPage() {
                 const consolidation = consolidateDocumentExtractions(itemsToConsolidate);
                 setConflicts(consolidation.conflicts);
                 setFieldTraceability(consolidation.fieldTraceability || {});
+                setConsolidatedExtraction(consolidation.consolidated || {});
 
                 const primaryExt = itemsToConsolidate.find(i => i.extraction.isLegible && !i.extraction.requiresVisualOcr)?.extraction
                     || itemsToConsolidate[0].extraction;
                 setExtractionSummary(primaryExt);
 
                 const c = consolidation.consolidated;
+                const hasExistingTarget = Boolean(formData.dni || formData.nombre || formData.apellido);
+                const idCheck = hasExistingTarget ? compareIdentityWithTarget(c, formData) : null;
+                setIdentityAlert(idCheck && idCheck.blocked ? idCheck : null);
                 const newlyExtractedFields: string[] = [];
 
-                setFormData(prev => {
+                if (!idCheck?.blocked) setFormData(prev => {
                     const updated = { ...prev };
                     const prevExtracted = prev.camposExtraidos || [];
 
@@ -800,7 +846,7 @@ export default function NewSocioWizardPage() {
                 </button>
 
                 <button
-                    onClick={handleClearDraft}
+                    onClick={() => handleStartNewAlta(false)}
                     style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -812,9 +858,47 @@ export default function NewSocioWizardPage() {
                         fontSize: '0.85rem'
                     }}
                 >
-                    <Trash2 size={15} /> Limpiar borrador
+                    <Trash2 size={15} /> Comenzar nueva alta
                 </button>
             </div>
+
+            {pendingDraft && (
+                <div style={{
+                    padding: '0.9rem 1.1rem',
+                    marginBottom: '1rem',
+                    borderRadius: 'var(--radius)',
+                    border: '1px solid hsl(var(--primary) / 0.4)',
+                    backgroundColor: 'hsl(var(--primary) / 0.08)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '0.75rem'
+                }}>
+                    <div style={{ fontSize: '0.85rem' }}>
+                        <strong>Borrador pendiente encontrado de una sesión anterior.</strong>{' '}
+                        <span style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            Por seguridad no se mezcla automáticamente con nuevos documentos.
+                        </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                            type="button"
+                            onClick={handleRecoverDraft}
+                            style={{ padding: '0.4rem 0.85rem', borderRadius: 'var(--radius)', border: 'none', backgroundColor: 'hsl(var(--primary))', color: 'white', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                            Recuperar borrador
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleDiscardDraft}
+                            style={{ padding: '0.4rem 0.85rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                            Descartar borrador
+                        </button>
+                    </div>
+                </div>
+            )}
 
             <h1 style={{ fontSize: '1.8rem', fontWeight: 700, marginBottom: '0.5rem' }}>
                 Alta Inteligente y Gestión Documental
@@ -1276,13 +1360,13 @@ export default function NewSocioWizardPage() {
                                                         </span>
                                                     )}
 
-                                                    {/* Botón Reintentar con Gemini si el documento no fue procesado por Gemini */}
-                                                    {ext?.extractionSource !== 'agent_core_gemini' && (
+                                                    {/* Botón Reintentar con Gemini únicamente cuando el servicio visual está habilitado */}
+                                                    {ext?.extractionSource !== 'agent_core_gemini' && ext?.canRetryGemini === true ? (
                                                         <button
                                                             type="button"
                                                             onClick={() => handleRetryDocumentWithGemini(doc.id)}
                                                             disabled={isRetryingDocId !== null}
-                                                            title="Reintentar análisis documental inteligente con Gemini Vision (Agent Core)"
+                                                            title="Reintentar análisis documental inteligente con Gemini Vision"
                                                             style={{
                                                                 display: 'inline-flex',
                                                                 alignItems: 'center',
@@ -1300,7 +1384,11 @@ export default function NewSocioWizardPage() {
                                                             <RefreshCw size={13} className={isRetryingDocId === doc.id ? 'animate-spin' : ''} />
                                                             {isRetryingDocId === doc.id ? 'Analizando con Gemini...' : 'Reintentar análisis con Gemini'}
                                                         </button>
-                                                    )}
+                                                    ) : ext?.extractionSource !== 'agent_core_gemini' && ext?.requiresVisualOcr ? (
+                                                        <span style={{ fontSize: '0.72rem', color: 'hsl(var(--muted-foreground))', fontStyle: 'italic' }}>
+                                                            OCR visual no habilitado en este entorno — completar manualmente
+                                                        </span>
+                                                    ) : null}
                                                 </div>
                                             </div>
 
@@ -1374,149 +1462,114 @@ export default function NewSocioWizardPage() {
                             </div>
                         </div>
 
-                        {/* Cuadrícula de Datos Consolidados (Propuesta a aplicar en Paso 3) */}
+                        {/* Alerta de discrepancia de identidad */}
+                        {identityAlert?.blocked && (
+                            <div style={{
+                                padding: '0.9rem 1rem',
+                                borderRadius: 'var(--radius)',
+                                backgroundColor: 'hsl(var(--destructive) / 0.12)',
+                                border: '1px solid hsl(var(--destructive))',
+                                color: 'hsl(var(--destructive))',
+                                fontSize: '0.85rem'
+                            }}>
+                                <strong>Discrepancia de identidad detectada:</strong> {identityAlert.reason} Se bloqueó la precarga automática sobre el formulario.
+                            </div>
+                        )}
+
+                        {/* Cuadrícula de Datos Consolidados DEL DOCUMENTO (nunca reutiliza formData/localStorage) */}
                         <div>
                             <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 <Sparkles size={18} style={{ color: 'hsl(var(--primary))' }} />
-                                Propuesta Consolidada para Ficha del Socio
+                                Propuesta Consolidada del Documento
                             </h3>
 
-                            <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                                gap: '1rem'
-                            }}>
-                                {/* 1. Titular */}
-                                {(() => {
-                                    const titularVal = (formData.nombre || formData.apellido) 
-                                        ? `${formData.nombre} ${formData.apellido}`.trim() 
-                                        : '';
-                                    const pill = getFieldProvenancePill('titular', titularVal, fieldTraceability.nombre || fieldTraceability.apellido);
-                                    return (
-                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Titular Propuesto</span>
-                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
-                                                    {pill.label}
-                                                </span>
-                                            </div>
-                                            <p style={{ fontWeight: 600 }}>{titularVal || 'No detectado'}</p>
-                                        </div>
-                                    );
-                                })()}
+                            {(() => {
+                                const c = consolidatedExtraction || {};
+                                const detectedTitular = (c.nombre || c.apellido) ? `${c.nombre || ''} ${c.apellido || ''}`.trim() : '';
+                                const rows = [
+                                    { key: 'titular', label: 'Titular Detectado', val: detectedTitular, trace: fieldTraceability.nombre || fieldTraceability.apellido },
+                                    { key: 'dni', label: 'DNI Detectado', val: c.dni || '', trace: fieldTraceability.dni },
+                                    { key: 'fechaNacimiento', label: 'Fecha de Nacimiento', val: c.fechaNacimiento ? formatCalendarDate(c.fechaNacimiento) : '', trace: fieldTraceability.fechaNacimiento },
+                                    { key: 'numeroTramite', label: 'N° Trámite REPROCANN', val: c.numeroTramite || '', trace: fieldTraceability.numeroTramite },
+                                    { key: 'fechaVencimiento', label: 'Vencimiento REPROCANN', val: c.fechaVencimiento ? formatCalendarDate(c.fechaVencimiento) : '', trace: fieldTraceability.fechaVencimiento },
+                                    {
+                                        key: 'medicoNombre',
+                                        label: 'Médico Tratante',
+                                        val: c.medicoNombre ? `${c.medicoNombre}${c.medicoMatricula ? ` (Mat: ${c.medicoMatricula})` : ''}` : '',
+                                        trace: fieldTraceability.medicoNombre || fieldTraceability.medicoMatricula
+                                    },
+                                    { key: 'diagnosticoPrincipal', label: 'Diagnóstico / Patología', val: c.diagnosticoPrincipal || '', trace: fieldTraceability.diagnosticoPrincipal },
+                                ];
+                                return (
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                                        gap: '1rem'
+                                    }}>
+                                        {rows.map(r => {
+                                            const pill = getFieldProvenancePill(r.key, r.val, r.trace);
+                                            return (
+                                                <div key={r.key} style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                                                        <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>{r.label}</span>
+                                                        <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
+                                                            {pill.label}
+                                                        </span>
+                                                    </div>
+                                                    <p style={{ fontWeight: 600 }}>{r.val || 'No detectado'}</p>
+                                                    {r.val && r.trace && (
+                                                        <span style={{ fontSize: '0.7rem', color: 'hsl(var(--muted-foreground))' }}>
+                                                            {r.trace.sourceDocument || 'Documento'}{r.trace.page ? ` · Pág. ${r.trace.page}` : ''} · Conf. {Math.round((r.trace.confidence || 0) * 100)}%
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })()}
+                        </div>
 
-                                {/* 2. DNI */}
-                                {(() => {
-                                    const pill = getFieldProvenancePill('dni', formData.dni, fieldTraceability.dni);
-                                    return (
-                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>DNI Propuesto</span>
-                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
-                                                    {pill.label}
-                                                </span>
-                                            </div>
-                                            <p style={{ fontWeight: 600 }}>{formData.dni || 'No detectado'}</p>
-                                        </div>
-                                    );
-                                })()}
-
-                                {/* 3. Fecha de Nacimiento */}
-                                {(() => {
-                                    const pill = getFieldProvenancePill('fechaNacimiento', formData.fechaNacimiento, fieldTraceability.fechaNacimiento);
-                                    return (
-                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Fecha de Nacimiento</span>
-                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
-                                                    {pill.label}
-                                                </span>
-                                            </div>
-                                            <p style={{ fontWeight: 600 }}>
-                                                {formData.fechaNacimiento ? formatCalendarDate(formData.fechaNacimiento) : 'No detectada'}
-                                            </p>
-                                        </div>
-                                    );
-                                })()}
-
-                                {/* 4. N° Trámite REPROCANN */}
-                                {(() => {
-                                    const pill = getFieldProvenancePill('numeroTramite', formData.numeroTramite, fieldTraceability.numeroTramite);
-                                    return (
-                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>N° Trámite REPROCANN</span>
-                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
-                                                    {pill.label}
-                                                </span>
-                                            </div>
-                                            <p style={{ fontWeight: 600 }}>{formData.numeroTramite || 'No detectado'}</p>
-                                        </div>
-                                    );
-                                })()}
-
-                                {/* 5. Vencimiento REPROCANN */}
-                                {(() => {
-                                    const pill = getFieldProvenancePill('fechaVencimiento', formData.fechaVencimiento, fieldTraceability.fechaVencimiento);
-                                    return (
-                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Vencimiento REPROCANN</span>
-                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
-                                                    {pill.label}
-                                                </span>
-                                            </div>
-                                            <p style={{ fontWeight: 600 }}>
-                                                {formData.fechaVencimiento 
-                                                    ? formatCalendarDate(formData.fechaVencimiento) 
-                                                    : 'No detectado (completar manualmente si posee credencial vigente)'}
-                                            </p>
-                                        </div>
-                                    );
-                                })()}
-
-                                {/* 6. Médico Tratante */}
-                                {(() => {
-                                    const pill = getFieldProvenancePill('medicoNombre', formData.medicoNombre, fieldTraceability.medicoNombre);
-                                    return (
-                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Médico Tratante</span>
-                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
-                                                    {pill.label}
-                                                </span>
-                                            </div>
-                                            <p style={{ fontWeight: 600 }}>
-                                                {formData.medicoNombre 
-                                                    ? `${formData.medicoNombre} ${formData.medicoMatricula ? `(Mat: ${formData.medicoMatricula})` : ''}` 
-                                                    : 'Pendiente de revisión médica'}
-                                            </p>
-                                        </div>
-                                    );
-                                })()}
-
-                                {/* 7. Diagnóstico / Patología */}
-                                {(() => {
-                                    const pill = getFieldProvenancePill('diagnosticoPrincipal', formData.diagnosticoPrincipal, fieldTraceability.diagnosticoPrincipal);
-                                    return (
-                                        <div style={{ padding: '0.75rem 1rem', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--card))', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '0.75rem', color: 'hsl(var(--muted-foreground))' }}>Diagnóstico / Patología</span>
-                                                <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', borderRadius: '9999px', fontWeight: 600, backgroundColor: pill.bg, color: pill.color }}>
-                                                    {pill.label}
-                                                </span>
-                                            </div>
-                                            <p style={{ fontWeight: 600 }}>
-                                                {formData.diagnosticoPrincipal || 'Pendiente de revisión clínica'}
-                                            </p>
-                                            {!formData.diagnosticoPrincipal && (
-                                                <span style={{ fontSize: '0.7rem', color: 'hsl(var(--muted-foreground))' }}>
-                                                    No inferido desde texto plano para preservar integridad clínica. Completar en Paso 3 o reintentar con Gemini.
-                                                </span>
-                                            )}
-                                        </div>
-                                    );
-                                })()}
+                        {/* Sección independiente de Cotejo: Documento vs Ficha/Borrador Actual */}
+                        <div>
+                            <h3 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '0.6rem' }}>
+                                Cotejo: Datos Detectados vs Ficha / Borrador Actual
+                            </h3>
+                            <div style={{ overflowX: 'auto', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                    <thead>
+                                        <tr style={{ backgroundColor: 'hsl(var(--muted) / 0.4)', borderBottom: '1px solid hsl(var(--border))', textAlign: 'left' }}>
+                                            <th style={{ padding: '0.5rem 0.75rem' }}>Campo</th>
+                                            <th style={{ padding: '0.5rem 0.75rem' }}>Ficha / Borrador Actual</th>
+                                            <th style={{ padding: '0.5rem 0.75rem' }}>Detectado en Documento</th>
+                                            <th style={{ padding: '0.5rem 0.75rem' }}>Estado</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {[
+                                            { label: 'Nombre', curr: formData.nombre, det: consolidatedExtraction?.nombre },
+                                            { label: 'Apellido', curr: formData.apellido, det: consolidatedExtraction?.apellido },
+                                            { label: 'DNI', curr: formData.dni, det: consolidatedExtraction?.dni },
+                                            { label: 'N° Trámite', curr: formData.numeroTramite, det: consolidatedExtraction?.numeroTramite },
+                                            { label: 'Vencimiento', curr: formData.fechaVencimiento, det: consolidatedExtraction?.fechaVencimiento },
+                                            { label: 'Médico', curr: formData.medicoNombre, det: consolidatedExtraction?.medicoNombre },
+                                            { label: 'Matrícula', curr: formData.medicoMatricula, det: consolidatedExtraction?.medicoMatricula },
+                                            { label: 'Diagnóstico', curr: formData.diagnosticoPrincipal, det: consolidatedExtraction?.diagnosticoPrincipal },
+                                        ].map((row, idx) => {
+                                            const differs = Boolean(row.det && row.curr && row.det.trim().toLowerCase() !== row.curr.trim().toLowerCase());
+                                            return (
+                                                <tr key={idx} style={{ borderBottom: '1px solid hsl(var(--border) / 0.5)' }}>
+                                                    <td style={{ padding: '0.45rem 0.75rem', fontWeight: 600 }}>{row.label}</td>
+                                                    <td style={{ padding: '0.45rem 0.75rem', color: 'hsl(var(--muted-foreground))' }}>{row.curr || '—'}</td>
+                                                    <td style={{ padding: '0.45rem 0.75rem', fontWeight: row.det ? 600 : 400 }}>{row.det || 'No detectado'}</td>
+                                                    <td style={{ padding: '0.45rem 0.75rem' }}>
+                                                        {!row.det ? 'Sin dato documental' : differs ? 'Difiere (revisión requerida)' : 'Coincide / Nuevo'}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
 
