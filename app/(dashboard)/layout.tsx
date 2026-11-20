@@ -72,13 +72,16 @@ export default function DashboardLayout({
         prevUnreadCountRef.current = unreadCount;
     }, [unreadCount]);
 
-    useEffect(() => {
-        if (!user) return;
+    const userId = user?.id;
+    const userRol = user?.rol;
 
-        const isAdmin = user.rol === 'admin' || user.rol === 'staff';
+    useEffect(() => {
+        if (!userId) return;
+
+        const isAdmin = userRol === 'admin' || userRol === 'staff';
         const fetchCount = () => {
             NotificationService.getUnreadCount({ 
-                socioId: !isAdmin ? user.id : undefined, 
+                socioId: !isAdmin ? userId : undefined, 
                 isAdminInbox: isAdmin 
             }).then(setUnreadCount);
         };
@@ -87,7 +90,7 @@ export default function DashboardLayout({
         // Poll every 2 minutes for new notifications
         const interval = setInterval(fetchCount, 120000);
         return () => clearInterval(interval);
-    }, [user]);
+    }, [userId, userRol]);
 
     useEffect(() => {
         if (!loading && !user && !authError) {

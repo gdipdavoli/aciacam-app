@@ -4,7 +4,11 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Socio } from '@/types';
 import { supabase } from '@/services/supabaseClient'; // Singleton
 import { StoreService } from '@/services/storeService';
-import { onDeferredAuthStateChange } from '@/services/deferredAuth';
+import {
+    onDeferredAuthStateChange,
+    shouldSkipProfileRefreshOnTokenEvent,
+    resolveStableSocioState,
+} from '@/services/deferredAuth';
 import { useRouter, usePathname } from 'next/navigation';
 
 interface AuthContextType {
@@ -30,10 +34,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const pathname = usePathname(); // Reactive path
 
-    // Guards to prevent double-fire in StrictMode
+    // Guards to prevent double-fire in StrictMode and avoid redundant reloads on token refresh
     const initRef = React.useRef(false);
     const fetchLock = React.useRef<string | null>(null);
     const currentUserIdRef = React.useRef<string | null>(null);
+    const currentAuthRoleRef = React.useRef<string | null>(null);
+    const hasLoadedSocioRef = React.useRef(false);
 
     useEffect(() => {
         if (!supabase) {
@@ -81,13 +87,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     console.log("AuthContext: Socio found linked:", socio.id);
 
                     // Override role if Admin in Metadata (Source of Truth)
-                    const authRole = session?.user?.app_metadata?.role;
+                    const prevAuthRole = currentAuthRoleRef.current;
+                    const authRole = (session?.user?.app_metadata?.role as string | undefined) ?? null;
                     if (authRole === 'admin') {
                         socio.rol = 'admin';
                     }
 
                     currentUserIdRef.current = userId;
-                    setUser(socio);
+                    currentAuthRoleRef.current = authRole;
+                    hasLoadedSocioRef.current = true;
+                    setUser(prev => resolveStableSocioState(prev, socio, prevAuthRole, authRole));
 
                     // UPDATE CACHE
                     try {
@@ -98,6 +107,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     console.warn("AuthContext: User authenticated but NO socio linked.");
                     setIsUnlinked(true);
                     currentUserIdRef.current = null;
+                    currentAuthRoleRef.current = null;
+                    hasLoadedSocioRef.current = false;
                     setUser(null);
                     localStorage.removeItem(CACHE_KEY);
 
@@ -125,6 +136,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.log(`[AuthDebug] ${new Date().toISOString()} Auth Event: ${event}`);
 
             if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') && currentSession?.user) {
+                setSession(currentSession);
+                if (shouldSkipProfileRefreshOnTokenEvent({
+                    event,
+                    currentUserId: currentUserIdRef.current,
+                    currentAuthRole: currentAuthRoleRef.current,
+                    hasLoadedSocio: hasLoadedSocioRef.current,
+                    session: currentSession,
+                })) {
+                    return;
+                }
                 if (currentUserIdRef.current !== currentSession.user.id) {
                     // Only show loader if we don't have this user in cache already
                     const cached = localStorage.getItem(CACHE_KEY);
@@ -134,7 +155,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         setLoading(true);
                     }
                 }
-                setSession(currentSession);
                 await handleUserSession(currentSession.user.id, currentSession);
             } else if (event === 'SIGNED_OUT') {
                 // IMPORTANT: Sometimes Supabase fires SIGNED_OUT on network glitches
@@ -144,6 +164,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 if (!verifiedSession) {
                     console.log("[AuthDebug] SIGNED_OUT confirmed. Cleaning up.");
                     currentUserIdRef.current = null;
+                    currentAuthRoleRef.current = null;
+                    hasLoadedSocioRef.current = false;
                     setUser(null);
                     setSession(null);
                     setIsUnlinked(false);
@@ -267,6 +289,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             console.error("AuthContext: signOut error", e);
         } finally {
             currentUserIdRef.current = null;
+            currentAuthRoleRef.current = null;
+            hasLoadedSocioRef.current = false;
             setUser(null);
             setSession(null);
             setIsUnlinked(false);

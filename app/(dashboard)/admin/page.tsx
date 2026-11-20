@@ -131,9 +131,12 @@ export default function AdminOrdersPage() {
         updateUrlParams({ search: null });
     };
 
+    const userId = user?.id;
+    const userRol = user?.rol;
+
     // Carga de pedidos desde el backend BFF
     const fetchOrders = useCallback(async () => {
-        if (!isInitialized || !user || (user.rol !== 'admin' && user.rol !== 'staff')) {
+        if (!isInitialized || !userId || (userRol !== 'admin' && userRol !== 'staff')) {
             return;
         }
 
@@ -173,7 +176,8 @@ export default function AdminOrdersPage() {
         }
     }, [
         isInitialized,
-        user,
+        userId,
+        userRol,
         currentPage,
         currentLimit,
         currentTab,
@@ -190,13 +194,13 @@ export default function AdminOrdersPage() {
     // Disparar carga cuando cambian los searchParams o el auth
     useEffect(() => {
         if (!authLoading && isInitialized) {
-            if (!user || (user.rol !== 'admin' && user.rol !== 'staff')) {
+            if (!userId || (userRol !== 'admin' && userRol !== 'staff')) {
                 router.replace('/');
                 return;
             }
             fetchOrders();
         }
-    }, [authLoading, isInitialized, user, fetchOrders, router]);
+    }, [authLoading, isInitialized, userId, userRol, fetchOrders, router]);
 
     // Sincronizar input local de búsqueda si la URL cambia externamente (ej: botón Volver)
     useEffect(() => {
