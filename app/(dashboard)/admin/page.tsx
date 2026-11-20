@@ -26,7 +26,8 @@ import {
     ArrowUpDown,
     Check,
     X,
-    Eye
+    Eye,
+    MoreVertical
 } from 'lucide-react';
 import PaymentRegistrationModal from '@/app/components/admin/PaymentRegistrationModal';
 
@@ -44,6 +45,21 @@ export default function AdminOrdersPage() {
     const hasLoadedOnceRef = useRef(false);
     const requestEpochRef = useRef(0);
     const activeUserIdRef = useRef<string | null>(null);
+    const [openActionsMenuId, setOpenActionsMenuId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!openActionsMenuId) return;
+        const closeMenu = () => setOpenActionsMenuId(null);
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setOpenActionsMenuId(null);
+        };
+        window.addEventListener('click', closeMenu);
+        window.addEventListener('keydown', onKeyDown);
+        return () => {
+            window.removeEventListener('click', closeMenu);
+            window.removeEventListener('keydown', onKeyDown);
+        };
+    }, [openActionsMenuId]);
 
     // Estados de conteos globales para las pestañas
     const [counts, setCounts] = useState<{
@@ -676,15 +692,15 @@ export default function AdminOrdersPage() {
 
             {/* Vista de Tabla Desktop */}
             {!loading && orders.length > 0 && (
-                <div className="hidden md:block bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+                <div className="hidden md:block bg-card border border-border rounded-2xl overflow-visible shadow-sm">
                     <div className="w-full">
                         <table className="w-full table-fixed text-left border-collapse">
                             <colgroup>
-                                <col className="w-[28%]" />
+                                <col className="w-[30%]" />
                                 <col className="w-[23%]" />
-                                <col className="w-[22%]" />
+                                <col className="w-[23%]" />
                                 <col className="w-[10%]" />
-                                <col className="w-[17%]" />
+                                <col className="w-[14%]" />
                             </colgroup>
                             <thead>
                                 <tr className="border-b border-border bg-muted/30 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -811,9 +827,9 @@ export default function AdminOrdersPage() {
                                                 </div>
                                             </td>
 
-                                            {/* Acciones (17% - Entregar, selector y acciones rápidas) */}
+                                            {/* Acciones (14% - Entregar principal + menú Más acciones) */}
                                             <td className="py-2.5 px-2.5 text-right" onClick={(e) => e.stopPropagation()}>
-                                                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                                <div className="flex flex-wrap items-center justify-end gap-1.5 relative">
                                                     {(() => {
                                                         const quickTarget = getQuickDeliveryTarget(order.tipoPedido, order.estado);
                                                         if (!quickTarget) return null;
@@ -831,53 +847,89 @@ export default function AdminOrdersPage() {
                                                         );
                                                     })()}
 
-                                                    {/* Selector de Estado */}
-                                                    <select
-                                                        value={order.estado}
-                                                        onChange={(e) => handleStatusChangeRequest(order.id, e.target.value)}
-                                                        disabled={isFinalStatus(order.estado)}
-                                                        title={isFinalStatus(order.estado) ? "Los pedidos finalizados o cancelados no admiten cambios de estado" : undefined}
-                                                        className={`py-1 px-2 rounded-lg border border-input bg-background text-xs font-semibold focus:ring-2 focus:ring-primary focus:outline-none max-w-[120px] ${
-                                                            isFinalStatus(order.estado)
-                                                                ? 'opacity-60 cursor-not-allowed bg-muted/50 text-muted-foreground'
-                                                                : 'hover:bg-muted cursor-pointer'
-                                                        }`}
-                                                    >
-                                                        <option value="" disabled>{isFinalStatus(order.estado) ? 'Inmutable' : 'Cambiar...'}</option>
-                                                        {getNextStatusOptions(order.tipoPedido, order.estado).map(opt => (
-                                                            <option key={opt.value} value={opt.value}>
-                                                                {opt.label}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-
-                                                    {/* Botón Archivar / Restaurar */}
-                                                    {order.archivado ? (
+                                                    <div className="relative">
                                                         <button
-                                                            onClick={() => setArchiveModalTarget({ id: order.id, socioNombre: socioName, archivado: false })}
-                                                            className="p-1.5 text-muted-foreground hover:text-primary rounded-lg border border-border bg-background hover:bg-muted shrink-0"
-                                                            title="Restaurar pedido a listas activas"
+                                                            type="button"
+                                                            aria-label="Más acciones"
+                                                            aria-expanded={openActionsMenuId === order.id}
+                                                            title="Más acciones"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setOpenActionsMenuId(prev => prev === order.id ? null : order.id);
+                                                            }}
+                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border bg-background hover:bg-muted text-xs font-semibold text-foreground shrink-0"
                                                         >
-                                                            <ArchiveRestore size={14} />
+                                                            <MoreVertical size={14} />
+                                                            <span className="sr-only sm:not-sr-only">Más</span>
                                                         </button>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => setArchiveModalTarget({ id: order.id, socioNombre: socioName, archivado: true })}
-                                                            className="p-1.5 text-muted-foreground hover:text-amber-600 rounded-lg border border-border bg-background hover:bg-muted shrink-0"
-                                                            title="Archivar pedido"
-                                                        >
-                                                            <Archive size={14} />
-                                                        </button>
-                                                    )}
 
-                                                    {/* Botón Ver Detalle */}
-                                                    <Link
-                                                        href={`/admin/orders/${order.id}`}
-                                                        className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg border border-border bg-background hover:bg-muted shrink-0"
-                                                        title="Ver ficha completa de la dispensa"
-                                                    >
-                                                        <Eye size={14} />
-                                                    </Link>
+                                                        {openActionsMenuId === order.id && (
+                                                            <div
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                className="absolute right-0 mt-1 w-52 rounded-xl border border-border bg-card shadow-lg z-30 py-1.5 text-left"
+                                                            >
+                                                                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                                                    Cambiar estado
+                                                                </div>
+                                                                {isFinal ? (
+                                                                    <div className="px-3 py-1.5 text-xs text-muted-foreground italic">
+                                                                        Estado final (inmutable)
+                                                                    </div>
+                                                                ) : (
+                                                                    getNextStatusOptions(order.tipoPedido, order.estado).map(opt => (
+                                                                        <button
+                                                                            key={opt.value}
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setOpenActionsMenuId(null);
+                                                                                handleStatusChangeRequest(order.id, opt.value);
+                                                                            }}
+                                                                            className="w-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted text-left transition-colors"
+                                                                        >
+                                                                            {opt.label}
+                                                                        </button>
+                                                                    ))
+                                                                )}
+
+                                                                <div className="my-1 border-t border-border/60" />
+
+                                                                {order.archivado ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setOpenActionsMenuId(null);
+                                                                            setArchiveModalTarget({ id: order.id, socioNombre: socioName, archivado: false });
+                                                                        }}
+                                                                        className="w-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted flex items-center gap-2 text-left transition-colors"
+                                                                    >
+                                                                        <ArchiveRestore size={14} />
+                                                                        <span>Restaurar pedido</span>
+                                                                    </button>
+                                                                ) : (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setOpenActionsMenuId(null);
+                                                                            setArchiveModalTarget({ id: order.id, socioNombre: socioName, archivado: true });
+                                                                        }}
+                                                                        className="w-full px-3 py-1.5 text-xs font-medium text-amber-700 dark:text-amber-400 hover:bg-muted flex items-center gap-2 text-left transition-colors"
+                                                                    >
+                                                                        <Archive size={14} />
+                                                                        <span>Archivar pedido</span>
+                                                                    </button>
+                                                                )}
+
+                                                                <Link
+                                                                    href={`/admin/orders/${order.id}`}
+                                                                    onClick={() => setOpenActionsMenuId(null)}
+                                                                    className="w-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted flex items-center gap-2 text-left transition-colors"
+                                                                >
+                                                                    <Eye size={14} />
+                                                                    <span>Ver detalle completo</span>
+                                                                </Link>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </td>
                                         </tr>
