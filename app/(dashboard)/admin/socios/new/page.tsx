@@ -5,13 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { StorageService } from '@/services/storageService';
-import { 
-    isValidCalendarDate, 
-    formatCalendarDate, 
-    getSanLuisCivilToday 
+import {
+    isValidCalendarDate,
+    formatCalendarDate,
+    getSanLuisCivilToday
 } from '@/app/lib/date-format';
-import { 
-    UnifiedDocumentExtraction, 
+import {
+    UnifiedDocumentExtraction,
     ConsolidatedDocumentResult,
     IdentityComparisonResult,
     validateUnifiedExtraction,
@@ -19,20 +19,25 @@ import {
     compareIdentityWithTarget,
     DocumentConflict,
     FieldTraceability,
-    normalizeDni 
+    normalizeDni,
+    getScopedSocioDraftKey,
+    sanitizeSocioDraft,
+    migrateAndLoadScopedDraft,
+    clearScopedAndLegacySocioDraft,
+    applyProposalToSocioForm
 } from '@/app/lib/ocr-contract';
-import { 
-    ArrowLeft, 
-    ArrowRight, 
-    Check, 
-    User, 
-    ShieldCheck, 
-    Stethoscope, 
-    Save, 
-    Send, 
-    Upload, 
-    Trash2, 
-    AlertCircle, 
+import {
+    ArrowLeft,
+    ArrowRight,
+    Check,
+    User,
+    ShieldCheck,
+    Stethoscope,
+    Save,
+    Send,
+    Upload,
+    Trash2,
+    AlertCircle,
     CheckCircle,
     Truck,
     Info,
@@ -48,8 +53,6 @@ import {
     CheckSquare,
     RefreshCw
 } from 'lucide-react';
-
-const STORAGE_KEY = 'aciacam_new_socio_draft_v4';
 
 const DOC_CONFIG: Record<string, { needsFecha: boolean; needsMonto: boolean; hasExpiration: boolean }> = {
     consentimiento: { needsFecha: false, needsMonto: false, hasExpiration: false },
@@ -157,56 +160,59 @@ export default function NewSocioWizardPage() {
     const [bannerError, setBannerError] = useState<string | null>(null);
     const [bannerSuccess, setBannerSuccess] = useState<string | null>(null);
 
-    // 1. Detectar borrador previo sin restaurarlo silenciosamente sobre otra persona
+    // 1. Detectar borrador previo del usuario autenticado (migrando legacy sin datos clínicos ni restauración silenciosa)
     useEffect(() => {
-        const saved = localStorage.getItem(STORAGE_KEY);
         const freshKey = `alta_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-        setFormData({ ...INITIAL_FORM, idempotencyKey: freshKey });
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                const hasContent = Boolean(parsed?.nombre || parsed?.apellido || parsed?.dni || parsed?.email || parsed?.numeroTramite);
-                if (hasContent) {
-                    setPendingDraft(parsed);
-                }
-            } catch {
-                localStorage.removeItem(STORAGE_KEY);
+        setFormData(prev => (prev.idempotencyKey ? prev : { ...INITIAL_FORM, idempotencyKey: freshKey }));
+        if (user?.id) {
+            const { pendingDraft: migratedDraft, strippedClinicalData } = migrateAndLoadScopedDraft(localStorage, user.id);
+            setPendingDraft(migratedDraft);
+            if (strippedClinicalData && migratedDraft) {
+                setBannerSuccess('Se detectó un borrador anterior: se eliminaron los datos clínicos sensibles antes de ofrecer su recuperación.');
             }
+        } else {
+            setPendingDraft(null);
         }
         setIsLoaded(true);
-    }, []);
+    }, [user?.id]);
 
-    // 2. Guardar borrador mínimo en localStorage (sin datos clínicos sensibles)
+    // 2. Guardar borrador mínimo en localStorage aislado por usuario (sin datos clínicos sensibles ni procedencia)
     useEffect(() => {
         if (!isLoaded) return;
-        const hasAnyValue = Boolean(formData.nombre || formData.apellido || formData.dni || formData.email || formData.numeroTramite);
-        if (!hasAnyValue) return;
+        const scopedKey = getScopedSocioDraftKey(user?.id);
+        if (!scopedKey) return;
+        const { draft } = sanitizeSocioDraft(formData);
+        if (!draft) return;
         const timeout = setTimeout(() => {
-            const { medicoNombre: _m, medicoMatricula: _mat, diagnosticoPrincipal: _diag, ...minimalDraft } = formData;
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(minimalDraft));
+            localStorage.setItem(scopedKey, JSON.stringify(draft));
         }, 600);
         return () => clearTimeout(timeout);
-    }, [formData, isLoaded]);
+    }, [formData, isLoaded, user?.id]);
 
     const handleRecoverDraft = () => {
         if (!pendingDraft) return;
+        const { draft } = sanitizeSocioDraft(pendingDraft);
+        if (!draft) {
+            setPendingDraft(null);
+            return;
+        }
         setFormData(prev => ({
             ...prev,
-            ...pendingDraft,
-            idempotencyKey: pendingDraft.idempotencyKey || prev.idempotencyKey
+            ...draft,
+            idempotencyKey: draft.idempotencyKey || prev.idempotencyKey
         }));
         setPendingDraft(null);
-        setBannerSuccess('Borrador anterior recuperado explícitamente.');
+        setBannerSuccess('Borrador anterior recuperado explícitamente (sin datos clínicos previos).');
     };
 
     const handleDiscardDraft = () => {
-        localStorage.removeItem(STORAGE_KEY);
+        clearScopedAndLegacySocioDraft(localStorage, user?.id);
         setPendingDraft(null);
     };
 
     const handleStartNewAlta = (skipConfirm = false) => {
         if (skipConfirm || window.confirm("¿Seguro que deseás comenzar una nueva alta y descartar los datos actuales?")) {
-            localStorage.removeItem(STORAGE_KEY);
+            clearScopedAndLegacySocioDraft(localStorage, user?.id);
             const freshKey = `alta_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
             setFormData({ ...INITIAL_FORM, idempotencyKey: freshKey });
             setPendingDraft(null);
@@ -220,6 +226,31 @@ export default function NewSocioWizardPage() {
             setCurrentStep(1);
             setValidationError(null);
             setBannerError(null);
+        }
+    };
+
+    const handleApplyProposalToForm = (overwriteExisting = false) => {
+        const today = getSanLuisCivilToday();
+        const todayStr = `${today.year}-${String(today.month).padStart(2, '0')}-${String(today.day).padStart(2, '0')}`;
+        const result = applyProposalToSocioForm(formData, consolidatedExtraction, {
+            overwriteExisting,
+            manuallyEditedFields,
+            todayStr,
+            fallbackSourceDescription: extractionSummary?.sourceDescription,
+        });
+
+        if (result.blocked) {
+            setIdentityAlert(result.identityCheck);
+            setBannerError(result.identityCheck.reason || 'Discrepancia de identidad detectada: se bloqueó la aplicación sobre el formulario.');
+            return;
+        }
+
+        setIdentityAlert(null);
+        setFormData(result.formData);
+        if (result.appliedFields.length > 0) {
+            setBannerSuccess(`Se aplicaron ${result.appliedFields.length} campos revisados al formulario.`);
+        } else {
+            setBannerSuccess('No había campos nuevos para aplicar al formulario actual.');
         }
     };
 
@@ -340,44 +371,11 @@ export default function NewSocioWizardPage() {
                     || itemsToConsolidate[0].extraction;
                 setExtractionSummary(primaryExt);
 
-                // 3. Cotejo de identidad antes de precargar formulario (bloquea sobrescritura si es otra persona)
+                // 3. Cotejo de identidad solo informativo (nunca modifica formData automáticamente antes de aceptación explícita)
                 const c = consolidation.consolidated;
                 const hasExistingTarget = Boolean(formData.dni || formData.nombre || formData.apellido);
                 const idCheck = hasExistingTarget ? compareIdentityWithTarget(c, formData) : null;
                 setIdentityAlert(idCheck && idCheck.blocked ? idCheck : null);
-
-                if (!idCheck?.blocked) {
-                    const extractedFieldNames: string[] = [];
-
-                    setFormData(prev => {
-                        const updated = { ...prev };
-                        if (c.nombre && !prev.nombre && !manuallyEditedFields.has('nombre')) { updated.nombre = c.nombre; extractedFieldNames.push('nombre'); }
-                        if (c.apellido && !prev.apellido && !manuallyEditedFields.has('apellido')) { updated.apellido = c.apellido; extractedFieldNames.push('apellido'); }
-                        if (c.dni && !prev.dni && !manuallyEditedFields.has('dni')) { updated.dni = c.dni; extractedFieldNames.push('dni'); }
-                        if (c.fechaNacimiento && !prev.fechaNacimiento && !manuallyEditedFields.has('fechaNacimiento')) { updated.fechaNacimiento = c.fechaNacimiento; extractedFieldNames.push('fechaNacimiento'); }
-                        if (c.numeroTramite && !prev.numeroTramite && !manuallyEditedFields.has('numeroTramite')) { updated.numeroTramite = c.numeroTramite; extractedFieldNames.push('numeroTramite'); }
-                        if (c.fechaAlta && !prev.fechaAlta && !manuallyEditedFields.has('fechaAlta')) { updated.fechaAlta = c.fechaAlta; extractedFieldNames.push('fechaAlta'); }
-                        if (c.fechaVencimiento && !prev.fechaVencimiento && !manuallyEditedFields.has('fechaVencimiento')) { updated.fechaVencimiento = c.fechaVencimiento; extractedFieldNames.push('fechaVencimiento'); }
-                        if (c.medicoNombre && !prev.medicoNombre && !manuallyEditedFields.has('medicoNombre')) { updated.medicoNombre = c.medicoNombre; extractedFieldNames.push('medicoNombre'); }
-                        if (c.medicoMatricula && !prev.medicoMatricula && !manuallyEditedFields.has('medicoMatricula')) { updated.medicoMatricula = c.medicoMatricula; extractedFieldNames.push('medicoMatricula'); }
-                        if (c.diagnosticoPrincipal && !prev.diagnosticoPrincipal && !manuallyEditedFields.has('diagnosticoPrincipal')) { updated.diagnosticoPrincipal = c.diagnosticoPrincipal; extractedFieldNames.push('diagnosticoPrincipal'); }
-
-                        if (c.fechaVencimiento) {
-                            const today = getSanLuisCivilToday();
-                            const todayStr = `${today.year}-${String(today.month).padStart(2, '0')}-${String(today.day).padStart(2, '0')}`;
-                            if (c.fechaVencimiento >= todayStr) {
-                                updated.situacionReprocann = 'vigente';
-                            } else {
-                                updated.situacionReprocann = 'vencido';
-                            }
-                        }
-
-                        updated.fuenteExtraccion = c.fuenteExtraccion || primaryExt.sourceDescription;
-                        updated.camposExtraidos = Array.from(new Set([...(prev.camposExtraidos || []), ...extractedFieldNames]));
-
-                        return updated;
-                    });
-                }
             } else {
                 setConsolidatedExtraction({});
                 setFieldTraceability({});
@@ -403,7 +401,7 @@ export default function NewSocioWizardPage() {
             const items = filtered
                 .filter(d => d.extraction)
                 .map(d => ({ filename: d.file.name, extraction: d.extraction! }));
-            
+
             if (items.length > 0) {
                 const consolidation = consolidateDocumentExtractions(items);
                 setConflicts(consolidation.conflicts);
@@ -485,47 +483,9 @@ export default function NewSocioWizardPage() {
                 const hasExistingTarget = Boolean(formData.dni || formData.nombre || formData.apellido);
                 const idCheck = hasExistingTarget ? compareIdentityWithTarget(c, formData) : null;
                 setIdentityAlert(idCheck && idCheck.blocked ? idCheck : null);
-                const newlyExtractedFields: string[] = [];
-
-                if (!idCheck?.blocked) setFormData(prev => {
-                    const updated = { ...prev };
-                    const prevExtracted = prev.camposExtraidos || [];
-
-                    const applyIfEligible = (fieldKey: keyof FormData, newVal: any) => {
-                        if (!newVal) return;
-                        const currentVal = prev[fieldKey];
-                        const isManuallyEdited = manuallyEditedFields.has(fieldKey as string);
-                        if (!currentVal || (prevExtracted.includes(fieldKey as string) && !isManuallyEdited)) {
-                            (updated as any)[fieldKey] = newVal;
-                            newlyExtractedFields.push(fieldKey as string);
-                        }
-                    };
-
-                    applyIfEligible('nombre', c.nombre);
-                    applyIfEligible('apellido', c.apellido);
-                    applyIfEligible('dni', c.dni);
-                    applyIfEligible('fechaNacimiento', c.fechaNacimiento);
-                    applyIfEligible('numeroTramite', c.numeroTramite);
-                    applyIfEligible('fechaAlta', c.fechaAlta);
-                    applyIfEligible('fechaVencimiento', c.fechaVencimiento);
-                    applyIfEligible('medicoNombre', c.medicoNombre);
-                    applyIfEligible('medicoMatricula', c.medicoMatricula);
-                    applyIfEligible('diagnosticoPrincipal', c.diagnosticoPrincipal);
-
-                    if (c.fechaVencimiento && (!prev.fechaVencimiento || prevExtracted.includes('fechaVencimiento'))) {
-                        const today = getSanLuisCivilToday();
-                        const todayStr = `${today.year}-${String(today.month).padStart(2, '0')}-${String(today.day).padStart(2, '0')}`;
-                        updated.situacionReprocann = c.fechaVencimiento >= todayStr ? 'vigente' : 'vencido';
-                    }
-
-                    updated.fuenteExtraccion = c.fuenteExtraccion || primaryExt.sourceDescription;
-                    updated.camposExtraidos = Array.from(new Set([...prevExtracted, ...newlyExtractedFields]));
-
-                    return updated;
-                });
 
                 if (ext.extractionSource === 'agent_core_gemini') {
-                    setBannerSuccess(`¡Análisis exitoso con Gemini Vision para "${docToRetry.file.name}"! Se actualizaron los datos consolidados.`);
+                    setBannerSuccess(`¡Análisis exitoso con Gemini Vision para "${docToRetry.file.name}"! Revisá la propuesta consolidada antes de aplicarla.`);
                 } else {
                     setBannerError(`Se procesó el documento pero no fue posible completar el análisis con Gemini Vision (${ext.failureReason || 'se mantuvo extracción local'}).`);
                 }
@@ -604,7 +564,7 @@ export default function NewSocioWizardPage() {
             if (!formData.nombre.trim()) { setValidationError("El nombre es obligatorio"); return false; }
             if (!formData.apellido.trim()) { setValidationError("El apellido es obligatorio"); return false; }
             if (!formData.dni.trim()) { setValidationError("El DNI es obligatorio"); return false; }
-            
+
             // Fecha de nacimiento obligatoria
             if (!formData.fechaNacimiento) {
                 setValidationError("La fecha de nacimiento es obligatoria");
@@ -780,7 +740,7 @@ export default function NewSocioWizardPage() {
             }
 
             // 5. Limpieza de borrador y reporte transparente del resultado
-            localStorage.removeItem(STORAGE_KEY);
+            clearScopedAndLegacySocioDraft(localStorage, user?.id);
             const hasPendingOrRejected = attachedDocs.some(d => d.verificacionEstado !== 'aprobado');
 
             if (failedDocs.length > 0) {
@@ -1573,6 +1533,49 @@ export default function NewSocioWizardPage() {
                             </div>
                         </div>
 
+                        {/* Aceptación explícita del administrador para aplicar propuesta al formulario */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--muted) / 0.25)' }}>
+                            <span style={{ fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))' }}>
+                                Los datos detectados no se aplican automáticamente: confirmá explícitamente si querés incorporarlos al formulario.
+                            </span>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                <button
+                                    type="button"
+                                    disabled={Boolean(identityAlert?.blocked)}
+                                    onClick={() => handleApplyProposalToForm(false)}
+                                    style={{
+                                        padding: '0.5rem 0.9rem',
+                                        borderRadius: 'var(--radius)',
+                                        border: 'none',
+                                        backgroundColor: identityAlert?.blocked ? 'hsl(var(--muted))' : 'hsl(var(--primary))',
+                                        color: identityAlert?.blocked ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary-foreground))',
+                                        fontWeight: 600,
+                                        fontSize: '0.82rem',
+                                        cursor: identityAlert?.blocked ? 'not-allowed' : 'pointer'
+                                    }}
+                                >
+                                    Aplicar propuesta en campos vacíos
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={Boolean(identityAlert?.blocked)}
+                                    onClick={() => handleApplyProposalToForm(true)}
+                                    style={{
+                                        padding: '0.5rem 0.9rem',
+                                        borderRadius: 'var(--radius)',
+                                        border: '1px solid hsl(var(--border))',
+                                        backgroundColor: 'hsl(var(--card))',
+                                        color: identityAlert?.blocked ? 'hsl(var(--muted-foreground))' : 'hsl(var(--foreground))',
+                                        fontWeight: 500,
+                                        fontSize: '0.82rem',
+                                        cursor: identityAlert?.blocked ? 'not-allowed' : 'pointer'
+                                    }}
+                                >
+                                    Aplicar y actualizar diferencias
+                                </button>
+                            </div>
+                        </div>
+
                         {/* Botón rápido para volver y agregar más documentos */}
                         <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '0.5rem' }}>
                             <button
@@ -1831,14 +1834,14 @@ export default function NewSocioWizardPage() {
                                         style={{
                                             padding: '0.6rem 0.4rem',
                                             borderRadius: 'var(--radius)',
-                                            border: formData.situacionReprocann === opt.id 
-                                                ? '2px solid hsl(var(--primary))' 
+                                            border: formData.situacionReprocann === opt.id
+                                                ? '2px solid hsl(var(--primary))'
                                                 : '1px solid hsl(var(--border))',
-                                            backgroundColor: formData.situacionReprocann === opt.id 
-                                                ? 'hsl(var(--primary) / 0.1)' 
+                                            backgroundColor: formData.situacionReprocann === opt.id
+                                                ? 'hsl(var(--primary) / 0.1)'
                                                 : 'hsl(var(--card))',
-                                            color: formData.situacionReprocann === opt.id 
-                                                ? 'hsl(var(--primary))' 
+                                            color: formData.situacionReprocann === opt.id
+                                                ? 'hsl(var(--primary))'
                                                 : 'inherit',
                                             fontWeight: formData.situacionReprocann === opt.id ? 600 : 400,
                                             fontSize: '0.85rem',
