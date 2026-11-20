@@ -47,19 +47,32 @@ export function buildSocioIdentitySignature(
     ].join('|');
 }
 
+export const PROFILE_REVALIDATE_TTL_MS = 60_000;
+
 export function shouldSkipProfileRefreshOnTokenEvent(params: {
     event: AuthChangeEvent;
     currentUserId: string | null;
     currentAuthRole: string | null;
     hasLoadedSocio: boolean;
     session: Session | null;
+    lastSyncedAt?: number;
+    now?: number;
+    revalidateTtlMs?: number;
 }): boolean {
     const nextUserId = params.session?.user?.id ?? null;
     if (!nextUserId || !params.hasLoadedSocio) return false;
     if (params.currentUserId !== nextUserId) return false;
     const nextAuthRole = (params.session?.user?.app_metadata?.role as string | undefined) ?? null;
     if (params.currentAuthRole !== nextAuthRole) return false;
-    return params.event === 'TOKEN_REFRESHED';
+    if (params.event !== 'TOKEN_REFRESHED') return false;
+
+    const ttl = params.revalidateTtlMs ?? PROFILE_REVALIDATE_TTL_MS;
+    const lastSynced = params.lastSyncedAt ?? 0;
+    const now = params.now ?? Date.now();
+    if (!lastSynced || now - lastSynced >= ttl) {
+        return false;
+    }
+    return true;
 }
 
 export function resolveStableSocioState<T extends SocioLike>(
