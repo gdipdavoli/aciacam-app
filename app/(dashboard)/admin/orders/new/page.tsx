@@ -40,12 +40,29 @@ function NewDispenseForm() {
     const [cart, setCart] = useState<Record<string, number>>({});
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [pendingOrder, setPendingOrder] = useState<Pedido | null>(null);
+    const [cancellingPending, setCancellingPending] = useState(false);
     const createIdempotencyKeyRef = useRef<string | null>(null);
     const createdOrderRef = useRef<Pedido | null>(null);
 
     const resetTransactionRefs = () => {
         createIdempotencyKeyRef.current = null;
         createdOrderRef.current = null;
+        setPendingOrder(null);
+    };
+
+    const handleCancelPendingOrder = async () => {
+        if (!pendingOrder || cancellingPending) return;
+        setCancellingPending(true);
+        setErrorMessage(null);
+        try {
+            await StoreService.updatePedidoStatus(pendingOrder.id, 'cancelado');
+            resetTransactionRefs();
+        } catch (err: any) {
+            setErrorMessage(err?.message || 'No se pudo cancelar el pedido pendiente.');
+        } finally {
+            setCancellingPending(false);
+        }
     };
 
     useEffect(() => {
@@ -107,6 +124,10 @@ function NewDispenseForm() {
     }
 
     const handleAddToCart = (id: string, qty: number) => {
+        if (pendingOrder) {
+            setErrorMessage('Ya existe un pedido pendiente creado en esta sesión. Finalizalo o cancelalo antes de modificar los productos.');
+            return;
+        }
         resetTransactionRefs();
         setErrorMessage(null);
         setCart(prev => ({ ...prev, [id]: Math.max(0, (prev[id] || 0) + qty) }));
@@ -178,6 +199,7 @@ function NewDispenseForm() {
                         motivo_admin: notes.trim() || 'Dispensa directa administrativa en sede/delivery'
                     } as any
                 );
+                setPendingOrder(createdOrderRef.current);
             }
 
             const targetStatus = orderType === 'delivery' ? 'entregado' : 'retirado';
@@ -193,6 +215,7 @@ function NewDispenseForm() {
                 paymentCommandId
             );
 
+            resetTransactionRefs();
             setShowPaymentModal(false);
             alert('Dispensa registrada y finalizada correctamente');
             router.push('/admin');
@@ -350,19 +373,19 @@ function NewDispenseForm() {
                             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
                                 <div style={{ flex: 1 }}>
                                     <label style={{ fontSize: '0.8rem', opacity: 0.7, display: 'block', marginBottom: '0.25rem' }}>Fecha de Dispensa</label>
-                                    <input 
-                                        type="date" 
-                                        value={date} 
+                                    <input
+                                        type="date"
+                                        value={date}
                                         onChange={e => {
                                             setDate(e.target.value);
                                             setSelectedSlotId(null); // Reset slot if date manual changed
                                             setSlotDate('');
-                                        }} 
-                                        style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }} 
+                                        }}
+                                        style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
                                     />
                                 </div>
                             </div>
-                            
+
                             <p style={{ fontSize: '0.8rem', marginBottom: '0.5rem', opacity: 0.8 }}>O selecciona un turno existente:</p>
                             <SlotSelector
                                 selectedSlotId={selectedSlotId}
@@ -451,6 +474,22 @@ function NewDispenseForm() {
                             </ul>
                         )}
 
+                        {pendingOrder && (
+                            <div style={{ marginBottom: '1rem', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', backgroundColor: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e', fontSize: '0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                                <span>
+                                    Pedido pendiente <strong>#{pendingOrder.id.slice(0, 8)}</strong> ya creado (stock reservado). Podés reintentar la finalización sin duplicar o cancelarlo para editar.
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={handleCancelPendingOrder}
+                                    disabled={cancellingPending}
+                                    style={{ padding: '0.4rem 0.75rem', borderRadius: 'var(--radius)', border: '1px solid #d97706', backgroundColor: 'white', color: '#92400e', fontWeight: 600, cursor: 'pointer' }}
+                                >
+                                    {cancellingPending ? 'Cancelando...' : 'Cancelar pedido pendiente'}
+                                </button>
+                            </div>
+                        )}
+
                         {errorMessage && (
                             <div style={{ marginBottom: '1rem', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', backgroundColor: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: '0.9rem' }}>
                                 {errorMessage}
@@ -460,7 +499,8 @@ function NewDispenseForm() {
                         <div style={{ display: 'flex', gap: '1rem' }}>
                             <button
                                 onClick={() => setStep(2)}
-                                style={{ flex: 1, padding: '1rem', backgroundColor: 'transparent', color: 'inherit', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '1rem', fontWeight: 600, cursor: 'pointer' }}
+                                disabled={Boolean(pendingOrder)}
+                                style={{ flex: 1, padding: '1rem', backgroundColor: 'transparent', color: 'inherit', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)', fontSize: '1rem', fontWeight: 600, cursor: pendingOrder ? 'not-allowed' : 'pointer', opacity: pendingOrder ? 0.5 : 1 }}
                             >
                                 Volver
                             </button>
@@ -469,7 +509,7 @@ function NewDispenseForm() {
                                 disabled={totalItems === 0}
                                 style={{ flex: 2, padding: '1rem', backgroundColor: 'hsl(var(--primary))', color: 'white', border: 'none', borderRadius: 'var(--radius)', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', opacity: totalItems === 0 ? 0.5 : 1 }}
                             >
-                                Registrar y Finalizar Dispensa
+                                {pendingOrder ? 'Reintentar Finalización' : 'Registrar y Finalizar Dispensa'}
                             </button>
                         </div>
                     </div>

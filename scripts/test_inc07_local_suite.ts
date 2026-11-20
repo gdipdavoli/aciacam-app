@@ -39,11 +39,13 @@ test('INC07-U1: Formulario dispensa directa incluye localidad, modal transaccion
     assert.ok(newPage.includes('idempotency_key: createIdempotencyKeyRef.current'), 'Debe preservar idempotency_key en creación');
     assert.ok(newPage.includes('confirmOrderAndPayments'), 'Debe finalizar mediante comando transaccional existente');
     assert.ok(newPage.includes('PaymentRegistrationModal'), 'Debe usar PaymentRegistrationModal');
+    assert.ok(newPage.includes('pendingOrder') && newPage.includes('handleCancelPendingOrder'), 'Debe proteger y recuperar pedido pendiente antes de editar carrito/modalidad');
+    assert.ok(newPage.includes('Reintentar Finalización'), 'Debe permitir reintentar sin duplicar');
     assert.ok(!storeService.includes('if (!updateErr && updated) {\r\n                return mapPedidoFromDB(updated);\r\n            }\r\n        }\r\n\r\n        return mapPedidoFromDB(data);'), 'createPedido no debe silenciar updateErr');
     assert.ok(storeService.includes('if (updateErr || !updated)'), 'createPedido debe lanzar error si falla actualización post-insert');
 });
 
-test('INC07-PG-PROD: Dispensa directa sin pedido previo, localidad delivery, idempotencia sin duplicar stock/aportes y permisos en copia de Producción', () => {
+test('INC07-PG-PROD: Dispensa directa (completo, parcial, sin aporte), recuperación/cancelación, errores no exitosos, idempotencia y permisos en copia de Producción', () => {
     const out = runSqlInProdRestoreRollback(`
 DO $$
 DECLARE
@@ -138,22 +140,57 @@ BEGIN
     );
     IF (v_res->>'reused')::boolean IS NOT TRUE THEN RAISE EXCEPTION 'Reintento cobro debe ser reused=true'; END IF;
 
-    -- 5. Dispensa directa delivery con localidad + finalización
+    -- 5. Dispensa directa delivery con localidad + aporte parcial (20000 de 50000)
     INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, direccion_entrega, localidad, items, total, created_by_user_id, idempotency_key)
     VALUES (v_socio_id, 'delivery', 'admin', 'pendiente', 'Av. Siempre Viva 742', 'La Plata', jsonb_build_array(jsonb_build_object('productoId', v_prod_id, 'cantidad', 1)), 50000, v_admin_auth, v_idem_deliv)
     RETURNING id INTO v_order_deliv;
 
     v_res := public.confirm_order_payment_command(
         v_cmd_deliv, v_order_deliv, 'entregado',
-        jsonb_build_array(jsonb_build_object('monto', 50000, 'medio_de_pago', 'transferencia_galicia', 'referencia', 'INC07-TRF', 'concepto', 'Aporte delivery')),
+        jsonb_build_array(jsonb_build_object('monto', 20000, 'medio_de_pago', 'transferencia_galicia', 'referencia', 'INC07-TRF', 'concepto', 'Aporte parcial delivery')),
         v_admin_auth
     );
 
-    -- Verificar stock (20 - 2 - 1 = 17), cantidad de pedidos (2) y pagos (2)
+    -- 6. Dispensa directa SIN aporte inicial ('[]')
+    DECLARE
+        v_order_no_pay uuid;
+        v_order_cancel uuid;
+        v_stock_before_cancel integer;
+    BEGIN
+        INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
+        VALUES (v_socio_id, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_id, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid())
+        RETURNING id INTO v_order_no_pay;
+
+        -- Simular error de finalización (estado destino incompatible con retiro_sede): pedido NO queda finalizado
+        BEGIN
+            PERFORM public.confirm_order_payment_command(gen_random_uuid(), v_order_no_pay, 'entregado', '[]'::jsonb, v_admin_auth);
+            RAISE EXCEPTION 'Debió fallar con INVALID_ORDER_TYPE_FOR_STATUS';
+        EXCEPTION WHEN OTHERS THEN
+            IF SQLERRM NOT LIKE '%INVALID_ORDER_TYPE_FOR_STATUS%' THEN RAISE; END IF;
+        END;
+        IF (SELECT estado FROM public.pedidos WHERE id = v_order_no_pay) <> 'pendiente' THEN
+            RAISE EXCEPTION 'Pedido tras error no debe quedar finalizado';
+        END IF;
+
+        -- Recuperar y finalizar sin aporte inicial
+        PERFORM public.confirm_order_payment_command(gen_random_uuid(), v_order_no_pay, 'retirado', '[]'::jsonb, v_admin_auth);
+
+        -- 7. Crear pedido pendiente tras error y cancelarlo antes de editar carrito -> stock debe restituirse
+        SELECT stock_disponible INTO v_stock_before_cancel FROM public.products WHERE id = v_prod_id;
+        INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
+        VALUES (v_socio_id, 'retiro_sede', 'admin', 'pendiente', jsonb_build_array(jsonb_build_object('productoId', v_prod_id, 'cantidad', 3)), 150000, v_admin_auth, gen_random_uuid())
+        RETURNING id INTO v_order_cancel;
+        UPDATE public.pedidos SET estado = 'cancelado' WHERE id = v_order_cancel;
+        IF (SELECT stock_disponible FROM public.products WHERE id = v_prod_id) <> v_stock_before_cancel THEN
+            RAISE EXCEPTION 'Cancelación de pedido pendiente no restituyó stock';
+        END IF;
+    END;
+
+    -- Verificar stock (20 - 2 - 1 - 1 = 16), cantidad de pedidos activos/finalizados no cancelados (3) y pagos (2)
     SELECT stock_disponible INTO v_stock_after FROM public.products WHERE id = v_prod_id;
-    SELECT count(*) INTO v_orders_count FROM public.pedidos WHERE socio_id = v_socio_id;
+    SELECT count(*) INTO v_orders_count FROM public.pedidos WHERE socio_id = v_socio_id AND estado <> 'cancelado';
     SELECT count(*) INTO v_pagos_count FROM public.pagos WHERE socio_id = v_socio_id;
-    IF v_stock_after <> 17 OR v_orders_count <> 2 OR v_pagos_count <> 2 THEN
+    IF v_stock_after <> 16 OR v_orders_count <> 3 OR v_pagos_count <> 2 THEN
         RAISE EXCEPTION 'Conteo inconsistente: stock=% pedidos=% pagos=%', v_stock_after, v_orders_count, v_pagos_count;
     END IF;
 END $$;
