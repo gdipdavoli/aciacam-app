@@ -13,16 +13,16 @@ ALTER TABLE public.socios
 UPDATE public.socios s
 SET admision_institucional_estado = CASE
         WHEN s.status = 'suspended' THEN 'suspendido'
-        WHEN s.acta_numero IS NOT NULL
-          OR s.orden_libro IS NOT NULL
+        WHEN NULLIF(to_jsonb(s)->>'acta_numero', '') IS NOT NULL
+          OR NULLIF(to_jsonb(s)->>'orden_libro', '') IS NOT NULL
           OR EXISTS (SELECT 1 FROM public.onboarding_application_materializations m WHERE m.socio_id = s.id)
             THEN 'admitido'
         ELSE 'pendiente'
     END,
     admision_institucional_at = CASE
         WHEN s.status <> 'suspended' AND (
-            s.acta_numero IS NOT NULL
-            OR s.orden_libro IS NOT NULL
+            NULLIF(to_jsonb(s)->>'acta_numero', '') IS NOT NULL
+            OR NULLIF(to_jsonb(s)->>'orden_libro', '') IS NOT NULL
             OR EXISTS (SELECT 1 FROM public.onboarding_application_materializations m WHERE m.socio_id = s.id)
         ) THEN COALESCE(s.fecha_ingreso_ong::timestamptz, s.created_at)
         ELSE NULL
@@ -260,7 +260,7 @@ BEGIN
 
     -- Solo es vencimiento confirmado si existe fecha conocida < hoy_ART; ausencia de archivo NO equivale a vencimiento
     v_repro_vencido_confirmado := (v_repro_vencimiento IS NOT NULL AND v_repro_vencimiento < v_today);
-    v_repro_rechazado := (lower(btrim(COALESCE(v_socio.reprocann_estado, ''))) = 'rechazado')
+    v_repro_rechazado := (lower(btrim(COALESCE(to_jsonb(v_socio)->>'reprocann_estado', ''))) = 'rechazado')
         OR COALESCE(v_repro_doc.verificacion_estado = 'rechazado', false);
 
     IF v_repro_rechazado THEN
@@ -302,8 +302,8 @@ BEGIN
         v_advertencias := array_append(v_advertencias, 'REPROCANN_PENDIENTE_REVISION');
     END IF;
 
-    v_inconsistencia_repro := (lower(btrim(COALESCE(v_socio.reprocann_estado, ''))) IN ('vigente', 'activo') AND v_repro_vencido_confirmado)
-        OR (lower(btrim(COALESCE(v_socio.reprocann_estado, ''))) IN ('vigente', 'activo') AND v_repro_doc.archivo_path IS NULL AND v_repro_prof.verification_status IS NULL);
+    v_inconsistencia_repro := (lower(btrim(COALESCE(to_jsonb(v_socio)->>'reprocann_estado', ''))) IN ('vigente', 'activo') AND v_repro_vencido_confirmado)
+        OR (lower(btrim(COALESCE(to_jsonb(v_socio)->>'reprocann_estado', ''))) IN ('vigente', 'activo') AND v_repro_doc.archivo_path IS NULL AND v_repro_prof.verification_status IS NULL);
     IF v_inconsistencia_repro THEN
         v_advertencias := array_append(v_advertencias, 'DATOS_INCONSISTENTES_REPROCANN');
     END IF;
@@ -325,8 +325,8 @@ BEGIN
         v_advertencias := array_append(v_advertencias, 'CONTRATO_NO_CARGADO');
     END IF;
 
-    -- E. Separación explícita de las 3 operaciones
-    v_puede_solicitar := NOT v_bloqueado AND (v_socio.auth_user_id IS NOT NULL OR v_socio.status = 'active');
+    -- E. Separación explícita de las 3 operaciones (autenticación/autorización del portal se evalúan por separado)
+    v_puede_solicitar := NOT v_bloqueado;
     v_puede_registrar := NOT v_bloqueado;
     v_puede_finalizar := (cardinality(v_bloqueos) = 0);
 
@@ -656,7 +656,9 @@ DECLARE
     v_eval jsonb;
     v_bloqueos text[];
 BEGIN
-    IF NEW.estado IN ('entregado', 'retirado') AND OLD.estado IS DISTINCT FROM NEW.estado AND NEW.socio_id IS NOT NULL THEN
+    IF NEW.estado IN ('entregado', 'retirado')
+       AND (TG_OP = 'INSERT' OR OLD.estado IS DISTINCT FROM NEW.estado)
+       AND NEW.socio_id IS NOT NULL THEN
         v_eval := public.evaluate_socio_dispensation_eligibility(NEW.socio_id);
         IF (v_eval->>'puedeFinalizarDispensa')::boolean IS NOT TRUE THEN
             SELECT ARRAY(SELECT jsonb_array_elements_text(v_eval->'bloqueosObligatorios')) INTO v_bloqueos;
@@ -679,7 +681,7 @@ REVOKE ALL ON FUNCTION app_private.enforce_finalization_eligibility() FROM PUBLI
 
 DROP TRIGGER IF EXISTS tr_b_inc08_finalization_eligibility ON public.pedidos;
 CREATE TRIGGER tr_b_inc08_finalization_eligibility
-    BEFORE UPDATE ON public.pedidos
+    BEFORE INSERT OR UPDATE ON public.pedidos
     FOR EACH ROW
     EXECUTE FUNCTION app_private.enforce_finalization_eligibility();
 

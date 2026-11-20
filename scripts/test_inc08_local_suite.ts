@@ -94,9 +94,9 @@ BEGIN
     INSERT INTO public.products (id, nombre, categoria, tipo, peso_gramos, precio, stock_disponible, activo)
     VALUES (v_prod_flor, 'Flor INC08', 'flores', 'flor', 10, 50000, 30, true);
 
-    -- 1. Socio 'invited' sin documentos digitalizados -> NO bloquea pedido ni entrega; genera advertencias
+    -- 1. Socio 'invited' sin documentos digitalizados -> NO bloquea solicitud, pedido ni entrega; genera advertencias
     v_eval := public.get_socio_dispensation_eligibility(v_s_invited_nodoc);
-    IF (v_eval->>'puedeSolicitar')::boolean IS NOT FALSE
+    IF (v_eval->>'puedeSolicitar')::boolean IS NOT TRUE
        OR (v_eval->>'puedeRegistrarPedido')::boolean IS NOT TRUE
        OR (v_eval->>'puedeFinalizarDispensa')::boolean IS NOT TRUE
        OR (v_eval->>'requiereRegularizacion')::boolean IS NOT TRUE
@@ -151,7 +151,23 @@ BEGIN
     RETURNING id INTO v_o_exp;
     BEGIN
         PERFORM public.confirm_order_payment_command(gen_random_uuid(), v_o_exp, 'retirado', '[]'::jsonb, v_admin_auth);
-        RAISE EXCEPTION 'Caso 4: finalización con REPROCANN_VENCIDO_CONFIRMADO debió fallar';
+        RAISE EXCEPTION 'Caso 4: finalización por RPC con REPROCANN_VENCIDO_CONFIRMADO debió fallar';
+    EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM NOT LIKE '%REPROCANN_VENCIDO_CONFIRMADO%' THEN RAISE; END IF;
+    END;
+    BEGIN
+        UPDATE public.pedidos SET estado = 'confirmado' WHERE id = v_o_exp;
+        UPDATE public.pedidos SET estado = 'en_preparacion' WHERE id = v_o_exp;
+        UPDATE public.pedidos SET estado = 'listo_para_retiro' WHERE id = v_o_exp;
+        UPDATE public.pedidos SET estado = 'retirado' WHERE id = v_o_exp;
+        RAISE EXCEPTION 'Caso 4b: bypass por UPDATE directo con REPROCANN_VENCIDO_CONFIRMADO debió fallar';
+    EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM NOT LIKE '%REPROCANN_VENCIDO_CONFIRMADO%' THEN RAISE; END IF;
+    END;
+    BEGIN
+        INSERT INTO public.pedidos (socio_id, tipo_pedido, origen, estado, items, total, created_by_user_id, idempotency_key)
+        VALUES (v_s_exp, 'retiro_sede', 'admin', 'retirado', jsonb_build_array(jsonb_build_object('productoId', v_prod_flor, 'cantidad', 1)), 50000, v_admin_auth, gen_random_uuid());
+        RAISE EXCEPTION 'Caso 4c: bypass por INSERT directo con estado final retirado debió fallar';
     EXCEPTION WHEN OTHERS THEN
         IF SQLERRM NOT LIKE '%REPROCANN_VENCIDO_CONFIRMADO%' THEN RAISE; END IF;
     END;
