@@ -2,7 +2,9 @@
  * app/lib/order-pricing.ts
  *
  * Cálculo unificado de aportes, gramos de flores y unidades de aceites/goteros.
- * - Flores: aporte = cantidad * peso_gramos * aporte_por_gramo; computa en floresGramos.
+ * - Flores: si tienen aporte_unidad configurado, usan ese aporte fijo por presentación
+ *   (ej. 5 g = $65.000, 10 g = $125.000); si no, cantidad * peso_gramos * aporte_por_gramo.
+ *   En ambos casos computan en floresGramos por sus gramos reales.
  * - Aceites/goteros: aporte = cantidad * aporte_unidad (o precio); independiente de peso_gramos;
  *   no contamina el contador de gramos de flores.
  * - Pedidos históricos: preserva el valor persistido en order.total o precioUnitario del ítem.
@@ -33,8 +35,12 @@ export function getUnitAporte(
     aportePorGramo: number
 ): number {
     if (!product) return 0;
+    if (product.aporte_unidad !== null && product.aporte_unidad !== undefined) {
+        const unit = Number(product.aporte_unidad);
+        if (Number.isFinite(unit) && unit >= 0) return unit;
+    }
     if (isOilProduct(product.tipo)) {
-        const rawUnit = product.aporte_unidad ?? product.precio ?? 0;
+        const rawUnit = product.precio ?? 0;
         const unit = Number(rawUnit);
         return Number.isFinite(unit) && unit >= 0 ? unit : 0;
     }

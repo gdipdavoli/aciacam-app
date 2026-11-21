@@ -287,14 +287,14 @@ export default function NewProductPage() {
 
                     <div>
                         <label className="block text-sm font-medium mb-1">
-                            Aporte por unidad / frasco (ARS){formData.tipo === 'gotero' ? ' *' : ' (opcional)'}
+                            {formData.tipo === 'gotero' ? 'Aporte por unidad / frasco (ARS) *' : 'Aporte fijo por presentación (ARS, opcional)'}
                         </label>
                         <input
                             type="number"
                             required={formData.tipo === 'gotero'}
                             min="0"
                             step="100"
-                            placeholder={formData.tipo === 'gotero' ? 'Ej: 25000' : 'Solo si aplica aporte fijo'}
+                            placeholder={formData.tipo === 'gotero' ? 'Ej: 25000' : 'Ej: 65000 (si vacío, usa gr × valor global)'}
                             className="w-full p-2 border rounded-md bg-background text-foreground"
                             value={formData.aporte_unidad !== undefined && formData.aporte_unidad !== null ? formData.aporte_unidad.toString() : ''}
                             onChange={e => {
@@ -306,7 +306,9 @@ export default function NewProductPage() {
                             }}
                         />
                         <p className="text-xs text-muted-foreground mt-1">
-                            Para aceites/goteros se calcula por frasco, independiente del peso en gramos.
+                            {formData.tipo === 'gotero'
+                                ? 'Para aceites/goteros se calcula por frasco, independiente del peso en gramos.'
+                                : 'Si se informa, aplica un aporte fijo para esta presentación (ej. 5 g: $65.000, 10 g: $125.000) manteniendo el stock en gramos.'}
                         </p>
                     </div>
 
