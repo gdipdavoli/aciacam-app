@@ -57,9 +57,12 @@ test('HF-01: Santanesia 5g ($65.000) y 10g ($125.000) usan aporte fijo independi
     assert.equal(calculateItemAporte(santanesia10, 1, 10000), 125000);
 });
 
-test('HF-02: Flor sin aporte_unidad configurado mantiene fallback peso_gramos * aporte_por_gramo', () => {
+test('HF-02: Flor sin aporte_unidad (null) mantiene fallback peso_gramos * aporte_por_gramo, y aporte_unidad = 0 es válido', () => {
     assert.equal(getUnitAporte(florLegacySinAporte, 10000), 100000);
     assert.equal(calculateItemAporte(florLegacySinAporte, 2, 10000), 200000);
+    const florAporteCero = { ...florLegacySinAporte, aporte_unidad: 0 };
+    assert.equal(getUnitAporte(florAporteCero, 10000), 0);
+    assert.equal(calculateItemAporte(florAporteCero, 2, 10000), 0);
 });
 
 test('HF-03: Carrito mixto (flores con aporte fijo + aceite) mantiene floresGramos reales y aceitesUnidades', () => {

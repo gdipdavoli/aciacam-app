@@ -78,7 +78,7 @@ BEGIN
         (v_s_invited_nodoc, NULL, NULL, 'Socio', 'InvitedNoDoc', '55100101', 's_inv@test.invalid', 'socio', 'invited', false, 'admitido', NULL, NULL),
         (v_s_active_nodoc, v_socio_auth, v_socio_auth, 'Socio', 'ActiveNoDoc', '55100102', 'inc08_socio@test.invalid', 'socio', 'active', false, 'admitido', NULL, NULL),
         (v_s_pend_rev, NULL, NULL, 'Socio', 'PendRev', '55100103', 's_prev@test.invalid', 'socio', 'invited', false, 'admitido', NULL, NULL),
-        (v_s_exp, NULL, NULL, 'Socio', 'ReproExp', '55100105', 's_exp@test.invalid', 'socio', 'invited', false, 'admitido', 'aprobado', (current_date - 1)),
+        (v_s_exp, NULL, NULL, 'Socio', 'ReproExp', '55100105', 's_exp@test.invalid', 'socio', 'invited', false, 'admitido', 'aprobado', ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - 1)),
         (v_s_rej, NULL, NULL, 'Socio', 'ReproRej', '55100107', 's_rej@test.invalid', 'socio', 'active', false, 'admitido', 'rechazado', NULL),
         (v_s_blk, NULL, NULL, 'Socio', 'Bloqueado', '55100106', 's_blk@test.invalid', 'socio', 'active', true, 'admitido', 'aprobado', (current_date + 180));
 
@@ -89,7 +89,7 @@ BEGIN
     VALUES
         (v_s_pend_rev::text, 'reprocann', 'synthetic/r.pdf', 'pendiente', NULL, NULL, true),
         (v_s_pend_rev::text, 'consentimiento', 'synthetic/c.pdf', 'pendiente', NULL, NULL, true),
-        (v_s_exp::text, 'reprocann', 'synthetic/exp.pdf', 'aprobado', (current_date - 400), (now() - interval '1 day'), true);
+        (v_s_exp::text, 'reprocann', 'synthetic/exp.pdf', 'aprobado', ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - 400), (((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - 1)::timestamptz), true);
 
     INSERT INTO public.products (id, nombre, categoria, tipo, peso_gramos, precio, stock_disponible, activo)
     VALUES (v_prod_flor, 'Flor INC08', 'flores', 'flor', 10, 50000, 30, true);
@@ -327,7 +327,7 @@ BEGIN
     INSERT INTO public.socios (id, auth_user_id, user_id, nombre, apellido, dni, email, rol, status, bloqueado, admision_institucional_estado)
     VALUES (gen_random_uuid(), v_admin, v_admin, 'Conc', 'Admin', '11000111', 'inc08_conc@test.invalid', 'admin', 'active', false, 'admitido');
     INSERT INTO public.socios (id, nombre, apellido, dni, email, rol, status, bloqueado, admision_institucional_estado, reprocann_estado, reprocann_fecha_vencimiento)
-    VALUES (v_socio, 'Conc', 'Socio', '11000222', 'conc_s@test.invalid', 'socio', 'invited', false, 'admitido', 'aprobado', current_date - 1);
+    VALUES (v_socio, 'Conc', 'Socio', '11000222', 'conc_s@test.invalid', 'socio', 'invited', false, 'admitido', 'aprobado', ((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - 1));
     PERFORM set_config('request.jwt.claim.sub', v_admin::text, true);
     INSERT INTO public.products (id, nombre, categoria, tipo, peso_gramos, precio, stock_disponible, activo)
     VALUES (v_prod, 'Flor Conc', 'flores', 'flor', 10, 50000, 20, true);
