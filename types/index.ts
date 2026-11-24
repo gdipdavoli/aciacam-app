@@ -177,6 +177,7 @@ export interface Pedido {
     created_by_user_id?: string;
     idempotency_key?: string;
     updated_at?: string;
+    fecha_entrega_efectiva?: string | null;
 }
 
 export interface PedidosFilterOptions {

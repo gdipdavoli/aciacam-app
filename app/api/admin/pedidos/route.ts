@@ -141,7 +141,7 @@ export async function GET(request: Request) {
             query = query.gte('created_at', `${desdeParam}T00:00:00-03:00`);
         }
         if (hastaParam && /^\d{4}-\d{2}-\d{2}$/.test(hastaParam)) {
-            query = query.lte('created_at', `${hastaParam}T23:59:59-03:00`);
+            query = query.lte('created_at', `${hastaParam}T23:59:59.999-03:00`);
         }
 
         // Filtro por Búsqueda (Socio o ID de Pedido)

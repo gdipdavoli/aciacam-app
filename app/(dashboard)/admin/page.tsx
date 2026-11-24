@@ -7,6 +7,12 @@ import { Pedido, OrderStatus, OrderType, PedidosFilterOptions } from '@/types';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { getStatusLabel, getNextStatusOptions, isFinalStatus, getQuickDeliveryTarget } from '@/helpers/orderHelpers';
+import {
+    formatOrderDateTimeAR,
+    getDateRangePresetAR,
+    detectDatePresetAR,
+    OrderDatePreset
+} from '@/helpers/orderDateHelpers';
 import { 
     Search, 
     Filter, 
@@ -104,6 +110,34 @@ export default function AdminOrdersPage() {
 
     // Drawer de filtros avanzados en mobile
     const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+    const [customDateRequested, setCustomDateRequested] = useState(false);
+    const detectedDatePreset = detectDatePresetAR(currentDesde, currentHasta);
+    const effectiveDatePreset: OrderDatePreset =
+        detectedDatePreset === 'all' && customDateRequested ? 'custom' : detectedDatePreset;
+
+    const handleDatePresetChange = (preset: OrderDatePreset) => {
+        if (preset === 'all') {
+            setCustomDateRequested(false);
+            updateUrlParams({ desde: null, hasta: null });
+            return;
+        }
+        if (preset === 'custom') {
+            setCustomDateRequested(true);
+            setShowAdvancedFilters(true);
+            return;
+        }
+        setCustomDateRequested(false);
+        const range = getDateRangePresetAR(preset);
+        updateUrlParams({ desde: range.desde, hasta: range.hasta });
+    };
+
+    const handleToggleCreatedSort = () => {
+        if (currentSortBy === 'created_at') {
+            updateUrlParams({ sortBy: 'created_at', sortDir: currentSortDir === 'desc' ? 'asc' : 'desc' });
+        } else {
+            updateUrlParams({ sortBy: 'created_at', sortDir: 'desc' });
+        }
+    };
 
     // Modales de cambio de estado y cobro
     const [pendingChange, setPendingChange] = useState<{ id: string; newStatus: string; currentStatus: string } | null>(null);
@@ -261,6 +295,7 @@ export default function AdminOrdersPage() {
     // Limpiar todos los filtros
     const handleResetFilters = () => {
         setSearchInput('');
+        setCustomDateRequested(false);
         if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
         router.replace(`${pathname}?tab=${currentTab}&page=1`, { scroll: false });
     };
@@ -565,6 +600,24 @@ export default function AdminOrdersPage() {
                         </select>
                     </div>
 
+                    {/* Filtro rápido por Fecha de Creación (Horario Argentina) */}
+                    <div className="w-full md:w-44">
+                        <select
+                            aria-label="Filtrar por fecha de creación"
+                            value={effectiveDatePreset}
+                            onChange={(e) => handleDatePresetChange(e.target.value as OrderDatePreset)}
+                            className="w-full py-2.5 px-3 rounded-xl border border-input bg-background/60 text-sm font-medium focus:ring-2 focus:ring-primary focus:outline-none cursor-pointer"
+                        >
+                            <option value="all">Fecha: Todas</option>
+                            <option value="today">Hoy</option>
+                            <option value="yesterday">Ayer</option>
+                            <option value="last7">Últimos 7 días</option>
+                            <option value="this_month">Este mes</option>
+                            <option value="prev_month">Mes anterior</option>
+                            <option value="custom">Rango personalizado</option>
+                        </select>
+                    </div>
+
                     {/* Botón Filtros Avanzados (Toggle en mobile) */}
                     <button
                         onClick={() => setShowAdvancedFilters(prev => !prev)}
@@ -690,21 +743,35 @@ export default function AdminOrdersPage() {
                 </div>
             )}
 
-            {/* Vista de Tabla Desktop (6 columnas independientes) */}
+            {/* Vista de Tabla Desktop (7 columnas independientes) */}
             {!loading && orders.length > 0 && (
                 <div className="hidden lg:block bg-card border border-border rounded-2xl overflow-visible shadow-sm">
                     <div className="w-full">
                         <table className="w-full table-fixed text-left border-collapse">
                             <colgroup>
-                                <col className="w-[26%]" />
-                                <col className="w-[22%]" />
-                                <col className="w-[22%]" />
+                                <col className="w-[13%]" />
+                                <col className="w-[23%]" />
+                                <col className="w-[20%]" />
+                                <col className="w-[20%]" />
                                 <col className="w-[10%]" />
-                                <col className="w-[12%]" />
-                                <col className="w-[8%]" />
+                                <col className="w-[9%]" />
+                                <col className="w-[5%]" />
                             </colgroup>
                             <thead>
                                 <tr className="border-b border-border bg-muted/30 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                                    <th className="py-2.5 px-2 text-left">
+                                        <button
+                                            type="button"
+                                            onClick={handleToggleCreatedSort}
+                                            className="inline-flex items-center gap-1 hover:text-foreground transition-colors uppercase tracking-wider font-bold text-left"
+                                            title={currentSortBy === 'created_at' && currentSortDir === 'desc'
+                                                ? 'Ordenado de más recientes a más antiguos (clic para invertir)'
+                                                : 'Ordenar por fecha de pedido'}
+                                        >
+                                            <span>Fecha del pedido</span>
+                                            <ArrowUpDown size={12} className={currentSortBy === 'created_at' ? 'text-primary shrink-0' : 'opacity-50 shrink-0'} />
+                                        </button>
+                                    </th>
                                     <th className="py-2.5 px-2.5 text-left">Socio</th>
                                     <th className="py-2.5 px-2 text-left">Productos</th>
                                     <th className="py-2.5 px-2 text-left">Entrega / Turno</th>
@@ -719,6 +786,10 @@ export default function AdminOrdersPage() {
                                         ? `${order.socio.nombre} ${order.socio.apellido}`
                                         : 'Socio no registrado';
 
+                                    const createdAR = formatOrderDateTimeAR(order.fechaCreacion);
+                                    const effectiveAR = (order.estado === 'entregado' || order.estado === 'retirado')
+                                        ? formatOrderDateTimeAR(order.fecha_entrega_efectiva)
+                                        : null;
                                     const isFinal = isFinalStatus(order.estado);
                                     const quickTarget = getQuickDeliveryTarget(order.tipoPedido, order.estado);
                                     const openUpwards = orders.length > 2 && orderIdx >= orders.length - 2;
@@ -729,7 +800,23 @@ export default function AdminOrdersPage() {
                                             className="hover:bg-muted/40 transition-colors cursor-pointer group align-middle"
                                             onClick={() => router.push(`/admin/orders/${order.id}`)}
                                         >
-                                            {/* Socio (26% - nombre y apellido completos multilínea) */}
+                                            {/* Fecha del pedido (13% - DD/MM/AAAA + hora AR debajo) */}
+                                            <td className="py-2 px-2 text-left">
+                                                {createdAR ? (
+                                                    <>
+                                                        <div className="text-xs font-semibold text-foreground tabular-nums leading-tight">
+                                                            {createdAR.date}
+                                                        </div>
+                                                        <div className="text-[11px] text-muted-foreground tabular-nums leading-tight mt-0.5">
+                                                            {createdAR.time} hs
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <span className="text-xs text-muted-foreground/60">—</span>
+                                                )}
+                                            </td>
+
+                                            {/* Socio (23% - nombre y apellido completos multilínea) */}
                                             <td className="py-2 px-2.5 text-left">
                                                 <div className="font-bold text-foreground group-hover:text-primary transition-colors whitespace-normal break-words leading-snug">
                                                     {socioName}
@@ -803,6 +890,14 @@ export default function AdminOrdersPage() {
                                                     <div className="text-[11px] font-medium text-blue-700 dark:text-blue-300 flex items-center gap-1 mt-0.5">
                                                         <Clock size={11} className="shrink-0" />
                                                         <span className="whitespace-normal break-words">{order.entrega_estimada}</span>
+                                                    </div>
+                                                )}
+                                                {effectiveAR && (
+                                                    <div className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300 flex items-center gap-1 mt-0.5 bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/40 rounded px-1.5 py-0.5 w-fit max-w-full tabular-nums">
+                                                        <CheckCircle2 size={11} className="shrink-0" />
+                                                        <span className="whitespace-normal break-words leading-tight">
+                                                            {order.estado === 'retirado' ? 'Retirado' : 'Entregado'}: {effectiveAR.date} {effectiveAR.time} hs
+                                                        </span>
                                                     </div>
                                                 )}
                                             </td>
@@ -957,6 +1052,10 @@ export default function AdminOrdersPage() {
                             ? `${order.socio.nombre} ${order.socio.apellido}`
                             : 'Socio no registrado';
                         const isFinal = isFinalStatus(order.estado);
+                        const createdAR = formatOrderDateTimeAR(order.fechaCreacion);
+                        const effectiveAR = (order.estado === 'entregado' || order.estado === 'retirado')
+                            ? formatOrderDateTimeAR(order.fecha_entrega_efectiva)
+                            : null;
 
                         return (
                             <div
@@ -1009,8 +1108,20 @@ export default function AdminOrdersPage() {
                                         <span className={`font-semibold ${order.tipoPedido === 'retiro_sede' ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}`}>
                                             {order.tipoPedido === 'retiro_sede' ? 'Retiro en Sede' : 'Delivery'}
                                         </span>
-                                        <span>{new Date(order.fechaCreacion).toLocaleDateString()}</span>
+                                        {createdAR && (
+                                            <span className="tabular-nums text-foreground/80 font-medium">
+                                                Pedido: {createdAR.date} · {createdAR.time} hs
+                                            </span>
+                                        )}
                                     </div>
+                                    {effectiveAR && (
+                                        <div className="text-xs font-medium text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/40 rounded-md px-2 py-1 w-fit tabular-nums">
+                                            <CheckCircle2 size={12} className="shrink-0" />
+                                            <span>
+                                                {order.estado === 'retirado' ? 'Retirado' : 'Entregado'}: {effectiveAR.date} · {effectiveAR.time} hs
+                                            </span>
+                                        </div>
+                                    )}
                                     {order.tipoPedido === 'retiro_sede' && (order.fechaRetiroPreferida || order.franjaHoraria) && (
                                         <div className="text-xs font-medium text-foreground flex items-center gap-1.5 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/40 rounded-md px-2 py-1 w-fit">
                                             <Clock size={12} className="text-amber-600 dark:text-amber-400 shrink-0" />

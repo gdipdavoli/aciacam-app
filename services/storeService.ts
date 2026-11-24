@@ -196,7 +196,8 @@ const mapPedidoFromDB = (row: any): Pedido => ({
     socio: row.socio ? mapSocioFromDB(row.socio) : undefined,
     created_by_user_id: row.created_by_user_id,
     idempotency_key: row.idempotency_key,
-    updated_at: row.updated_at
+    updated_at: row.updated_at,
+    fecha_entrega_efectiva: row.fecha_entrega_efectiva ?? null
 });
 
 const pendingPaymentCommands = new Map<string, { commandId: string; expiresAt: number }>();
