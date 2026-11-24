@@ -1,5 +1,48 @@
 import type { CuentaPedidoSummary } from './contracts';
 
+export const CONCEPTO_APORTE_ESTANDAR =
+    'Aporte social de sostenimiento de cultivo solidario - No Cancelatorio de precio de venta';
+
+export function formatPesosArs(monto: number): string {
+    const safe = Number.isFinite(monto) ? monto : 0;
+    const absFormatted = Math.abs(safe).toLocaleString('es-AR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+    return `${safe < 0 ? '-' : ''}$ ${absFormatted}`;
+}
+
+export function formatMedioPagoLabel(medio?: string | null): string {
+    const norm = (medio || '').trim().toLowerCase();
+    switch (norm) {
+        case 'transferencia_galicia':
+            return 'Transferencia Galicia';
+        case 'transferencia':
+            return 'Transferencia';
+        case 'efectivo':
+            return 'Efectivo';
+        case 'mercadopago':
+        case 'mercado pago':
+        case 'mercado_pago':
+            return 'Mercado Pago';
+        case 'otro':
+            return 'Otro';
+        case '':
+            return 'No informado';
+        default:
+            return medio!.trim();
+    }
+}
+
+export function formatEstadoHistoricoLabel(estado?: string | null): string {
+    if (estado === 'conciliado') return 'Conciliado';
+    return 'Pendiente de revisión';
+}
+
+export function isConceptoEstandar(concepto?: string | null): boolean {
+    return (concepto || '').trim().toLowerCase() === CONCEPTO_APORTE_ESTANDAR.toLowerCase();
+}
+
 export function dinero(centavos: string | bigint | number): string {
     const value = BigInt(centavos);
     const zero = BigInt(0);

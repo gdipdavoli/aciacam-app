@@ -11,6 +11,7 @@ import { supabase } from '@/services/supabaseClient';
 import { createAportesGateway } from '@/app/lib/cuenta-corriente/gateway';
 import type { CuentaSocioSummary } from '@/app/lib/cuenta-corriente/contracts';
 import { CuentaCorrienteSocio } from '@/app/components/cuenta-corriente/CuentaCorrienteSocio';
+import { HistorialPagosSocio } from '@/app/components/cuenta-corriente/HistorialPagosSocio';
 import type { TipoDocumento, EstadoVerificacion } from '@/services/documentacionService';
 import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento, Pago, Notificacion } from '@/types';
 import { formatCalendarDate, calculateDaysRemaining, formatTimestamp } from '@/app/lib/date-format';
@@ -2042,30 +2043,7 @@ export default function SocioDetailsPage() {
                             </div>
                         )}
 
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                            <thead>
-                                <tr style={{ borderBottom: '1px solid hsl(var(--border))', textAlign: 'left', color: 'hsl(var(--muted-foreground))' }}>
-                                    <th style={{ padding: '0.75rem 0' }}>Fecha</th>
-                                    <th style={{ padding: '0.75rem 0' }}>Concepto</th>
-                                    <th style={{ padding: '0.75rem 0' }}>Medio</th>
-                                    <th style={{ padding: '0.75rem 0', textAlign: 'right' }}>Monto</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {pagos.length === 0 ? (
-                                    <tr><td colSpan={4} style={{ padding: '1rem', color: 'hsl(var(--muted-foreground))', textAlign: 'center' }}>No hay pagos registrados</td></tr>
-                                ) : (
-                                    pagos.map(pago => (
-                                        <tr key={pago.id} style={{ borderBottom: '1px dashed hsl(var(--border))' }}>
-                                            <td style={{ padding: '0.75rem 0' }}>{formatTimestamp(pago.fecha)}</td>
-                                            <td style={{ padding: '0.75rem 0' }}>{pago.concepto}</td>
-                                            <td style={{ padding: '0.75rem 0' }}>{pago.medioDePago}</td>
-                                            <td style={{ padding: '0.75rem 0', textAlign: 'right', fontWeight: 600, color: 'hsl(var(--primary))' }}>${pago.monto}</td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
+                        <HistorialPagosSocio pagos={pagos} />
                     </Section>
                 </div>
 
@@ -2306,6 +2284,7 @@ export default function SocioDetailsPage() {
 
 function SocioEstadoCuentaSection({ socioId, canOperate, isAdmin }: { socioId: string; canOperate: boolean; isAdmin: boolean }) {
     const [ccEnabled, setCcEnabled] = React.useState(false);
+    const [periodoCorte, setPeriodoCorte] = React.useState<string | null>(null);
     const [summary, setSummary] = React.useState<CuentaSocioSummary | null>(null);
     const [ccError, setCcError] = React.useState('');
     const gateway = React.useMemo(
@@ -2323,6 +2302,7 @@ function SocioEstadoCuentaSection({ socioId, canOperate, isAdmin }: { socioId: s
             }),
         ]).then(([cfg, data]) => {
             setCcEnabled(Boolean(cfg?.enabled));
+            setPeriodoCorte(cfg?.periodoCorte ?? null);
             if (data) setSummary(data);
         });
     }, [socioId, gateway]);
@@ -2330,8 +2310,8 @@ function SocioEstadoCuentaSection({ socioId, canOperate, isAdmin }: { socioId: s
     return (
         <section className="mt-6 rounded-lg border border-border bg-card p-6">
             {!ccEnabled ? (
-                <div className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-                    Cuenta corriente en modo preparación (<code>aciacam_cc.config.enabled = false</code>). Acciones deshabilitadas.
+                <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3.5 text-sm text-amber-950">
+                    <strong>Cuenta corriente en preparación.</strong> Las operaciones financieras permanecerán deshabilitadas hasta que la administración habilite la fecha de corte.
                 </div>
             ) : null}
             {ccError ? <p className="text-xs text-muted-foreground">{ccError}</p> : null}
@@ -2341,6 +2321,8 @@ function SocioEstadoCuentaSection({ socioId, canOperate, isAdmin }: { socioId: s
                     gateway={gateway}
                     puedeRegistrar={ccEnabled && canOperate}
                     isAdmin={ccEnabled && isAdmin}
+                    ccEnabled={ccEnabled}
+                    periodoCorte={periodoCorte}
                 />
             ) : !ccError ? (
                 <p className="text-sm text-muted-foreground">Cargando estado de cuenta corriente...</p>

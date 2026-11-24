@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { StorageService } from '@/services/storageService';
 import { Pago, Pedido, Socio } from '@/types';
+import { formatPesosArs } from '@/app/lib/cuenta-corriente/presentation';
 import { formatCalendarDate, calculateDaysRemaining, formatPeriodoCuota } from '@/app/lib/date-format';
 import { User, CreditCard, History, FileText, Activity, AlertCircle, FileCheck, CheckCircle, Clock, XCircle, ExternalLink, Upload, Plus, X } from 'lucide-react';
 
@@ -572,7 +573,7 @@ export default function CuentaPage() {
                                         <div style={{ fontWeight: 600 }}>{pago.concepto}</div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto' }}>
                                             <span style={{ fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))' }}>{pago.fecha}</span>
-                                            <span style={{ alignSelf: 'flex-end', fontWeight: 700, color: 'hsl(var(--primary))' }}>${pago.monto}</span>
+                                            <span style={{ alignSelf: 'flex-end', fontWeight: 700, color: 'hsl(var(--primary))' }}>{formatPesosArs(pago.monto)}</span>
                                         </div>
                                     </div>
                                 ))}

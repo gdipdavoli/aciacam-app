@@ -923,8 +923,8 @@ export default function AdminPagosPage() {
                 <div className="space-y-4">
                     {!ccConfig.enabled ? (
                         <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-                            <strong>Cuenta corriente en modo preparaciÃ³n (desactivada):</strong>{' '}
-                            <code>aciacam_cc.config.enabled = false</code>. Las acciones de imputaciÃ³n, bonificaciÃ³n, ajuste, reversiÃ³n y conciliaciÃ³n estÃ¡n deshabilitadas hasta completar la conciliaciÃ³n histÃ³rica y habilitar la fecha de corte.
+                            <strong>Cuenta corriente en preparación:</strong>{' '}
+                            Las acciones de imputación, bonificación, ajuste, reversión y conciliación permanecerán deshabilitadas hasta completar la conciliación histórica y habilitar la fecha de corte.
                         </div>
                     ) : null}
                     <PanelAportesAdmin

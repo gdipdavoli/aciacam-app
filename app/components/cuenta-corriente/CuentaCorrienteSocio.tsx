@@ -2,7 +2,12 @@
 
 import { useState } from 'react';
 import type { AportesGateway, CuentaSocioSummary, MovimientoAporte } from '@/app/lib/cuenta-corriente/contracts';
-import { dinero, resumen } from '@/app/lib/cuenta-corriente/presentation';
+import {
+    dinero,
+    formatEstadoHistoricoLabel,
+    formatMedioPagoLabel,
+    resumen,
+} from '@/app/lib/cuenta-corriente/presentation';
 import { RegistrarAporte } from './RegistrarAporte';
 
 const tipos: Record<MovimientoAporte['tipo'], string> = {
@@ -18,11 +23,15 @@ export function CuentaCorrienteSocio({
     gateway,
     puedeRegistrar,
     isAdmin = false,
+    ccEnabled = true,
+    periodoCorte = null,
 }: {
     initial: CuentaSocioSummary;
     gateway: AportesGateway;
     puedeRegistrar: boolean;
     isAdmin?: boolean;
+    ccEnabled?: boolean;
+    periodoCorte?: string | null;
 }) {
     const [data, setData] = useState(initial);
     const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -80,22 +89,23 @@ export function CuentaCorrienteSocio({
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-xl font-semibold">Estado de cuenta corriente</h2>
                 {data.found ? (
-                    <div className="flex flex-wrap gap-2 rounded border px-3 py-1.5 text-sm">
+                    <div className="flex flex-wrap gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-800">
                         <span>
                             Historial anterior al corte:{' '}
-                            <strong>{data.estadoHistorico === 'conciliado' ? 'conciliado' : 'pendiente_conciliacion'}</strong>
+                            <strong>{formatEstadoHistoricoLabel(data.estadoHistorico)}</strong>
                         </span>
                         <span>
-                            · Apertura:{' '}
+                            · Saldo de apertura:{' '}
                             <strong>
                                 {data.saldoAperturaCentavos !== null && data.saldoAperturaCentavos !== undefined
                                     ? `${dinero(data.saldoAperturaCentavos)} (confirmado)`
                                     : 'No determinable (pendiente de revisión)'}
                             </strong>
                         </span>
-                        {data.saldoCorrienteDesdeCorteCentavos !== undefined ? (
+                        {ccEnabled && periodoCorte && data.saldoCorrienteDesdeCorteCentavos !== undefined ? (
                             <span>
-                                · Movimientos desde corte: <strong>{dinero(data.saldoCorrienteDesdeCorteCentavos)}</strong>
+                                · Movimientos desde corte ({periodoCorte}):{' '}
+                                <strong>{dinero(data.saldoCorrienteDesdeCorteCentavos)}</strong>
                             </span>
                         ) : null}
                         {data.saldoGlobalDefinitivoCentavos ? (
@@ -170,7 +180,7 @@ export function CuentaCorrienteSocio({
                                             <p>{m.motivo}</p>
                                             {m.medio ? (
                                                 <p className="text-xs">
-                                                    {m.medio} · {m.referencia || 'Sin referencia'} ·{' '}
+                                                    {formatMedioPagoLabel(m.medio)} · {m.referencia || 'Sin referencia'} ·{' '}
                                                     {m.medio === 'efectivo'
                                                         ? 'Recibido'
                                                         : m.conciliada
