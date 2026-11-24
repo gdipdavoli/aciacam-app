@@ -111,7 +111,7 @@ export function HistorialPagosSocio({ pagos }: { pagos: Pago[] }) {
                         Mostrando <strong>{pagosFiltrados.length}</strong> de {pagos.length} aportes
                     </div>
                     <div className="whitespace-nowrap text-sm font-semibold text-slate-900 tabular-nums">
-                        Subtotal filtrado: {formatPesosArs(subtotalFiltrado)}
+                        Subtotal filtrado (aportes registrados): {formatPesosArs(subtotalFiltrado)}
                     </div>
                 </div>
             </div>
