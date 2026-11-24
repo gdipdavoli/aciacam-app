@@ -80,16 +80,27 @@ export function CuentaCorrienteSocio({
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-xl font-semibold">Estado de cuenta corriente</h2>
                 {data.found ? (
-                    <div className="rounded border px-3 py-1.5 text-sm">
-                        <span>Histórico: <strong>{data.estadoHistorico || 'pendiente_conciliacion'}</strong></span>
+                    <div className="flex flex-wrap gap-2 rounded border px-3 py-1.5 text-sm">
+                        <span>
+                            Historial anterior al corte:{' '}
+                            <strong>{data.estadoHistorico === 'conciliado' ? 'conciliado' : 'pendiente_conciliacion'}</strong>
+                        </span>
+                        <span>
+                            · Apertura:{' '}
+                            <strong>
+                                {data.saldoAperturaCentavos !== null && data.saldoAperturaCentavos !== undefined
+                                    ? `${dinero(data.saldoAperturaCentavos)} (confirmado)`
+                                    : 'No determinable (pendiente de revisión)'}
+                            </strong>
+                        </span>
                         {data.saldoCorrienteDesdeCorteCentavos !== undefined ? (
-                            <span className="ml-3">
-                                Saldo desde corte: <strong>{dinero(data.saldoCorrienteDesdeCorteCentavos)}</strong>
+                            <span>
+                                · Movimientos desde corte: <strong>{dinero(data.saldoCorrienteDesdeCorteCentavos)}</strong>
                             </span>
                         ) : null}
                         {data.saldoGlobalDefinitivoCentavos ? (
-                            <span className="ml-3">
-                                Saldo definitivo: <strong>{dinero(data.saldoGlobalDefinitivoCentavos)}</strong>
+                            <span>
+                                · Saldo definitivo: <strong>{dinero(data.saldoGlobalDefinitivoCentavos)}</strong>
                             </span>
                         ) : null}
                     </div>

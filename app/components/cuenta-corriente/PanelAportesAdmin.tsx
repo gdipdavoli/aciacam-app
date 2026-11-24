@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import type { AportesGateway, CuentaSocioSummary, PaginaPendientes, ResultadoCierrePeriodo } from '@/app/lib/cuenta-corriente/contracts';
 import { CuentaCorrienteSocio } from './CuentaCorrienteSocio';
 import { PedidosPendientes } from './PedidosPendientes';
+import { ConciliacionHistoricaPanel } from './ConciliacionHistoricaPanel';
 
 export function PanelAportesAdmin({
     gateway,
@@ -187,6 +188,10 @@ export function PanelAportesAdmin({
                     puedeRegistrar={puedeRegistrar}
                     isAdmin={isAdmin}
                 />
+            ) : null}
+
+            {isAdmin || !puedeRegistrar ? (
+                <ConciliacionHistoricaPanel fechaCorte="2026-12-01" puedeConfirmar={false} />
             ) : null}
         </div>
     );
