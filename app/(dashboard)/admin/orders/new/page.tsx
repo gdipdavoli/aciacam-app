@@ -9,6 +9,20 @@ import { ArrowLeft } from 'lucide-react';
 import { SlotSelector } from '@/app/components/SlotSelector';
 import PaymentRegistrationModal from '@/app/components/admin/PaymentRegistrationModal';
 
+function toArgentinaDateKey(input: string): string {
+    if (!input) return '';
+    const trimmed = input.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const d = new Date(trimmed);
+    if (Number.isNaN(d.getTime())) return '';
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(d);
+}
+
 function NewDispenseForm() {
     const { user, session, loading: authLoading } = useAuth();
     const router = useRouter();
@@ -23,17 +37,26 @@ function NewDispenseForm() {
     const [selectedSocio, setSelectedSocio] = useState<Socio | null>(null);
 
     // Step 2: Order Details
-    const today = new Date().toISOString().split('T')[0];
+    const today = toArgentinaDateKey(new Date().toISOString());
     const [orderType, setOrderType] = useState<OrderType>('retiro_sede');
+    const [dispenseMode, setDispenseMode] = useState<'inmediata' | 'programada'>('inmediata');
     const [address, setAddress] = useState('');
     const [localidad, setLocalidad] = useState('');
-    const [date, setDate] = useState(today); // Legacy, kept for fallback
+    const [date, setDate] = useState(today);
     const [notes, setNotes] = useState('');
 
     // Slot Logic
     const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
     const [slotLabel, setSlotLabel] = useState('');
     const [slotDate, setSlotDate] = useState('');
+    const [slotNotice, setSlotNotice] = useState<string | null>(null);
+    const [fieldErrors, setFieldErrors] = useState<{
+        address?: string;
+        localidad?: string;
+        date?: string;
+        reprocannCheck?: string;
+        reprocannEvidence?: string;
+    }>({});
 
     // Step 3: Products & Idempotent Direct Dispensation State
     const [products, setProducts] = useState<Producto[]>([]);
@@ -166,19 +189,28 @@ function NewDispenseForm() {
     );
 
     const handleNextStep = async () => {
-        if (orderType === 'retiro_sede' && !slotDate && !date) {
-            alert('Por favor selecciona una fecha de retiro.');
-            return;
+        const nextErrors: typeof fieldErrors = {};
+        if (orderType === 'retiro_sede' && dispenseMode === 'programada' && !date) {
+            nextErrors.date = 'Seleccioná una fecha de retiro o cambiá a Dispensa inmediata.';
         }
-        if (orderType === 'delivery' && (!address.trim() || !localidad.trim())) {
-            alert('Para modalidad delivery es obligatorio completar dirección y localidad.');
+        if (orderType === 'delivery') {
+            if (!address.trim()) nextErrors.address = 'Completá la dirección de entrega.';
+            if (!localidad.trim()) nextErrors.localidad = 'Completá la localidad de entrega.';
+        }
+        if (needsReprocannVerificationAck && !reprocannAckDone) {
+            if (!reprocannAckChecked) {
+                nextErrors.reprocannCheck = 'Marcá la casilla de confirmación de verificación REPROCANN.';
+            }
+            if (reprocannAckEvidence.trim().length < 3) {
+                nextErrors.reprocannEvidence = 'Ingresá una referencia válida de al menos 3 caracteres (ej.: MiArgentina, certificado físico o N° trámite).';
+            }
+        }
+        setFieldErrors(nextErrors);
+        if (Object.keys(nextErrors).length > 0) {
+            setErrorMessage(Object.values(nextErrors).join(' '));
             return;
         }
         if (needsReprocannVerificationAck && !reprocannAckDone) {
-            if (!reprocannAckChecked || reprocannAckEvidence.trim().length < 3) {
-                setErrorMessage('Debés confirmar explícitamente que verificaste el REPROCANN vigente por otra fuente e indicar la evidencia (mín. 3 caracteres).');
-                return;
-            }
             if (!selectedSocio) return;
             setSavingReprocannAck(true);
             setErrorMessage(null);
@@ -276,8 +308,14 @@ function NewDispenseForm() {
                         direccionEntrega: orderType === 'delivery' ? address.trim() : undefined,
                         localidad: orderType === 'delivery' ? localidad.trim() : undefined,
                         observaciones: notes.trim() || undefined,
-                        fechaRetiroPreferida: orderType === 'retiro_sede' ? (slotDate || date) : undefined,
-                        slotId: orderType === 'retiro_sede' ? (selectedSlotId || undefined) : undefined,
+                        fechaRetiroPreferida:
+                            orderType === 'retiro_sede' && dispenseMode === 'programada'
+                                ? (slotDate || date || undefined)
+                                : undefined,
+                        slotId:
+                            orderType === 'retiro_sede' && dispenseMode === 'programada'
+                                ? (selectedSlotId || undefined)
+                                : undefined,
                         motivo_admin: notes.trim() || 'Dispensa directa administrativa en sede/delivery'
                     } as any
                 );
@@ -466,19 +504,41 @@ function NewDispenseForm() {
                                             type="checkbox"
                                             checked={reprocannAckChecked}
                                             disabled={reprocannAckDone}
-                                            onChange={e => setReprocannAckChecked(e.target.checked)}
+                                            onChange={e => {
+                                                setReprocannAckChecked(e.target.checked);
+                                                setFieldErrors(prev => ({ ...prev, reprocannCheck: undefined }));
+                                                setErrorMessage(null);
+                                            }}
                                             style={{ marginTop: '0.2rem' }}
                                         />
                                         <span>Confirmo que verifiqué la autorización REPROCANN vigente del socio por otra fuente.</span>
                                     </label>
+                                    {fieldErrors.reprocannCheck && (
+                                        <p style={{ margin: '0 0 0.4rem 0', fontSize: '0.78rem', color: '#991b1b', fontWeight: 600 }}>
+                                            {fieldErrors.reprocannCheck}
+                                        </p>
+                                    )}
                                     <input
                                         type="text"
                                         value={reprocannAckEvidence}
                                         disabled={reprocannAckDone}
-                                        onChange={e => setReprocannAckEvidence(e.target.value)}
+                                        onChange={e => {
+                                            setReprocannAckEvidence(e.target.value);
+                                            setFieldErrors(prev => ({ ...prev, reprocannEvidence: undefined }));
+                                            setErrorMessage(null);
+                                        }}
                                         placeholder="Fuente / evidencia verificada (ej. MiArgentina, certificado físico en sede, n° trámite) *"
-                                        style={{ width: '100%', padding: '0.5rem 0.65rem', borderRadius: 'var(--radius)', border: '1px solid #d97706', backgroundColor: 'white', color: '#111827', fontSize: '0.8rem' }}
+                                        style={{ width: '100%', padding: '0.5rem 0.65rem', borderRadius: 'var(--radius)', border: fieldErrors.reprocannEvidence ? '2px solid #dc2626' : '1px solid #d97706', backgroundColor: 'white', color: '#111827', fontSize: '0.8rem' }}
                                     />
+                                    {fieldErrors.reprocannEvidence ? (
+                                        <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.78rem', color: '#991b1b', fontWeight: 600 }}>
+                                            {fieldErrors.reprocannEvidence}
+                                        </p>
+                                    ) : reprocannAckEvidence.trim().length > 0 && reprocannAckEvidence.trim().length < 3 ? (
+                                        <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.75rem', color: '#92400e' }}>
+                                            Faltan {3 - reprocannAckEvidence.trim().length} caracteres (mínimo 3 caracteres descriptivos).
+                                        </p>
+                                    ) : null}
                                     {reprocannAckDone && (
                                         <div style={{ marginTop: '0.35rem', fontSize: '0.78rem', fontWeight: 600, color: '#166534' }}>
                                             ✓ Verificación operativa registrada en auditoría.
@@ -523,33 +583,110 @@ function NewDispenseForm() {
 
                     {orderType === 'retiro_sede' ? (
                         <div style={{ marginBottom: '1rem' }}>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Fecha y Turno (Opcional)</label>
-                            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-                                <div style={{ flex: 1 }}>
-                                    <label style={{ fontSize: '0.8rem', opacity: 0.7, display: 'block', marginBottom: '0.25rem' }}>Fecha de Dispensa</label>
-                                    <input
-                                        type="date"
-                                        value={date}
-                                        onChange={e => {
-                                            setDate(e.target.value);
-                                            setSelectedSlotId(null); // Reset slot if date manual changed
-                                            setSlotDate('');
-                                        }}
-                                        style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
-                                    />
-                                </div>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Modalidad de Retiro en Sede</label>
+                            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setDispenseMode('inmediata');
+                                        setSelectedSlotId(null);
+                                        setSlotLabel('');
+                                        setSlotDate('');
+                                        setSlotNotice(null);
+                                        setFieldErrors(prev => ({ ...prev, date: undefined }));
+                                    }}
+                                    style={{
+                                        flex: 1,
+                                        minWidth: '200px',
+                                        padding: '0.75rem 1rem',
+                                        borderRadius: 'var(--radius)',
+                                        border: dispenseMode === 'inmediata' ? '2px solid hsl(var(--primary))' : '1px solid hsl(var(--border))',
+                                        backgroundColor: dispenseMode === 'inmediata' ? 'hsl(var(--primary) / 0.1)' : 'transparent',
+                                        fontWeight: dispenseMode === 'inmediata' ? 600 : 500,
+                                        cursor: 'pointer',
+                                        textAlign: 'left'
+                                    }}
+                                >
+                                    ⚡ Dispensa inmediata (sin turno)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setDispenseMode('programada')}
+                                    style={{
+                                        flex: 1,
+                                        minWidth: '200px',
+                                        padding: '0.75rem 1rem',
+                                        borderRadius: 'var(--radius)',
+                                        border: dispenseMode === 'programada' ? '2px solid hsl(var(--primary))' : '1px solid hsl(var(--border))',
+                                        backgroundColor: dispenseMode === 'programada' ? 'hsl(var(--primary) / 0.1)' : 'transparent',
+                                        fontWeight: dispenseMode === 'programada' ? 600 : 500,
+                                        cursor: 'pointer',
+                                        textAlign: 'left'
+                                    }}
+                                >
+                                    📅 Entrega programada (fecha / turno)
+                                </button>
                             </div>
 
-                            <p style={{ fontSize: '0.8rem', marginBottom: '0.5rem', opacity: 0.8 }}>O selecciona un turno existente:</p>
-                            <SlotSelector
-                                selectedSlotId={selectedSlotId}
-                                onSelect={(id, label, date) => {
-                                    setSelectedSlotId(id);
-                                    setSlotLabel(label);
-                                    setSlotDate(date);
-                                    setDate(date); // Sync manual date with slot date
-                                }}
-                            />
+                            {dispenseMode === 'inmediata' ? (
+                                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius)', backgroundColor: 'hsl(var(--muted) / 0.5)', border: '1px solid hsl(var(--border))', fontSize: '0.85rem' }}>
+                                    Sin turno obligatorio. La fecha y hora efectiva de dispensa se registrarán automáticamente en el servidor al confirmar la entrega.
+                                </div>
+                            ) : (
+                                <>
+                                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                                        <div style={{ flex: 1, minWidth: '220px' }}>
+                                            <label style={{ fontSize: '0.8rem', opacity: 0.85, display: 'block', marginBottom: '0.25rem' }}>
+                                                Fecha programada de retiro
+                                            </label>
+                                            <input
+                                                type="date"
+                                                value={date}
+                                                onChange={e => {
+                                                    const newDate = e.target.value;
+                                                    setDate(newDate);
+                                                    setFieldErrors(prev => ({ ...prev, date: undefined }));
+                                                    if (selectedSlotId && slotDate && slotDate !== newDate) {
+                                                        setSelectedSlotId(null);
+                                                        setSlotLabel('');
+                                                        setSlotDate('');
+                                                        setSlotNotice('Se quitó el turno seleccionado porque correspondía a otra fecha.');
+                                                    } else {
+                                                        setSlotNotice(null);
+                                                    }
+                                                }}
+                                                style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: fieldErrors.date ? '2px solid #dc2626' : '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                                            />
+                                            {fieldErrors.date && (
+                                                <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.78rem', color: '#dc2626', fontWeight: 600 }}>
+                                                    {fieldErrors.date}
+                                                </p>
+                                            )}
+                                        </div>
+                                        {selectedSlotId && slotLabel && (
+                                            <div style={{ flex: 1, minWidth: '220px', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius)', border: '1px solid #86efac', backgroundColor: '#f0fdf4', fontSize: '0.8rem', color: '#166534' }}>
+                                                <strong>Turno seleccionado:</strong> {slotLabel} ({slotDate})
+                                            </div>
+                                        )}
+                                    </div>
+                                    {slotNotice && (
+                                        <p style={{ fontSize: '0.8rem', color: '#92400e', marginBottom: '0.5rem' }}>{slotNotice}</p>
+                                    )}
+                                    <p style={{ fontSize: '0.8rem', marginBottom: '0.5rem', opacity: 0.8 }}>Opcional: seleccioná un turno disponible (la fecha se sincroniza automáticamente):</p>
+                                    <SlotSelector
+                                        selectedSlotId={selectedSlotId}
+                                        onSelect={(id, label, startTimeIso) => {
+                                            const dateKey = toArgentinaDateKey(startTimeIso);
+                                            setSelectedSlotId(id);
+                                            setSlotLabel(label);
+                                            setSlotDate(dateKey);
+                                            if (dateKey) setDate(dateKey);
+                                            setSlotNotice(null);
+                                            setFieldErrors(prev => ({ ...prev, date: undefined }));
+                                        }}
+                                    />
+                                </>
+                            )}
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1rem' }}>
@@ -558,35 +695,61 @@ function NewDispenseForm() {
                                 <input
                                     type="text"
                                     value={address}
-                                    onChange={e => { resetTransactionRefs(); setAddress(e.target.value); }}
+                                    onChange={e => {
+                                        resetTransactionRefs();
+                                        setAddress(e.target.value);
+                                        setFieldErrors(prev => ({ ...prev, address: undefined }));
+                                        setErrorMessage(null);
+                                    }}
                                     placeholder="Ej: Av. Rivadavia 1234"
-                                    style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                                    style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: fieldErrors.address ? '2px solid #dc2626' : '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
                                 />
+                                {fieldErrors.address && (
+                                    <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.78rem', color: '#dc2626', fontWeight: 600 }}>
+                                        {fieldErrors.address}
+                                    </p>
+                                )}
                             </div>
                             <div>
                                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Localidad *</label>
                                 <input
                                     type="text"
                                     value={localidad}
-                                    onChange={e => { resetTransactionRefs(); setLocalidad(e.target.value); }}
+                                    onChange={e => {
+                                        resetTransactionRefs();
+                                        setLocalidad(e.target.value);
+                                        setFieldErrors(prev => ({ ...prev, localidad: undefined }));
+                                        setErrorMessage(null);
+                                    }}
                                     placeholder="Ej: CABA / La Plata / Quilmes"
-                                    style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
+                                    style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: fieldErrors.localidad ? '2px solid #dc2626' : '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }}
                                 />
+                                {fieldErrors.localidad && (
+                                    <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.78rem', color: '#dc2626', fontWeight: 600 }}>
+                                        {fieldErrors.localidad}
+                                    </p>
+                                )}
                             </div>
                         </div>
                     )}
 
-                    <div style={{ marginBottom: '2rem' }}>
+                    <div style={{ marginBottom: '1.5rem' }}>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Observaciones / Notas</label>
                         <textarea value={notes} onChange={e => setNotes(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: 'var(--radius)', border: '1px solid hsl(var(--border))', minHeight: '80px', backgroundColor: 'hsl(var(--background))', color: 'hsl(var(--foreground))' }} placeholder="Opcional..." />
                     </div>
 
+                    {errorMessage && (
+                        <div role="alert" style={{ marginBottom: '1rem', padding: '0.75rem 1rem', borderRadius: 'var(--radius)', backgroundColor: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: '0.88rem', fontWeight: 500 }}>
+                            {errorMessage}
+                        </div>
+                    )}
+
                     <button
+                        type="button"
                         onClick={handleNextStep}
                         disabled={
                             savingReprocannAck ||
-                            Boolean(eligibility && !eligibility.puedeRegistrarPedido) ||
-                            (needsReprocannVerificationAck && !reprocannAckDone && (!reprocannAckChecked || reprocannAckEvidence.trim().length < 3))
+                            Boolean(eligibility && !eligibility.puedeRegistrarPedido)
                         }
                         style={{
                             width: '100%',
@@ -597,8 +760,8 @@ function NewDispenseForm() {
                             borderRadius: 'var(--radius)',
                             fontSize: '1rem',
                             fontWeight: 600,
-                            cursor: (savingReprocannAck || (eligibility && !eligibility.puedeRegistrarPedido) || (needsReprocannVerificationAck && !reprocannAckDone && (!reprocannAckChecked || reprocannAckEvidence.trim().length < 3))) ? 'not-allowed' : 'pointer',
-                            opacity: (savingReprocannAck || (eligibility && !eligibility.puedeRegistrarPedido) || (needsReprocannVerificationAck && !reprocannAckDone && (!reprocannAckChecked || reprocannAckEvidence.trim().length < 3))) ? 0.5 : 1
+                            cursor: (savingReprocannAck || (eligibility && !eligibility.puedeRegistrarPedido)) ? 'not-allowed' : 'pointer',
+                            opacity: (savingReprocannAck || (eligibility && !eligibility.puedeRegistrarPedido)) ? 0.5 : 1
                         }}
                     >
                         {savingReprocannAck
