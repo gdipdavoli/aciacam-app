@@ -1,10 +1,13 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { StoreService } from '@/services/storeService';
 import { EmailService } from '@/services/emailService';
+import { supabase } from '@/services/supabaseClient';
+import { createAportesGateway } from '@/app/lib/cuenta-corriente/gateway';
+import { PanelAportesAdmin } from '@/app/components/cuenta-corriente/PanelAportesAdmin';
 import { Pago, Socio, CierreMensual } from '@/types';
 import { formatCalendarDate } from '@/app/lib/date-format';
 import {
@@ -41,31 +44,46 @@ export default function AdminPagosPage() {
     const pathname = usePathname();
 
     const tabParam = searchParams.get('tab');
-    // Navigation Tabs: 'caja' | 'cierres'
-    const [activeTab, setActiveTab] = useState<'caja' | 'cierres'>(() => {
-        return tabParam === 'cierres' ? 'cierres' : 'caja';
+    // Navigation Tabs: 'caja' | 'cierres' | 'cc'
+    const [activeTab, setActiveTab] = useState<'caja' | 'cierres' | 'cc'>(() => {
+        if (tabParam === 'cierres') return 'cierres';
+        if (tabParam === 'cc') return 'cc';
+        return 'caja';
     });
 
-    // Sincronizar activeTab cuando cambia el parámetro de URL
+    // Sincronizar activeTab cuando cambia el parÃ¡metro de URL
     useEffect(() => {
         if (tabParam === 'cierres' && activeTab !== 'cierres') {
             setActiveTab('cierres');
-        } else if (tabParam !== 'cierres' && tabParam !== null && activeTab !== 'caja') {
+        } else if (tabParam === 'cc' && activeTab !== 'cc') {
+            setActiveTab('cc');
+        } else if (tabParam !== 'cierres' && tabParam !== 'cc' && tabParam !== null && activeTab !== 'caja') {
             setActiveTab('caja');
         }
     }, [tabParam, activeTab]);
 
-    const handleTabChange = (newTab: 'caja' | 'cierres') => {
+    const handleTabChange = (newTab: 'caja' | 'cierres' | 'cc') => {
         setActiveTab(newTab);
         const params = new URLSearchParams(searchParams.toString());
-        if (newTab === 'cierres') {
-            params.set('tab', 'cierres');
+        if (newTab === 'cierres' || newTab === 'cc') {
+            params.set('tab', newTab);
         } else {
             params.delete('tab');
         }
         const qs = params.toString();
         router.replace(`${pathname}${qs ? `?${qs}` : ''}`, { scroll: false });
     };
+
+    const [ccConfig, setCcConfig] = useState<{ enabled: boolean; periodoCorte: string | null }>({ enabled: false, periodoCorte: null });
+    const ccGateway = React.useMemo(
+        () => createAportesGateway((name, params) => (supabase as any).rpc(name, params)),
+        []
+    );
+    useEffect(() => {
+        if (activeTab === 'cc' && supabase) {
+            ccGateway.estadoConfig().then(setCcConfig).catch(() => setCcConfig({ enabled: false, periodoCorte: null }));
+        }
+    }, [activeTab, ccGateway]);
 
     // Caja State
     const [pagos, setPagos] = useState<Pago[]>([]);
@@ -170,7 +188,7 @@ export default function AdminPagosPage() {
                     monto: pa.monto
                 }));
 
-                const pieLegal = "Los importes consignados corresponden exclusivamente a aportes voluntarios destinados al sostenimiento del programa de cultivo solidario desarrollado por la Asociación Civil para la Investigación y el Acceso del Cannabis Medicinal (ACIACAM), en cumplimiento de su Estatuto Social, de la Ley 27.350, su Decreto Reglamentario 883/2020, la Resolución MS 800/2021 y demás normativa aplicable. Dichos aportes no constituyen precio de venta ni contraprestación comercial por los productos dispensados.";
+                const pieLegal = "Los importes consignados corresponden exclusivamente a aportes voluntarios destinados al sostenimiento del programa de cultivo solidario desarrollado por la AsociaciÃ³n Civil para la InvestigaciÃ³n y el Acceso del Cannabis Medicinal (ACIACAM), en cumplimiento de su Estatuto Social, de la Ley 27.350, su Decreto Reglamentario 883/2020, la ResoluciÃ³n MS 800/2021 y demÃ¡s normativa aplicable. Dichos aportes no constituyen precio de venta ni contraprestaciÃ³n comercial por los productos dispensados.";
 
                 setCierrePreviewData({
                     socio: socioObj,
@@ -182,7 +200,7 @@ export default function AdminPagosPage() {
             }
         } catch (error) {
             console.error("Error consulting close:", error);
-            alert("Ocurrió un error al consultar la constancia.");
+            alert("OcurriÃ³ un error al consultar la constancia.");
         } finally {
             setCierreLoading(false);
         }
@@ -192,7 +210,7 @@ export default function AdminPagosPage() {
     const handleGenerarCierre = async () => {
         if (!selectedSocioId || !selectedPeriod || !cierrePreviewData || !user) return;
 
-        const confirmMsg = "Al generar el cierre mensual, la información de aportes y dispensas del período se guardará como constancia del período con auditoría. ¿Deseas proceder?";
+        const confirmMsg = "Al generar el cierre mensual, la informaciÃ³n de aportes y dispensas del perÃ­odo se guardarÃ¡ como constancia del perÃ­odo con auditorÃ­a. Â¿Deseas proceder?";
         if (!window.confirm(confirmMsg)) return;
 
         setCierreLoading(true);
@@ -203,7 +221,7 @@ export default function AdminPagosPage() {
                 cierrePreviewData,
                 user.id
             );
-            alert(`Cierre mensual generado con éxito. Constancia N° ${nuevoCierre.numeroConstancia}`);
+            alert(`Cierre mensual generado con Ã©xito. Constancia NÂ° ${nuevoCierre.numeroConstancia}`);
             setCierreExistente(nuevoCierre);
             setCierrePreviewData(null);
         } catch (error: any) {
@@ -220,7 +238,7 @@ export default function AdminPagosPage() {
         if (!cierre) return;
         const socioEmail = cierre.datos.socio?.email;
         if (!socioEmail) {
-            alert("El socio no posee un correo electrónico registrado en su ficha.");
+            alert("El socio no posee un correo electrÃ³nico registrado en su ficha.");
             return;
         }
 
@@ -228,7 +246,7 @@ export default function AdminPagosPage() {
         try {
             const socioName = `${cierre.datos.socio.nombre} ${cierre.datos.socio.apellido}`;
             await EmailService.sendCierreEmail(socioEmail, socioName, cierre.periodo, cierre);
-            alert(`Constancia enviada con éxito al correo del socio: ${socioEmail}`);
+            alert(`Constancia enviada con Ã©xito al correo del socio: ${socioEmail}`);
         } catch (error: any) {
             console.error("Error sending closing email:", error);
             alert(error.message || "Hubo un error al enviar el email.");
@@ -242,7 +260,7 @@ export default function AdminPagosPage() {
         const cierre = cierreExistente;
         if (!cierre || !user) return;
         if (!annulReason.trim()) {
-            alert("Por favor, ingresá el motivo de la anulación.");
+            alert("Por favor, ingresÃ¡ el motivo de la anulaciÃ³n.");
             return;
         }
 
@@ -268,7 +286,7 @@ export default function AdminPagosPage() {
             numeroConstancia: 'PRE-VISTA',
             fechaGeneracion: new Date().toISOString(),
             estado: 'emitido' as const,
-            hashSha256: 'SIN CONGELAR (Pendiente de emisión)'
+            hashSha256: 'SIN CONGELAR (Pendiente de emisiÃ³n)'
         };
         return buildConstanciaPrintHtml({
             periodo: selectedPeriod,
@@ -313,7 +331,7 @@ export default function AdminPagosPage() {
         numeroConstancia: 'PRE-VISTA',
         fechaGeneracion: new Date().toISOString(),
         estado: 'emitido',
-        hashSha256: 'SIN CONGELAR (Pendiente de emisión)'
+        hashSha256: 'SIN CONGELAR (Pendiente de emisiÃ³n)'
     };
 
     return (
@@ -327,7 +345,7 @@ export default function AdminPagosPage() {
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
                         <Coins className="text-primary" size={26} />
-                        Administración de Aportes y Cierres
+                        AdministraciÃ³n de Aportes y Cierres
                     </h1>
                     <p className="text-sm text-muted-foreground">
                         Historial de transacciones de caja y emisiones de constancias mensuales.
@@ -358,6 +376,17 @@ export default function AdminPagosPage() {
                 >
                     <FileText size={16} />
                     Constancias de Cierre Mensual
+                </button>
+                <button
+                    onClick={() => handleTabChange('cc')}
+                    className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
+                        activeTab === 'cc' 
+                            ? 'border-primary text-primary' 
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                >
+                    <Coins size={16} />
+                    Cuenta Corriente
                 </button>
             </div>
 
@@ -565,7 +594,7 @@ export default function AdminPagosPage() {
                             </select>
                         </div>
                         <div>
-                            <label className="text-xs font-black uppercase text-muted-foreground block mb-2">Seleccionar Período</label>
+                            <label className="text-xs font-black uppercase text-muted-foreground block mb-2">Seleccionar PerÃ­odo</label>
                             <input
                                 type="month"
                                 value={selectedPeriod}
@@ -697,20 +726,20 @@ export default function AdminPagosPage() {
                                 <div className="text-center pb-6 border-b border-dashed border-border/80">
                                     <h3 className="text-xl font-black text-foreground tracking-wide" style={{ color: '#0F3822' }}>ACIACAM</h3>
                                     <p className="text-xs text-muted-foreground mt-1 font-semibold">
-                                        Asociación Civil para la Investigación y el Acceso del Cannabis Medicinal
+                                        AsociaciÃ³n Civil para la InvestigaciÃ³n y el Acceso del Cannabis Medicinal
                                     </p>
                                     <div className="text-[10px] text-muted-foreground mt-2 grid grid-cols-2 gap-y-1 max-w-lg mx-auto font-medium">
-                                        <div><strong>Personería Jurídica:</strong> N° 119/2023 (DPJ San Luis)</div>
+                                        <div><strong>PersonerÃ­a JurÃ­dica:</strong> NÂ° 119/2023 (DPJ San Luis)</div>
                                         <div><strong>CUIT:</strong> 30-71825047-8</div>
                                         <div><strong>Expte. Salud/ONG:</strong> Expte. DI-2023-162-APN-DNRIEI#MS</div>
-                                        <div><strong>Nº Trámite REPROCANN:</strong> Trámite Nº 340155</div>
+                                        <div><strong>NÂº TrÃ¡mite REPROCANN:</strong> TrÃ¡mite NÂº 340155</div>
                                     </div>
                                 </div>
 
                                 {/* Title */}
                                 <div className="py-5 text-center">
                                     <h4 className="text-sm font-black uppercase tracking-widest text-muted-foreground">Constancia Mensual de Aportes y Dispensas</h4>
-                                    <p className="text-xs text-muted-foreground mt-1">Período: <span className="font-bold text-foreground">{selectedPeriod}</span></p>
+                                    <p className="text-xs text-muted-foreground mt-1">PerÃ­odo: <span className="font-bold text-foreground">{selectedPeriod}</span></p>
                                 </div>
 
                                 {/* Block 2: Socio Info Box */}
@@ -718,11 +747,11 @@ export default function AdminPagosPage() {
                                     <div className="grid grid-cols-2 gap-y-1.5">
                                         <div><span className="text-muted-foreground font-semibold">Asociado:</span> <strong className="text-foreground">{renderedCierre.datos?.socio?.nombre} {renderedCierre.datos?.socio?.apellido}</strong></div>
                                         <div><span className="text-muted-foreground font-semibold">DNI:</span> <strong className="text-foreground">{renderedCierre.datos?.socio?.dni || 'N/A'}</strong></div>
-                                        <div><span className="text-muted-foreground font-semibold">Nº Socio:</span> <strong className="text-foreground">{renderedCierre.datos?.socio?.numeroSocio || 'N/A'}</strong></div>
-                                        <div><span className="text-muted-foreground font-semibold">Patología:</span> <strong className="text-foreground">{renderedCierre.datos?.socio?.diagnosticoPrincipal || 'N/A'}</strong></div>
+                                        <div><span className="text-muted-foreground font-semibold">NÂº Socio:</span> <strong className="text-foreground">{renderedCierre.datos?.socio?.numeroSocio || 'N/A'}</strong></div>
+                                        <div><span className="text-muted-foreground font-semibold">PatologÃ­a:</span> <strong className="text-foreground">{renderedCierre.datos?.socio?.diagnosticoPrincipal || 'N/A'}</strong></div>
                                     </div>
                                     <div className="border-t border-border pt-2 grid grid-cols-2 gap-y-1">
-                                        <div><span className="text-muted-foreground font-semibold">REPROCANN N°:</span> <strong className="text-foreground">{renderedCierre.datos?.socio?.reprocann?.numeroTramite || 'N/A'}</strong></div>
+                                        <div><span className="text-muted-foreground font-semibold">REPROCANN NÂ°:</span> <strong className="text-foreground">{renderedCierre.datos?.socio?.reprocann?.numeroTramite || 'N/A'}</strong></div>
                                         <div><span className="text-muted-foreground font-semibold">Vencimiento:</span> <strong className="text-foreground">{formatCalendarDate(renderedCierre.datos?.socio?.reprocann?.vencimiento, 'N/A')}</strong></div>
                                     </div>
                                 </div>
@@ -743,7 +772,7 @@ export default function AdminPagosPage() {
                                             <tbody>
                                                 {!renderedCierre.datos?.dispensas || renderedCierre.datos.dispensas.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={4} className="p-4 text-center text-muted-foreground italic">No se registraron dispensas en este período.</td>
+                                                        <td colSpan={4} className="p-4 text-center text-muted-foreground italic">No se registraron dispensas en este perÃ­odo.</td>
                                                     </tr>
                                                 ) : (
                                                     renderedCierre.datos.dispensas.map((disp: any, i: number) => (
@@ -766,7 +795,7 @@ export default function AdminPagosPage() {
 
                                 {/* Block 4: Aportes details */}
                                 <div className="mt-6 space-y-2">
-                                    <h5 className="text-[10px] font-black uppercase text-muted-foreground tracking-wider">Detalle de Aportes Económicos</h5>
+                                    <h5 className="text-[10px] font-black uppercase text-muted-foreground tracking-wider">Detalle de Aportes EconÃ³micos</h5>
                                     <div className="border border-border rounded-xl overflow-hidden text-xs">
                                         <table className="w-full text-left">
                                             <thead>
@@ -780,7 +809,7 @@ export default function AdminPagosPage() {
                                             <tbody>
                                                 {!renderedCierre.datos?.aportes || renderedCierre.datos.aportes.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={4} className="p-4 text-center text-muted-foreground italic">No se registraron aportes económicos en este período.</td>
+                                                        <td colSpan={4} className="p-4 text-center text-muted-foreground italic">No se registraron aportes econÃ³micos en este perÃ­odo.</td>
                                                     </tr>
                                                 ) : (
                                                     renderedCierre.datos.aportes.map((apo: any, i: number) => (
@@ -827,9 +856,9 @@ export default function AdminPagosPage() {
 
                                 {/* Document Info Footer */}
                                 <div className="mt-12 pt-4 border-t border-dashed border-border/80 text-center text-[9px] text-muted-foreground space-y-0.5">
-                                    <div><strong>Constancia N°:</strong> {renderedCierre.numeroConstancia} | <strong>Generado el:</strong> {new Date(renderedCierre.fechaGeneracion).toLocaleString('es-AR')}</div>
+                                    <div><strong>Constancia NÂ°:</strong> {renderedCierre.numeroConstancia} | <strong>Generado el:</strong> {new Date(renderedCierre.fechaGeneracion).toLocaleString('es-AR')}</div>
                                     <div className="font-mono truncate select-all" title="Copiar firma digital">
-                                        <strong>Firma Criptográfica SHA-256:</strong> {renderedCierre.hashSha256}
+                                        <strong>Firma CriptogrÃ¡fica SHA-256:</strong> {renderedCierre.hashSha256}
                                     </div>
                                 </div>
                             </div>
@@ -837,7 +866,7 @@ export default function AdminPagosPage() {
                     ) : (
                         <div className="text-center py-12 bg-card border rounded-2xl text-muted-foreground">
                             <AlertCircle className="mx-auto text-muted-foreground/30 mb-2" size={32} />
-                            <p className="text-sm">Por favor, seleccioná un Socio y presiona "Consultar Constancia" para ver o emitir su cierre mensual.</p>
+                            <p className="text-sm">Por favor, seleccionÃ¡ un Socio y presiona "Consultar Constancia" para ver o emitir su cierre mensual.</p>
                         </div>
                     )}
                 </div>
@@ -855,12 +884,12 @@ export default function AdminPagosPage() {
                         </div>
                         <div className="p-5 space-y-4">
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                Esta acción marcará permanentemente la constancia como **ANULADA**. El documento no desaparecerá físicamente pero ya no tendrá validez institucional.
+                                Esta acciÃ³n marcarÃ¡ permanentemente la constancia como **ANULADA**. El documento no desaparecerÃ¡ fÃ­sicamente pero ya no tendrÃ¡ validez institucional.
                             </p>
                             <div className="space-y-1.5">
-                                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider block">Motivo de Anulación (Requerido)</label>
+                                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider block">Motivo de AnulaciÃ³n (Requerido)</label>
                                 <textarea
-                                    placeholder="Ej: Corrección en las dispensas de flores registradas."
+                                    placeholder="Ej: CorrecciÃ³n en las dispensas de flores registradas."
                                     required
                                     rows={3}
                                     value={annulReason}
@@ -882,10 +911,28 @@ export default function AdminPagosPage() {
                                 disabled={annulling || !annulReason.trim()}
                                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black shadow disabled:opacity-50"
                             >
-                                {annulling ? 'Anulando...' : 'Confirmar Anulación'}
+                                {annulling ? 'Anulando...' : 'Confirmar AnulaciÃ³n'}
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* Tab CONTENT: CUENTA CORRIENTE (CIE-01C) */}
+            {activeTab === 'cc' && (
+                <div className="space-y-4">
+                    {!ccConfig.enabled ? (
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                            <strong>Cuenta corriente en modo preparaciÃ³n (desactivada):</strong>{' '}
+                            <code>aciacam_cc.config.enabled = false</code>. Las acciones de imputaciÃ³n, bonificaciÃ³n, ajuste, reversiÃ³n y conciliaciÃ³n estÃ¡n deshabilitadas hasta completar la conciliaciÃ³n histÃ³rica y habilitar la fecha de corte.
+                        </div>
+                    ) : null}
+                    <PanelAportesAdmin
+                        gateway={ccGateway}
+                        socios={socios.map(s => ({ id: s.id, nombre: `${s.apellido}, ${s.nombre}` }))}
+                        puedeRegistrar={ccConfig.enabled && (user?.rol === 'admin' || user?.rol === 'staff')}
+                        isAdmin={ccConfig.enabled && user?.rol === 'admin'}
+                    />
                 </div>
             )}
 

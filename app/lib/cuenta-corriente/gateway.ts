@@ -24,6 +24,7 @@ export function createAportesGateway(rpc: RpcFn): AportesGateway {
     }
 
     return {
+        estadoConfig: () => call<{ enabled: boolean; periodoCorte: string | null }>('get_cc_config_status', {}),
         consultar: async (socioId: string): Promise<CuentaSocioSummary> => {
             const [summary, movRes] = await Promise.all([
                 call<any>('get_socio_cuenta_corriente_summary', { p_socio_id: socioId }),

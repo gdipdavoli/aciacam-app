@@ -77,6 +77,7 @@ export type ResultadoCierrePeriodo = {
 };
 
 export type AportesGateway = {
+    estadoConfig: () => Promise<{ enabled: boolean; periodoCorte: string | null }>;
     consultar: (socioId: string) => Promise<CuentaSocioSummary>;
     pendientes: (limit?: number, offset?: number) => Promise<PaginaPendientes>;
     ejecutarComando: (commandId: string, payload: ComandoCuentaCorriente) => Promise<ResultadoComandoCC>;

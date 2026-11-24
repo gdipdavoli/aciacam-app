@@ -7,6 +7,10 @@ import { useAuth } from '@/context/AuthContext';
 import { StoreService } from '@/services/storeService';
 import { NotificationService } from '@/services/notificationService';
 import { StorageService } from '@/services/storageService';
+import { supabase } from '@/services/supabaseClient';
+import { createAportesGateway } from '@/app/lib/cuenta-corriente/gateway';
+import type { CuentaSocioSummary } from '@/app/lib/cuenta-corriente/contracts';
+import { CuentaCorrienteSocio } from '@/app/components/cuenta-corriente/CuentaCorrienteSocio';
 import type { TipoDocumento, EstadoVerificacion } from '@/services/documentacionService';
 import { Socio, Pedido, DocumentoSocio, DocumentacionSocio, EstadoDocumento, Pago, Notificacion } from '@/types';
 import { formatCalendarDate, calculateDaysRemaining, formatTimestamp } from '@/app/lib/date-format';
@@ -2288,6 +2292,59 @@ export default function SocioDetailsPage() {
                     />
                 )
             }
+
+            {socio && (
+                <SocioEstadoCuentaSection
+                    socioId={socio.id}
+                    canOperate={user?.rol === 'admin' || user?.rol === 'staff'}
+                    isAdmin={user?.rol === 'admin'}
+                />
+            )}
         </div >
+    );
+}
+
+function SocioEstadoCuentaSection({ socioId, canOperate, isAdmin }: { socioId: string; canOperate: boolean; isAdmin: boolean }) {
+    const [ccEnabled, setCcEnabled] = React.useState(false);
+    const [summary, setSummary] = React.useState<CuentaSocioSummary | null>(null);
+    const [ccError, setCcError] = React.useState('');
+    const gateway = React.useMemo(
+        () => createAportesGateway((name, params) => (supabase as any).rpc(name, params)),
+        []
+    );
+
+    React.useEffect(() => {
+        if (!supabase || !socioId) return;
+        Promise.all([
+            gateway.estadoConfig().catch(() => ({ enabled: false, periodoCorte: null })),
+            gateway.consultar(socioId).catch(err => {
+                setCcError(err instanceof Error ? err.message : 'Cuenta corriente aún no disponible.');
+                return null;
+            }),
+        ]).then(([cfg, data]) => {
+            setCcEnabled(Boolean(cfg?.enabled));
+            if (data) setSummary(data);
+        });
+    }, [socioId, gateway]);
+
+    return (
+        <section className="mt-6 rounded-lg border border-border bg-card p-6">
+            {!ccEnabled ? (
+                <div className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                    Cuenta corriente en modo preparación (<code>aciacam_cc.config.enabled = false</code>). Acciones deshabilitadas.
+                </div>
+            ) : null}
+            {ccError ? <p className="text-xs text-muted-foreground">{ccError}</p> : null}
+            {summary ? (
+                <CuentaCorrienteSocio
+                    initial={summary}
+                    gateway={gateway}
+                    puedeRegistrar={ccEnabled && canOperate}
+                    isAdmin={ccEnabled && isAdmin}
+                />
+            ) : !ccError ? (
+                <p className="text-sm text-muted-foreground">Cargando estado de cuenta corriente...</p>
+            ) : null}
+        </section>
     );
 }
