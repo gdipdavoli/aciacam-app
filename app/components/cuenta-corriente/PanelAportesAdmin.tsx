@@ -191,7 +191,7 @@ export function PanelAportesAdmin({
             ) : null}
 
             {isAdmin || !puedeRegistrar ? (
-                <ConciliacionHistoricaPanel fechaCorte="2026-12-01" puedeConfirmar={false} />
+                <ConciliacionHistoricaPanel gateway={gateway} fechaCorteInicial="2026-12-01" isAdmin={isAdmin} />
             ) : null}
         </div>
     );

@@ -2,10 +2,12 @@ import type {
     AportesGateway,
     ComandoCuentaCorriente,
     CuentaSocioSummary,
+    LotesConciliacionHistoricaResponse,
     MovimientoAporte,
     PaginaPendientes,
     ResultadoCierrePeriodo,
     ResultadoComandoCC,
+    RevisionHistoricaItem,
 } from './contracts';
 
 type RpcFn = (
@@ -67,5 +69,27 @@ export function createAportesGateway(rpc: RpcFn): AportesGateway {
             call<ResultadoComandoCC>('cc_command', { p_command_id: commandId, p_payload: payload }),
         confirmarCierrePeriodo: (commandId: string, periodo: string) =>
             call<ResultadoCierrePeriodo>('confirm_period_close_command', { p_command_id: commandId, p_periodo: periodo }),
+        lotesHistoricos: (fechaCorte = '2026-12-01') =>
+            call<LotesConciliacionHistoricaResponse>('get_cc_historical_reconciliation_batches', { p_fecha_corte: fechaCorte }),
+        registrarRevisionHistorica: input =>
+            call<RevisionHistoricaItem>('record_cc_historical_review', {
+                p_lote: input.lote,
+                p_fecha_corte: input.fechaCorte,
+                p_accion: input.accion,
+                p_motivo: input.motivo,
+                p_evidencia: input.evidencia,
+                p_pedido_id: input.pedidoId ?? null,
+                p_socio_id: input.socioId ?? null,
+                p_saldo_confirmado_centavos: input.saldoConfirmadoCentavos ?? null,
+            }),
+        registrarAporteHistoricoPosterior: input =>
+            call<{ id: string; pagoId: string; pedidoId: string; reused: boolean }>('record_historical_post_cutoff_aporte', {
+                p_command_id: input.commandId,
+                p_pedido_id: input.pedidoId,
+                p_centavos: input.centavos,
+                p_medio: input.medio,
+                p_referencia: input.referencia ?? null,
+                p_motivo: input.motivo,
+            }),
     };
 }
