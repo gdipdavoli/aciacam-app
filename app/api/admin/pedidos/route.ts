@@ -1,4 +1,5 @@
 import { requireStaff } from '@/app/lib/api-auth';
+import { shiftDateKey } from '@/helpers/orderDateHelpers';
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
@@ -141,7 +142,8 @@ export async function GET(request: Request) {
             query = query.gte('created_at', `${desdeParam}T00:00:00-03:00`);
         }
         if (hastaParam && /^\d{4}-\d{2}-\d{2}$/.test(hastaParam)) {
-            query = query.lte('created_at', `${hastaParam}T23:59:59.999-03:00`);
+            const nextDayKey = shiftDateKey(hastaParam, 1);
+            query = query.lt('created_at', `${nextDayKey}T00:00:00-03:00`);
         }
 
         // Filtro por Búsqueda (Socio o ID de Pedido)
