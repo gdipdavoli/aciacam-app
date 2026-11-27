@@ -85,24 +85,20 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: uploadError.message }, { status: 500 });
         }
 
-        // 2. Manage versioning and insert new document record
-        const { data: existingDoc } = await supabaseAdmin
+        // 2. Look up existing document row for (socio_id, tipo) respecting unique constraint
+        const { data: existingDoc, error: existingErr } = await supabaseAdmin
             .from('documentos_socio')
             .select('id, version')
             .eq('socio_id', socioId)
             .eq('tipo', docType)
-            .eq('is_current', true)
             .maybeSingle();
 
-        if (existingDoc) {
-            await supabaseAdmin
-                .from('documentos_socio')
-                .update({ is_current: false, updated_at: new Date().toISOString() })
-                .eq('id', existingDoc.id);
+        if (existingErr) {
+            console.error("Supabase DB Lookup Error:", existingErr);
+            return NextResponse.json({ error: "Upload successful but DB lookup failed: " + existingErr.message }, { status: 500 });
         }
 
         const newVersion = existingDoc ? (existingDoc.version || 1) + 1 : 1;
-        const supersedesId = existingDoc ? existingDoc.id : null;
 
         // Determination of verification state
         let effectiveEstado = 'pendiente';
@@ -130,19 +126,46 @@ export async function POST(req: NextRequest) {
             verificado_por: verificadoPor,
             is_current: true,
             version: newVersion,
-            supersedes_document_id: supersedesId
         };
         if (fechaEmision) docPayload.fecha_emision = fechaEmision;
         if (fechaVencimiento) docPayload.fecha_vencimiento = fechaVencimiento;
 
-        const { data: insertedDoc, error: dbError } = await supabaseAdmin
-            .from('documentos_socio')
-            .insert(docPayload)
-            .select('id, verificacion_estado')
-            .single();
+        let savedDoc: { id: string; verificacion_estado: string } | null = null;
+        let dbError: any = null;
+
+        if (existingDoc) {
+            const res = await supabaseAdmin
+                .from('documentos_socio')
+                .update(docPayload)
+                .eq('id', existingDoc.id)
+                .select('id, verificacion_estado')
+                .single();
+            savedDoc = res.data;
+            dbError = res.error;
+        } else {
+            const res = await supabaseAdmin
+                .from('documentos_socio')
+                .insert({ ...docPayload, supersedes_document_id: null })
+                .select('id, verificacion_estado')
+                .single();
+            savedDoc = res.data;
+            dbError = res.error;
+
+            if (dbError?.code === '23505') {
+                const retry = await supabaseAdmin
+                    .from('documentos_socio')
+                    .update(docPayload)
+                    .eq('socio_id', socioId)
+                    .eq('tipo', docType)
+                    .select('id, verificacion_estado')
+                    .single();
+                savedDoc = retry.data;
+                dbError = retry.error;
+            }
+        }
 
         if (dbError) {
-            console.error("Supabase DB Insert Error:", dbError);
+            console.error("Supabase DB Save Error:", dbError);
             return NextResponse.json({ error: "Upload successful but DB insert failed: " + dbError.message }, { status: 500 });
         }
 
@@ -152,7 +175,7 @@ export async function POST(req: NextRequest) {
                 user_id: user.id,
                 action: effectiveEstado === 'aprobado' ? 'DOCUMENT_VERIFIED' : 'DOCUMENT_UPLOADED',
                 entity_type: 'documentos_socio',
-                entity_id: insertedDoc?.id || socioId,
+                entity_id: savedDoc?.id || socioId,
                 details: {
                     socio_id: socioId,
                     tipo: docType,
